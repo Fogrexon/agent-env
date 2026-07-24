@@ -1,0 +1,36 @@
+{
+  "name": "agent-env",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Type-safe Google ADK harness for parallel / autonomous agent templates",
+  "type": "module",
+  "license": "MIT",
+  "workspaces": [
+    "packages/*",
+    "agents/*"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false",
+    "adk:web": "adk web agents",
+    "adk:run": "adk run",
+    "run": "tsc -b && tsx scripts/run.ts",
+    "run:hello": "npm run run -- hello",
+    "run:parallel": "npm run run -- parallel-pipeline"
+  },
+  "engines": {
+    "node": ">=24.13.0",
+    "npm": ">=11.8.0"
+  },
+  "dependencies": {
+    "@google/adk": "^1.4.0",
+    "@google/genai": "^1.30.0",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@google/adk-devtools": "^1.4.0",
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3"
+  }
+}

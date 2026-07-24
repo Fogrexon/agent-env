@@ -1,0 +1,13 @@
+---
+description: ハーネス / 共有パッケージの規約
+globs: packages/**/*.ts
+alwaysApply: false
+---
+
+# Harness & shared packages
+
+- `@agent-env/shared`: Zod スキーマと型のみ。ADK ランタイムに依存しない
+- `@agent-env/harness`: `runAgent`・設定・レジストリ・`createTypedTool`
+- Web / API からエージェントを起動する場合は必ず `runAgent` を通す（Runner を直叩きしない）
+- `AgentRunResult` の形を壊す変更は shared のスキーマと一緒に更新する
+- 起動失敗と実行失敗を混同しない（例外 = 起動/インフラ、`status: 'error'` = 実行結果）

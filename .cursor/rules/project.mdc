@@ -1,0 +1,27 @@
+---
+description: agent-env 全体の目的・構成・Google ADK (TypeScript) 規約
+alwaysApply: true
+---
+
+# agent-env
+
+並列・自律エージェントのテンプレート / ハーネス用リポジトリ。オーケストレーション基盤は **Google ADK for TypeScript** (`@google/adk`)。
+
+## レイヤ
+
+| 層 | 場所 | 役割 |
+|----|------|------|
+| Agents | `agents/*/agent.ts` | `rootAgent` 定義（ADK が発見） |
+| Harness | `packages/harness` | `runAgent`・レジストリ・型付きツール |
+| Shared | `packages/shared` | Zod スキーマ / 共有型（将来の Web 管理と共用） |
+| Apps | `apps/` | 将来の管理 UI（未作成） |
+
+Cursor SDK は使わない（低レベル実行 API であり、オーケストレーション基盤ではない）。
+
+## 必須ルール
+
+- 言語は TypeScript。新規エージェントも TS で追加する
+- ツール引数は Zod。`createTypedTool` を優先する
+- 並列分岐の `outputKey` は一意にする（共有 state の競合を避ける）
+- シークレットは `.env` のみ。コミットしない
+- エージェント追加時は `packages/harness/src/registry.ts` も更新する

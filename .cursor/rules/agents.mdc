@@ -1,0 +1,32 @@
+---
+description: ADK エージェント定義の書き方（agents/）
+globs: agents/**/*.ts
+alwaysApply: false
+---
+
+# Agent definitions
+
+各エージェントは `agents/<id>/agent.ts` に置き、必ず `rootAgent` を export する。
+
+```typescript
+import { LlmAgent } from '@google/adk';
+export const rootAgent = new LlmAgent({ name: 'my_agent', model: '...', instruction: '...' });
+```
+
+## オーケストレーション
+
+- 直列: `SequentialAgent`
+- 並列: `ParallelAgent`（独立タスクのみ。結果は `outputKey` → session state）
+- 反復: `LoopAgent`
+- fan-out → gather: `SequentialAgent([ParallelAgent(...), synthesizer])`
+
+## スクリプト連携
+
+LLM 外処理は `FunctionTool` / `createTypedTool` で包む。副作用のある処理は tool 側に置き、instruction に「いつ呼ぶか」だけ書く。
+
+## チェック
+
+- [ ] `export const rootAgent` がある
+- [ ] `package.json` が workspace に載っている
+- [ ] `registry.ts` に manifest を追加した
+- [ ] ルート `tsconfig.json` の references に追加した

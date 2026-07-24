@@ -1,0 +1,16 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": ".",
+    "composite": true,
+    "types": ["node"]
+  },
+  "include": ["*.ts"],
+  "references": [
+    { "path": "../packages/shared" },
+    { "path": "../packages/harness" },
+    { "path": "../agents/hello" },
+    { "path": "../agents/parallel-pipeline" }
+  ]
+}
