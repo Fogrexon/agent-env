@@ -42,3 +42,11 @@ export {
   type WebSearchEnvDetection,
   type WebSearchProviderId,
 } from './web-search.js';
+export {
+  createGrokBuildXSearchConnector,
+  extractGrokPlainText,
+  isGrokBuildAvailable,
+  parseGrokXSearchEvidence,
+  type CreateGrokBuildXSearchConnectorOptions,
+  type GrokRunner,
+} from './grok-build-x.js';

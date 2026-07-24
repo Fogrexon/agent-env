@@ -5,9 +5,11 @@
 import {
   clearConnectors,
   createGithubGhConnector,
+  createGrokBuildXSearchConnector,
   createSimpleHttpJsonConnector,
   createWebSearchConnector,
   detectWebSearchProviderFromEnv,
+  parseGrokXSearchEvidence,
   registerConnector,
 } from '@agent-env/harness';
 
@@ -142,6 +144,43 @@ const detected = detectWebSearchProviderFromEnv({
   BRAVE_API_KEY: 'x',
   TAVILY_API_KEY: 'y',
 });
-assert(detected?.provider === 'brave', 'prefer brave when both set');
+assert(detected?.provider === 'tavily', 'prefer tavily when both set');
+
+const parsed = parseGrokXSearchEvidence(
+  JSON.stringify({
+    result: JSON.stringify({
+      items: [
+        {
+          title: '@xai — launch',
+          snippet: 'Grok Build headless X search',
+          uri: 'https://x.com/xai/status/1',
+          score: 0.88,
+        },
+      ],
+    }),
+  }),
+  3,
+);
+assert(parsed[0]?.title.includes('@xai'), 'grok parse title');
+assert(parsed[0]?.uri?.includes('x.com'), 'grok parse uri');
+
+let grokArgs: string[] = [];
+const x = createGrokBuildXSearchConnector({
+  id: 'x',
+  runGrok: async (args) => {
+    grokArgs = args;
+    return JSON.stringify({
+      result:
+        '{"items":[{"title":"@dev — note","snippet":"typed X connector","uri":"https://x.com/dev/status/2","score":0.7}]}',
+    });
+  },
+});
+registerConnector(x, { replace: true });
+const xBundle = await x.search({ query: 'agent harness', limit: 2 });
+assert(grokArgs.includes('-p'), 'grok -p');
+assert(grokArgs.includes('--always-approve'), 'grok always-approve');
+assert(grokArgs.includes('--output-format'), 'grok json format');
+assert(xBundle.items[0]?.title.includes('@dev'), 'x connector title');
+assert(x.meta.kind === 'x', 'x kind');
 
 console.log('✓ smoke-connectors-http-gh passed');

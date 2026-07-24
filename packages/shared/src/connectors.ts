@@ -7,6 +7,7 @@ export const dataSourceKindSchema = z.enum([
   'http',
   'github',
   'web',
+  'x',
   'filesystem',
   'custom',
 ]);

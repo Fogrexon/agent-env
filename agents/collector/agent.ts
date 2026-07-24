@@ -4,6 +4,7 @@ import type { DataSourceConnector } from '@agent-env/harness';
 import {
   bootstrapProvidersFromEnv,
   createGithubGhConnector,
+  createGrokBuildXSearchConnector,
   createSimpleHttpJsonConnector,
   createWebSearchConnectorFromEnv,
   defaultGeminiModelRef,
@@ -19,16 +20,16 @@ loadDotEnv();
 bootstrapProvidersFromEnv();
 registerDemoConnectors();
 
-function ghAuthenticated(): boolean {
+function cliOk(bin: string, args: string[]): boolean {
   try {
-    execFileSync('gh', ['auth', 'status'], { stdio: 'ignore' });
+    execFileSync(bin, args, { stdio: 'ignore' });
     return true;
   } catch {
     return false;
   }
 }
 
-if (ghAuthenticated()) {
+if (cliOk('gh', ['auth', 'status'])) {
   registerConnector(
     createGithubGhConnector({
       id: 'github',
@@ -53,9 +54,25 @@ if (process.env['AGENT_ENV_HTTP_DEMO'] !== '0') {
   );
 }
 
-const web = createWebSearchConnectorFromEnv();
+// Web search: Tavily preferred (BRAVE optional fallback via env helper).
+const web = createWebSearchConnectorFromEnv({ provider: 'tavily' })
+  ?? createWebSearchConnectorFromEnv();
 if (web) {
   registerConnector(web, { replace: true });
+}
+
+// X search via Grok Build headless (subscription auth via `grok login`).
+if (
+  process.env['AGENT_ENV_GROK_X'] !== '0' &&
+  (cliOk('grok', ['--version']) || cliOk('grok', ['--help']))
+) {
+  registerConnector(
+    createGrokBuildXSearchConnector({
+      id: 'x',
+      model: process.env['AGENT_ENV_GROK_MODEL'],
+    }),
+    { replace: true },
+  );
 }
 
 const model = resolveModel(defaultGeminiModelRef());
@@ -101,6 +118,13 @@ if (hasConnector('web')) {
     id: 'web',
     outputKey: 'web_findings',
     label: 'Web',
+  });
+}
+if (hasConnector('x')) {
+  sources.push({
+    id: 'x',
+    outputKey: 'x_findings',
+    label: 'X',
   });
 }
 

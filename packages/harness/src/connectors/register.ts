@@ -5,6 +5,11 @@ import {
   isGithubGhAvailable,
 } from './github-gh.js';
 import {
+  createGrokBuildXSearchConnector,
+  isGrokBuildAvailable,
+  type CreateGrokBuildXSearchConnectorOptions,
+} from './grok-build-x.js';
+import {
   createSimpleHttpJsonConnector,
   type CreateSimpleHttpJsonConnectorOptions,
 } from './http.js';
@@ -23,11 +28,16 @@ export interface RegisterConnectorsOptions {
    * Default: true when available.
    */
   githubGh?: boolean | { repo?: string; id?: string };
+  /**
+   * Register X search via Grok Build headless when `grok` is available.
+   * Default: false (opt-in). Pass `true` to auto-detect.
+   */
+  grokBuildX?: boolean | CreateGrokBuildXSearchConnectorOptions;
   /** Extra HTTP JSON connectors (easy plug-ins). */
   http?: CreateSimpleHttpJsonConnectorOptions[];
   /**
-   * Web search connector(s).
-   * - `true`: auto from `BRAVE_API_KEY` / `TAVILY_API_KEY`
+   * Web search connector(s) — prefer Tavily via env.
+   * - `true`: auto from `TAVILY_API_KEY` / `BRAVE_API_KEY`
    * - object / array: explicit `createWebSearchConnector` options
    */
   webSearch?:
@@ -39,7 +49,7 @@ export interface RegisterConnectorsOptions {
 
 /**
  * One-shot registration helper for apps / sample agents.
- * Pass HTTP connector configs and optional GitHub / web search wiring.
+ * Pass HTTP / web / GitHub / Grok Build X wiring as needed.
  */
 export async function registerConnectors(
   options: RegisterConnectorsOptions = {},
@@ -66,6 +76,17 @@ export async function registerConnectors(
       });
       registerConnector(github, { replace });
       registered.push(github);
+    }
+  }
+
+  if (options.grokBuildX) {
+    const available = await isGrokBuildAvailable();
+    if (available) {
+      const xOpts =
+        typeof options.grokBuildX === 'object' ? options.grokBuildX : {};
+      const x = createGrokBuildXSearchConnector(xOpts);
+      registerConnector(x, { replace });
+      registered.push(x);
     }
   }
 

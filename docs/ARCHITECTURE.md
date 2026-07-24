@@ -36,9 +36,10 @@
 - [x] Connector registry / demo fixtures（KB / CRM / status）
 - [x] 簡単追加: `createSimpleHttpJsonConnector` / `createHttpJsonConnector`
 - [x] GitHub: `createGithubGhConnector`（`gh` CLI・認証は gh 側）
-- [x] Web 検索: `createWebSearchConnector`（Brave / Tavily・鍵は利用側注入）
-- [x] `registerConnectors({ demo, githubGh, http, webSearch })`
-- [x] `agents/collector`: Parallel fan-out → synthesizer（http/github/web を自動接続）
+- [x] Web 検索: `createWebSearchConnector`（**Tavily 優先** / Brave 任意・鍵は利用側注入）
+- [x] X 検索: `createGrokBuildXSearchConnector`（Grok Build headless `grok -p`・認証は `grok login`）
+- [x] `registerConnectors({ demo, githubGh, grokBuildX, http, webSearch })`
+- [x] `agents/collector`: Parallel fan-out → synthesizer（http/github/web/x を自動接続）
 - [x] 収集用 RunSpec: `agents/collector/runspec.collect.json`
 
 ```bash
@@ -53,9 +54,10 @@ npm run run:collector   # GEMINI_API_KEY 等
 | `createSimpleHttpJsonConnector` | REST JSON（最速追加） |
 | `createHttpJsonConnector` | リクエスト/マッピング完全制御 |
 | `createGithubGhConnector` | `gh search issues/prs` |
-| `createWebSearchConnector` | 公開 Web（Brave / Tavily） |
+| `createWebSearchConnector` | 公開 Web（Tavily / Brave） |
+| `createGrokBuildXSearchConnector` | X posts（Grok Build CLI） |
 
-秘密情報は `apiKey: () => …` / `headers: () => …` / `gh auth` など利用側で注入する。
+秘密情報は `apiKey: () => …` / `headers: () => …` / `gh auth` / `grok login` など利用側で注入する。
 
 未実装（意図的に後回し）:
 

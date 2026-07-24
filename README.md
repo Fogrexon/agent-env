@@ -102,16 +102,18 @@ import {
   createMemoryConnector,
   createSimpleHttpJsonConnector,
   createGithubGhConnector,
+  createGrokBuildXSearchConnector,
   createWebSearchConnector,
   registerConnectors,
   registerConnector,
 } from '@agent-env/harness';
 
-// まとめて登録（demo + gh + HTTP + Web 検索）
+// まとめて登録（demo + gh + HTTP + Web/Tavily + X/Grok Build）
 await registerConnectors({
   demo: true,
   githubGh: { repo: 'owner/name' }, // 認証は `gh auth` 側
-  webSearch: true, // BRAVE_API_KEY / TAVILY_API_KEY があれば自動登録
+  webSearch: true, // TAVILY_API_KEY（優先）/ BRAVE_API_KEY
+  grokBuildX: true, // `grok` CLI があれば X 検索（認証は `grok login`）
   http: [
     {
       id: 'posts',
@@ -143,10 +145,12 @@ registerConnector(
 
 registerConnector(
   createWebSearchConnector({
-    provider: 'brave',
-    apiKey: () => process.env.BRAVE_API_KEY,
+    provider: 'tavily',
+    apiKey: () => process.env.TAVILY_API_KEY,
   }),
 );
+
+registerConnector(createGrokBuildXSearchConnector());
 ```
 
 詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) と  

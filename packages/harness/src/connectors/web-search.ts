@@ -213,16 +213,16 @@ export interface WebSearchEnvDetection {
 }
 
 /**
- * Prefer Brave when `BRAVE_API_KEY` is set, else Tavily when `TAVILY_API_KEY` is set.
+ * Prefer Tavily when `TAVILY_API_KEY` is set, else Brave when `BRAVE_API_KEY` is set.
  */
 export function detectWebSearchProviderFromEnv(
   env: NodeJS.ProcessEnv = process.env,
 ): WebSearchEnvDetection | undefined {
-  if (env['BRAVE_API_KEY']?.trim()) {
-    return { provider: 'brave', apiKeyEnv: 'BRAVE_API_KEY' };
-  }
   if (env['TAVILY_API_KEY']?.trim()) {
     return { provider: 'tavily', apiKeyEnv: 'TAVILY_API_KEY' };
+  }
+  if (env['BRAVE_API_KEY']?.trim()) {
+    return { provider: 'brave', apiKeyEnv: 'BRAVE_API_KEY' };
   }
   return undefined;
 }
