@@ -2,7 +2,7 @@
   "name": "agent-env",
   "version": "0.1.0",
   "private": true,
-  "description": "Type-safe Google ADK harness for parallel / autonomous agent templates",
+  "description": "Type-safe ADK harness with swappable LLM provider adapters",
   "type": "module",
   "license": "MIT",
   "workspaces": [
@@ -16,7 +16,8 @@
     "adk:run": "adk run",
     "run": "tsc -b && tsx scripts/run.ts",
     "run:hello": "npm run run -- hello",
-    "run:parallel": "npm run run -- parallel-pipeline"
+    "run:parallel": "npm run run -- parallel-pipeline",
+    "smoke:llm": "tsc -b && tsx scripts/smoke-llm.ts"
   },
   "engines": {
     "node": ">=24.13.0",

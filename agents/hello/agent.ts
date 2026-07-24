@@ -1,6 +1,9 @@
 import { LlmAgent } from '@google/adk';
-import { createTypedTool } from '@agent-env/harness';
-import { DEFAULT_MODEL } from '@agent-env/shared';
+import {
+  createTypedTool,
+  resolveModel,
+  defaultGeminiModelRef,
+} from '@agent-env/harness';
 import { z } from 'zod';
 
 /**
@@ -28,11 +31,12 @@ const getWorkspaceClock = createTypedTool({
 
 /**
  * Minimal single-agent template.
+ * Uses Gemini via resolveModel (native ADK Gemini keeps FunctionTools working).
  * Required export for ADK CLI / web: `rootAgent`.
  */
 export const rootAgent = new LlmAgent({
   name: 'hello',
-  model: process.env['AGENT_ENV_MODEL'] ?? DEFAULT_MODEL,
+  model: resolveModel(defaultGeminiModelRef()),
   description: 'Greets the user and can read the host clock via a script tool.',
   instruction: `You are a concise assistant for the agent-env harness.
 When the user asks about the current time or clock, call get_workspace_clock.

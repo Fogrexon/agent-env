@@ -2,6 +2,7 @@
   "files": [],
   "references": [
     { "path": "packages/shared" },
+    { "path": "packages/llm" },
     { "path": "packages/harness" },
     { "path": "agents/hello" },
     { "path": "agents/parallel-pipeline" },

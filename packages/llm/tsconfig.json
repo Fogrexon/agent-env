@@ -6,8 +6,5 @@
     "composite": true
   },
   "include": ["src/**/*.ts"],
-  "references": [
-    { "path": "../shared" },
-    { "path": "../llm" }
-  ]
+  "references": [{ "path": "../shared" }]
 }

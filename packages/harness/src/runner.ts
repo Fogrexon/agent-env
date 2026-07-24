@@ -7,7 +7,12 @@ import {
 } from '@google/adk';
 import { createUserContent } from '@google/genai';
 import { randomUUID } from 'node:crypto';
-import type { AgentEventSummary, AgentRunResult } from '@agent-env/shared';
+import {
+  llmProviderIdSchema,
+  type AgentEventSummary,
+  type AgentRunResult,
+  type ModelRef,
+} from '@agent-env/shared';
 import { assertApiKey, loadHarnessConfig } from './config.js';
 
 export interface RunAgentOptions {
@@ -31,13 +36,35 @@ export interface RunAgentOptions {
 
 function summarizeEvent(event: Event): AgentEventSummary {
   const text = stringifyContent(event).trim();
+  const meta = event.customMetadata as Record<string, unknown> | undefined;
+  const providerRaw = meta?.['provider'];
+  const modelRaw = meta?.['model'];
+  const providerParsed =
+    typeof providerRaw === 'string'
+      ? llmProviderIdSchema.safeParse(providerRaw)
+      : null;
+
   return {
     author: event.author ?? 'system',
     isFinal: isFinalResponse(event),
     text: text.length > 0 ? text : undefined,
     errorMessage: event.errorMessage,
     branch: event.branch,
+    provider: providerParsed?.success ? providerParsed.data : undefined,
+    model: typeof modelRaw === 'string' ? modelRaw : undefined,
   };
+}
+
+function collectModelsUsed(events: AgentEventSummary[]): ModelRef[] | undefined {
+  const seen = new Map<string, ModelRef>();
+  for (const event of events) {
+    if (!event.provider || !event.model) continue;
+    const key = `${event.provider}:${event.model}`;
+    if (!seen.has(key)) {
+      seen.set(key, { provider: event.provider, model: event.model });
+    }
+  }
+  return seen.size > 0 ? [...seen.values()] : undefined;
 }
 
 /**
@@ -115,6 +142,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
       error: message,
       startedAt,
       finishedAt: new Date().toISOString(),
+      modelsUsed: collectModelsUsed(events),
     };
   }
 
@@ -130,6 +158,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
       error: runError,
       startedAt,
       finishedAt,
+      modelsUsed: collectModelsUsed(events),
     };
   }
 
@@ -143,6 +172,7 @@ export async function runAgent(options: RunAgentOptions): Promise<AgentRunResult
     agentName: options.agent.name,
     startedAt,
     finishedAt,
+    modelsUsed: collectModelsUsed(events),
   };
 }
 

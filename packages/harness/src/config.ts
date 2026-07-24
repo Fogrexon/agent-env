@@ -1,10 +1,18 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
-  DEFAULT_MODEL,
+  DEFAULT_MODEL_REF,
   harnessConfigSchema,
   type HarnessConfig,
+  type LlmProviderId,
+  type ModelRef,
+  type ProviderCredentials,
 } from '@agent-env/shared';
+import {
+  assertAnyProvider,
+  loadProviderCredentials,
+  parseModelRef,
+} from '@agent-env/llm';
 
 /** Lightweight .env loader (no extra dependency). Does not override existing env. */
 export function loadDotEnv(filePath = resolve(process.cwd(), '.env')): void {
@@ -29,38 +37,67 @@ export function loadDotEnv(filePath = resolve(process.cwd(), '.env')): void {
   }
 }
 
+function resolveDefaultModelRef(
+  overrides: Partial<HarnessConfig>,
+): ModelRef {
+  if (overrides.defaultModel) return overrides.defaultModel;
+  if (process.env['AGENT_ENV_MODEL']) {
+    return parseModelRef(process.env['AGENT_ENV_MODEL']);
+  }
+  if (overrides.model) {
+    return parseModelRef(overrides.model);
+  }
+  return DEFAULT_MODEL_REF;
+}
+
 /**
  * Load harness config from process.env.
- * Requires GEMINI_API_KEY (or GOOGLE_API_KEY) for Gemini API calls.
+ * Supports Gemini and/or Cursor credentials (multi-provider).
  */
 export function loadHarnessConfig(
   overrides: Partial<HarnessConfig> = {},
 ): HarnessConfig {
   loadDotEnv();
 
-  const geminiApiKey =
-    overrides.geminiApiKey ??
-    process.env['GEMINI_API_KEY'] ??
-    process.env['GOOGLE_API_KEY'];
+  const credentials: ProviderCredentials = {
+    ...loadProviderCredentials(),
+    ...overrides.credentials,
+    geminiApiKey:
+      overrides.credentials?.geminiApiKey ??
+      overrides.geminiApiKey ??
+      loadProviderCredentials().geminiApiKey,
+    cursorApiKey:
+      overrides.credentials?.cursorApiKey ??
+      loadProviderCredentials().cursorApiKey,
+  };
+
+  const defaultModel = resolveDefaultModelRef(overrides);
 
   return harnessConfigSchema.parse({
-    model: overrides.model ?? process.env['AGENT_ENV_MODEL'] ?? DEFAULT_MODEL,
+    defaultModel,
+    model: defaultModel.model,
     appName: overrides.appName ?? process.env['AGENT_ENV_APP_NAME'] ?? 'agent-env',
     userId: overrides.userId ?? process.env['AGENT_ENV_USER_ID'] ?? 'local-user',
-    geminiApiKey,
+    credentials,
+    geminiApiKey: credentials.geminiApiKey,
   });
 }
 
-/** Throws if no API key is configured. */
-export function assertApiKey(config: HarnessConfig): void {
-  if (!config.geminiApiKey?.trim()) {
-    throw new Error(
-      'GEMINI_API_KEY (or GOOGLE_API_KEY) is not set. Copy .env.example to .env and add your key.',
-    );
-  }
+/**
+ * Ensure at least one usable provider key is present.
+ * Pass `required` to demand specific providers for an agent graph.
+ */
+export function assertApiKey(
+  config: HarnessConfig,
+  required: readonly LlmProviderId[] = ['gemini', 'cursor'],
+): void {
+  assertAnyProvider(required, config.credentials);
 
-  // Ensure ADK / genai clients see the key even if only GOOGLE_API_KEY was provided.
-  if (!process.env['GEMINI_API_KEY'] && config.geminiApiKey) {
-    process.env['GEMINI_API_KEY'] = config.geminiApiKey;
+  // Native Gemini / ADK clients still read GEMINI_API_KEY.
+  if (!process.env['GEMINI_API_KEY'] && config.credentials.geminiApiKey) {
+    process.env['GEMINI_API_KEY'] = config.credentials.geminiApiKey;
+  }
+  if (!process.env['CURSOR_API_KEY'] && config.credentials.cursorApiKey) {
+    process.env['CURSOR_API_KEY'] = config.credentials.cursorApiKey;
   }
 }

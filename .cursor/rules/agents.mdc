@@ -10,8 +10,20 @@ alwaysApply: false
 
 ```typescript
 import { LlmAgent } from '@google/adk';
-export const rootAgent = new LlmAgent({ name: 'my_agent', model: '...', instruction: '...' });
+import { resolveModel } from '@agent-env/llm';
+
+export const rootAgent = new LlmAgent({
+  name: 'my_agent',
+  model: resolveModel({ provider: 'gemini', model: 'gemini-2.5-flash' }),
+  instruction: '...',
+});
 ```
+
+## モデル（ModelRef）
+
+- サブエージェントごとに異なる `provider` / `model` を渡してよい（並列併用可）
+- FunctionTools を使うエージェントは当面 `provider: 'gemini'`（ネイティブ ADK）
+- Cursor 等のアダプタは tool-less のテキスト完了向き（v1）
 
 ## オーケストレーション
 
@@ -30,3 +42,4 @@ LLM 外処理は `FunctionTool` / `createTypedTool` で包む。副作用のあ�
 - [ ] `package.json` が workspace に載っている
 - [ ] `registry.ts` に manifest を追加した
 - [ ] ルート `tsconfig.json` の references に追加した
+- [ ] モデルは `resolveModel(ModelRef)` で指定している
