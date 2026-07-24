@@ -1,7 +1,15 @@
 import { z } from 'zod';
 
 /** Built-in LLM provider ids. Extend when adding adapters. */
-export const llmProviderIdSchema = z.enum(['gemini', 'cursor']);
+export const LLM_PROVIDER_IDS = [
+  'gemini',
+  'cursor',
+  'openai',
+  'anthropic',
+  'openai-compatible',
+] as const;
+
+export const llmProviderIdSchema = z.enum(LLM_PROVIDER_IDS);
 export type LlmProviderId = z.infer<typeof llmProviderIdSchema>;
 
 /**
@@ -11,7 +19,12 @@ export type LlmProviderId = z.infer<typeof llmProviderIdSchema>;
 export const modelRefSchema = z.object({
   provider: llmProviderIdSchema,
   model: z.string().min(1),
-  /** Provider-specific knobs (e.g. Cursor model.params). */
+  /**
+   * Provider-specific knobs.
+   * Examples:
+   * - Cursor: `{ fast: true }` → mapped to model.params
+   * - openai-compatible: `{ baseUrl: "http://127.0.0.1:1234/v1" }`
+   */
   params: z.record(z.string(), z.unknown()).optional(),
 });
 export type ModelRef = z.infer<typeof modelRefSchema>;
@@ -28,6 +41,12 @@ export const DEFAULT_MODEL_REF: ModelRef = {
 };
 
 export const DEFAULT_CURSOR_MODEL = 'composer-2' as const;
+export const DEFAULT_OPENAI_MODEL = 'gpt-4o-mini' as const;
+export const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-5' as const;
+export const DEFAULT_OPENAI_COMPATIBLE_MODEL = 'local-model' as const;
+/** LM Studio default OpenAI-compatible endpoint. */
+export const DEFAULT_OPENAI_COMPATIBLE_BASE_URL =
+  'http://127.0.0.1:1234/v1' as const;
 
 export const agentRunStatusSchema = z.enum(['finished', 'error']);
 export type AgentRunStatus = z.infer<typeof agentRunStatusSchema>;
@@ -79,6 +98,17 @@ export type AgentManifest = z.infer<typeof agentManifestSchema>;
 export const providerCredentialsSchema = z.object({
   geminiApiKey: z.string().optional(),
   cursorApiKey: z.string().optional(),
+  openaiApiKey: z.string().optional(),
+  /** Optional override for the official OpenAI client (rare). */
+  openaiBaseUrl: z.string().optional(),
+  anthropicApiKey: z.string().optional(),
+  /**
+   * Base URL for OpenAI-compatible servers (LM Studio, Ollama, vLLM, etc.).
+   * Example: http://127.0.0.1:1234/v1
+   */
+  openaiCompatibleBaseUrl: z.string().optional(),
+  /** Optional; many local servers accept any / empty key. */
+  openaiCompatibleApiKey: z.string().optional(),
 });
 export type ProviderCredentials = z.infer<typeof providerCredentialsSchema>;
 

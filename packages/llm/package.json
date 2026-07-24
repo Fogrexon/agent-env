@@ -17,8 +17,10 @@
   },
   "dependencies": {
     "@agent-env/shared": "0.1.0",
+    "@anthropic-ai/sdk": "^0.71.2",
     "@cursor/sdk": "^1.0.23",
     "@google/adk": "^1.4.0",
-    "@google/genai": "^1.30.0"
+    "@google/genai": "^1.30.0",
+    "openai": "^6.16.0"
   }
 }

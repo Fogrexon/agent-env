@@ -1,7 +1,10 @@
 import {
+  DEFAULT_ANTHROPIC_MODEL,
   DEFAULT_CURSOR_MODEL,
   DEFAULT_GEMINI_MODEL,
   DEFAULT_MODEL_REF,
+  DEFAULT_OPENAI_COMPATIBLE_MODEL,
+  DEFAULT_OPENAI_MODEL,
   llmProviderIdSchema,
   modelRefSchema,
   type ModelRef,
@@ -27,7 +30,10 @@ export interface ResolveModelOptions {
  * Examples:
  *   gemini:gemini-2.5-flash
  *   cursor:composer-2
- *   {"provider":"cursor","model":"composer-2"}
+ *   openai:gpt-4o-mini
+ *   anthropic:claude-sonnet-4-5
+ *   openai-compatible:llama-3.2
+ *   {"provider":"openai-compatible","model":"local-model","params":{"baseUrl":"http://127.0.0.1:1234/v1"}}
  */
 export function parseModelRef(
   raw: string | undefined | null,
@@ -107,4 +113,28 @@ export function defaultGeminiModelRef(): ModelRef {
     provider: 'gemini',
     model: DEFAULT_GEMINI_MODEL,
   });
+}
+
+export function defaultOpenaiModelRef(): ModelRef {
+  return {
+    provider: 'openai',
+    model: process.env['AGENT_ENV_OPENAI_MODEL']?.trim() || DEFAULT_OPENAI_MODEL,
+  };
+}
+
+export function defaultAnthropicModelRef(): ModelRef {
+  return {
+    provider: 'anthropic',
+    model:
+      process.env['AGENT_ENV_ANTHROPIC_MODEL']?.trim() || DEFAULT_ANTHROPIC_MODEL,
+  };
+}
+
+export function defaultOpenaiCompatibleModelRef(): ModelRef {
+  return {
+    provider: 'openai-compatible',
+    model:
+      process.env['AGENT_ENV_OPENAI_COMPATIBLE_MODEL']?.trim() ||
+      DEFAULT_OPENAI_COMPATIBLE_MODEL,
+  };
 }

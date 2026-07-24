@@ -12,7 +12,7 @@ agents/                  # ADK エージェント（各フォルダが rootAgent
   parallel-pipeline/     # 並列 fan-out（ブランチごとに ModelRef / provider）
 packages/
   shared/                # Zod スキーマ・共有型（Web/API 再利用想定）
-  llm/                   # LlmProvider ポート・Gemini / Cursor アダプタ・resolveModel
+  llm/                   # LlmProvider ポート・各ベンダーアダプタ・resolveModel
   harness/               # runAgent・レジストリ・createTypedTool
 apps/                    # 将来の管理 UI（プレースホルダ）
 scripts/run.ts           # ハーネス経由の CLI 実行
@@ -22,9 +22,12 @@ scripts/run.ts           # ハーネス経由の CLI 実行
 
 ```bash
 cp .env.example .env
-# いずれか（または両方）を設定:
-#   GEMINI_API_KEY  https://aistudio.google.com/app/apikey
-#   CURSOR_API_KEY  https://cursor.com/dashboard/api
+# いずれか 1 つ以上を設定:
+#   GEMINI_API_KEY              Google AI Studio
+#   CURSOR_API_KEY              Cursor SDK
+#   OPENAI_API_KEY              OpenAI
+#   ANTHROPIC_API_KEY           Anthropic
+#   OPENAI_COMPATIBLE_BASE_URL  LM Studio / Ollama / vLLM 等 (例: http://127.0.0.1:1234/v1)
 
 npm install
 npm run build
@@ -54,17 +57,29 @@ import { resolveModel } from '@agent-env/llm';
 
 model: resolveModel({ provider: 'gemini', model: 'gemini-2.5-flash' })
 model: resolveModel({ provider: 'cursor', model: 'composer-2' })
+model: resolveModel({ provider: 'openai', model: 'gpt-4o-mini' })
+model: resolveModel({ provider: 'anthropic', model: 'claude-sonnet-4-5' })
+model: resolveModel({
+  provider: 'openai-compatible',
+  model: 'local-model',
+  params: { baseUrl: 'http://127.0.0.1:1234/v1' }, // LM Studio 等
+})
 ```
 
 環境変数でも指定できます（`provider:model` 形式）:
 
 ```bash
 AGENT_ENV_MODEL=gemini:gemini-2.5-flash
-AGENT_ENV_CONS_MODEL=cursor:composer-2
+AGENT_ENV_CONS_MODEL=openai-compatible:llama-3.2
 ```
 
-- **gemini**: ADK ネイティブ `Gemini`（FunctionTools 対応）
-- **cursor**: `@cursor/sdk` の `Agent.prompt` アダプタ（v1 はテキスト完了向け。ADK FunctionTools は未ブリッジ）
+| provider | 用途 | 認証 |
+|----------|------|------|
+| `gemini` | Google Gemini（ADK ネイティブ / FunctionTools 可） | `GEMINI_API_KEY` |
+| `cursor` | Cursor SDK（テキスト完了向け） | `CURSOR_API_KEY` |
+| `openai` | OpenAI Chat Completions | `OPENAI_API_KEY` |
+| `anthropic` | Anthropic Messages | `ANTHROPIC_API_KEY` |
+| `openai-compatible` | LM Studio / Ollama / vLLM 等 | `OPENAI_COMPATIBLE_BASE_URL`（キー任意） |
 
 新しい provider を足すときは `packages/llm` に `LlmProvider` 実装を追加し、`registry.ts` に登録します。
 

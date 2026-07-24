@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   DEFAULT_MODEL_REF,
+  LLM_PROVIDER_IDS,
   harnessConfigSchema,
   type HarnessConfig,
   type LlmProviderId,
@@ -52,23 +53,33 @@ function resolveDefaultModelRef(
 
 /**
  * Load harness config from process.env.
- * Supports Gemini and/or Cursor credentials (multi-provider).
+ * Supports multiple LLM providers (Gemini, Cursor, OpenAI, Anthropic, OpenAI-compatible).
  */
 export function loadHarnessConfig(
   overrides: Partial<HarnessConfig> = {},
 ): HarnessConfig {
   loadDotEnv();
 
+  const fromEnv = loadProviderCredentials();
   const credentials: ProviderCredentials = {
-    ...loadProviderCredentials(),
+    ...fromEnv,
     ...overrides.credentials,
     geminiApiKey:
       overrides.credentials?.geminiApiKey ??
       overrides.geminiApiKey ??
-      loadProviderCredentials().geminiApiKey,
-    cursorApiKey:
-      overrides.credentials?.cursorApiKey ??
-      loadProviderCredentials().cursorApiKey,
+      fromEnv.geminiApiKey,
+    cursorApiKey: overrides.credentials?.cursorApiKey ?? fromEnv.cursorApiKey,
+    openaiApiKey: overrides.credentials?.openaiApiKey ?? fromEnv.openaiApiKey,
+    openaiBaseUrl:
+      overrides.credentials?.openaiBaseUrl ?? fromEnv.openaiBaseUrl,
+    anthropicApiKey:
+      overrides.credentials?.anthropicApiKey ?? fromEnv.anthropicApiKey,
+    openaiCompatibleBaseUrl:
+      overrides.credentials?.openaiCompatibleBaseUrl ??
+      fromEnv.openaiCompatibleBaseUrl,
+    openaiCompatibleApiKey:
+      overrides.credentials?.openaiCompatibleApiKey ??
+      fromEnv.openaiCompatibleApiKey,
   };
 
   const defaultModel = resolveDefaultModelRef(overrides);
@@ -84,20 +95,34 @@ export function loadHarnessConfig(
 }
 
 /**
- * Ensure at least one usable provider key is present.
+ * Ensure at least one usable provider is configured.
  * Pass `required` to demand specific providers for an agent graph.
  */
 export function assertApiKey(
   config: HarnessConfig,
-  required: readonly LlmProviderId[] = ['gemini', 'cursor'],
+  required: readonly LlmProviderId[] = LLM_PROVIDER_IDS,
 ): void {
   assertAnyProvider(required, config.credentials);
 
-  // Native Gemini / ADK clients still read GEMINI_API_KEY.
-  if (!process.env['GEMINI_API_KEY'] && config.credentials.geminiApiKey) {
-    process.env['GEMINI_API_KEY'] = config.credentials.geminiApiKey;
-  }
-  if (!process.env['CURSOR_API_KEY'] && config.credentials.cursorApiKey) {
-    process.env['CURSOR_API_KEY'] = config.credentials.cursorApiKey;
+  // Mirror keys into process.env for native SDK clients.
+  const pairs: Array<[string, string | undefined]> = [
+    ['GEMINI_API_KEY', config.credentials.geminiApiKey],
+    ['CURSOR_API_KEY', config.credentials.cursorApiKey],
+    ['OPENAI_API_KEY', config.credentials.openaiApiKey],
+    ['OPENAI_BASE_URL', config.credentials.openaiBaseUrl],
+    ['ANTHROPIC_API_KEY', config.credentials.anthropicApiKey],
+    [
+      'OPENAI_COMPATIBLE_BASE_URL',
+      config.credentials.openaiCompatibleBaseUrl,
+    ],
+    [
+      'OPENAI_COMPATIBLE_API_KEY',
+      config.credentials.openaiCompatibleApiKey,
+    ],
+  ];
+  for (const [key, value] of pairs) {
+    if (!process.env[key] && value) {
+      process.env[key] = value;
+    }
   }
 }

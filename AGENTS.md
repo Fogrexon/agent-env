@@ -8,7 +8,7 @@
  *
  * ## 技術選定
  * - オーケストレーション: `@google/adk`（Sequential / Parallel / Loop + tools）
- * - LLM 実行: `@agent-env/llm`（LlmProvider ポート + Gemini / Cursor アダプタ）
+ * - LLM 実行: `@agent-env/llm`（LlmProvider ポート + Gemini / Cursor / OpenAI / Anthropic / OpenAI-compatible）
  * - 言語: TypeScript（型安全 + 将来の管理 UI と同一スタック）
  * - Cursor SDK はオーケストレーション基盤ではなく、LLM provider アダプタの一実装として使う
  *
@@ -30,5 +30,5 @@
  * - ハーネス経由: `npm run run -- hello "現在時刻は？"`
  *
  * ## 認証
- * `.env` に `GEMINI_API_KEY` および/または `CURSOR_API_KEY`（`.env.example` 参照）
+ * `.env` に各 provider のキー / Base URL（`.env.example` 参照）。少なくとも 1 つ必要
  */

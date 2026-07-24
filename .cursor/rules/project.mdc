@@ -12,7 +12,7 @@ alwaysApply: true
 | 層 | 場所 | 役割 |
 |----|------|------|
 | Agents | `agents/*/agent.ts` | `rootAgent` 定義（ADK が発見） |
-| LLM | `packages/llm` | `ModelRef` 解決・Gemini / Cursor 等のアダプタ |
+| LLM | `packages/llm` | `ModelRef` 解決・Gemini / Cursor / OpenAI / Anthropic / OpenAI-compatible 等 |
 | Harness | `packages/harness` | `runAgent`・レジストリ・型付きツール |
 | Shared | `packages/shared` | Zod スキーマ / 共有型（将来の Web 管理と共用） |
 | Apps | `apps/` | 将来の管理 UI（未作成） |

@@ -1,8 +1,9 @@
-import type {
-  LlmProviderId,
-  ProviderCredentials,
+import {
+  LLM_PROVIDER_IDS,
+  type LlmProviderId,
+  type ProviderCredentials,
 } from '@agent-env/shared';
-import { getProvider } from './registry.js';
+import { getProvider, listProviders } from './registry.js';
 
 /** Read provider credentials from process.env (does not load .env itself). */
 export function loadProviderCredentials(
@@ -15,6 +16,20 @@ export function loadProviderCredentials(
       process.env['GOOGLE_API_KEY'],
     cursorApiKey:
       overrides.cursorApiKey ?? process.env['CURSOR_API_KEY'],
+    openaiApiKey:
+      overrides.openaiApiKey ?? process.env['OPENAI_API_KEY'],
+    openaiBaseUrl:
+      overrides.openaiBaseUrl ?? process.env['OPENAI_BASE_URL'],
+    anthropicApiKey:
+      overrides.anthropicApiKey ?? process.env['ANTHROPIC_API_KEY'],
+    openaiCompatibleBaseUrl:
+      overrides.openaiCompatibleBaseUrl ??
+      process.env['OPENAI_COMPATIBLE_BASE_URL'] ??
+      process.env['LM_STUDIO_BASE_URL'],
+    openaiCompatibleApiKey:
+      overrides.openaiCompatibleApiKey ??
+      process.env['OPENAI_COMPATIBLE_API_KEY'] ??
+      process.env['LM_STUDIO_API_KEY'],
   };
 }
 
@@ -41,13 +56,18 @@ export function selectModelRef(
 
 /** Ensure at least one of the given providers is configured. */
 export function assertAnyProvider(
-  ids: readonly LlmProviderId[],
+  ids: readonly LlmProviderId[] = LLM_PROVIDER_IDS,
   credentials: ProviderCredentials = loadProviderCredentials(),
 ): void {
   const missing = ids.filter((id) => !isProviderConfigured(id, credentials));
   if (missing.length === ids.length) {
+    const available = listProviders()
+      .map((p) => p.id)
+      .join(', ');
     throw new Error(
-      `No LLM credentials for providers: ${ids.join(', ')}. Set GEMINI_API_KEY and/or CURSOR_API_KEY in .env.`,
+      `No LLM credentials configured for: ${ids.join(', ')}. ` +
+        `Set at least one of GEMINI_API_KEY / CURSOR_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY / OPENAI_COMPATIBLE_BASE_URL. ` +
+        `(known providers: ${available})`,
     );
   }
 }

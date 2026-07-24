@@ -7,8 +7,11 @@ export { createTypedTool } from './tools.js';
 export {
   assertAnyProvider,
   assertProviders,
+  defaultAnthropicModelRef,
   defaultCursorModelRef,
   defaultGeminiModelRef,
+  defaultOpenaiCompatibleModelRef,
+  defaultOpenaiModelRef,
   isProviderConfigured,
   modelRefFromEnv,
   parseModelRef,
