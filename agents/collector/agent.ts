@@ -169,8 +169,7 @@ Rules:
   Risks
   Recommendation
 - Under Sources, name which buckets contributed (${sourceNames}).
-- Keep the whole response under 250 words.
-- Include the word "verified" once near the end if evidence was present.`,
+- Keep the whole response under 250 words.`,
 });
 
 /**

@@ -33,6 +33,7 @@ export {
   runRecordSchema,
   runSpecSchema,
   runStateSchema,
+  DETERMINISTIC_CRITERION_TYPES,
   successCriterionSchema,
   toolContractSchema,
   toolIdempotencySchema,

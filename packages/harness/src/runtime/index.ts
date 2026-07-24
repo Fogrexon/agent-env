@@ -12,4 +12,15 @@ export {
   phaseForState,
 } from './state-machine.js';
 export { createGuardedTool, type GuardedToolOptions } from './tool-gateway.js';
-export { verifyRunSpec, type VerifyContext } from './verifier.js';
+export {
+  createCommandTestSuite,
+  createTextLlmGrader,
+  verifyRunSpec,
+  type CreateCommandTestSuiteOptions,
+  type LlmGradeRequest,
+  type LlmGradeResult,
+  type SchemaValidator,
+  type TestSuiteResult,
+  type TestSuiteRunner,
+  type VerifyContext,
+} from './verifier.js';

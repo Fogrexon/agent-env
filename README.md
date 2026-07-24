@@ -71,10 +71,15 @@ resolveModel({ provider: 'lm-studio', model: 'local-model' });
 
 ## RunSpec（Phase A）
 
+実行仕様 → state machine → agent → **独立 verifier**。  
+合否は `successCriteria`（`test_suite` / `json_schema` / artifact / `custom`）。`llm_grade` は補助のみで単独不可。
+
 ```bash
 npm run smoke:runtime
 npm run run:spec -- agents/runspec-demo/runspec.demo.json
 ```
+
+デモは `save_brief` で構造化 artifact を書き、verifier がスキーマと外部 process oracle で採点します（魔法の単語 `verified` は使いません）。
 
 ## データソース収集（collector）
 
