@@ -43,6 +43,35 @@ assert(isProviderConfigured('lm-studio'), 'lm-studio configured');
 assert(isProviderConfigured('ollama'), 'ollama configured');
 assert(!isProviderConfigured('cursor'), 'cursor absent');
 
+clearProviders();
+registerProviders({
+  gemini: {
+    vertex: { project: 'demo-project', location: 'us-central1' },
+  },
+  anthropic: {
+    vertex: { projectId: 'demo-project', region: 'us-east5' },
+  },
+});
+assert(isProviderConfigured('gemini'), 'gemini vertex configured');
+assert(isProviderConfigured('anthropic'), 'anthropic vertex configured');
+
+clearProviders();
+registerProviders({
+  gemini: { apiKey: 'test-gemini' },
+  openai: { apiKey: () => 'sk-test' },
+  openaiCompatible: [
+    {
+      id: 'lm-studio',
+      baseUrl: 'http://127.0.0.1:1234/v1',
+      apiKey: () => process.env['LM_STUDIO_API_KEY'],
+    },
+    {
+      id: 'ollama',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+    },
+  ],
+});
+
 const ids = listProviderIds().slice().sort();
 assert(
   ids.join(',') === ['gemini', 'lm-studio', 'ollama', 'openai'].sort().join(','),

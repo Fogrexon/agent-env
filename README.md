@@ -44,9 +44,12 @@ import {
 } from '@agent-env/llm';
 
 registerProviders({
+  // API key OR Vertex ADC (mutually chosen by caller)
   gemini: { apiKey: () => mySecrets.gemini },
+  // gemini: { vertex: { project: 'my-gcp', location: 'us-central1' } },
   openai: { apiKey: mySecrets.openai },
   anthropic: { apiKey: () => mySecrets.anthropic },
+  // anthropic: { vertex: { projectId: 'my-gcp', region: 'us-east5' } },
   cursor: { apiKey: () => mySecrets.cursor },
   openaiCompatible: [
     {
@@ -135,16 +138,17 @@ npm run smoke
 ## モデル指定（ModelRef）
 
 ```typescript
+model: resolveModel({ provider: 'cursor', model: 'composer-2' })
 model: resolveModel({ provider: 'gemini', model: 'gemini-2.5-flash' })
 model: resolveModel({ provider: 'lm-studio', model: 'local-model' })
 ```
 
 | kind / 典型 id | 用途 |
 |----------------|------|
-| `gemini` | Google Gemini（ADK ネイティブ / FunctionTools） |
-| `cursor` | Cursor SDK |
+| `cursor` | Cursor SDK（ツールなしデモの既定） |
+| `gemini` | Google Gemini（ADK ネイティブ / FunctionTools。API key または Vertex ADC） |
 | `openai` | OpenAI 公式 |
-| `anthropic` | Anthropic |
+| `anthropic` | Anthropic（API key または Vertex ADC） |
 | 任意 id (`lm-studio` 等) | OpenAI 互換（`kind: "openai-compatible"`） |
 
 ## 新しいエージェント

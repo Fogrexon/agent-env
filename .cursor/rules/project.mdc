@@ -21,7 +21,9 @@ alwaysApply: true
 
 - 秘密情報・接続設定の取得は利用側の責務。`packages/*` は `process.env` を読まない。このリポの env 配線は `agents/dev-env` のみ
 - OpenAI 互換は `createOpenaiCompatibleProvider({ id, baseUrl, apiKey? })` を **id ごとに複数**登録してよい
+- Gemini / Anthropic は API key または Vertex ADC（`vertex: { project, location|region }`）をファクトリに注入
 - モデルは `resolveModel({ provider, model })`（登録済み provider id）
+- ツールなしデモの既定は Cursor SDK。FunctionTools 付きは当面 Gemini
 - 計測可能な実行は RunSpec + `runFromSpec`（成功は verifier、agent 自己申告ではない）
 - ツール引数は Zod。権限境界は `createGuardedTool`（T0–T3）
 - 並列分岐の `outputKey` は一意

@@ -84,8 +84,12 @@ npm run run:collector   # サンプル agent が env 等から設定を渡す
 # オフライン契約テスト
 npm run smoke:runtime
 
-# RunSpec 付き実行（GEMINI_API_KEY 等）
+# RunSpec 付き実行（ツール付きは GEMINI_API_KEY または Vertex ADC）
 npm run run:spec -- agents/runspec-demo/runspec.demo.json
+
+# ツールなしデモ（CURSOR_API_KEY）
+npm run run -- hello "こんにちは"
+npm run run -- parallel-pipeline "リモートワークを評価して"
 ```
 
 ```ts

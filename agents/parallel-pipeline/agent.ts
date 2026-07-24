@@ -5,7 +5,7 @@ import {
   type ModelRef,
 } from '@agent-env/shared';
 import {
-  defaultGeminiModelRef,
+  defaultCursorModelRef,
   parseModelRef,
   resolveModel,
   selectModelRef,
@@ -16,34 +16,31 @@ loadDotEnv();
 bootstrapProvidersFromEnv();
 
 /**
- * Multi-provider fan-out demo:
- * - pros  → Gemini
- * - cons  → Cursor when registered, else Gemini fallback
- * - synth → Gemini
+ * Multi-provider fan-out demo (Cursor SDK by default):
+ * - pros / cons / synth → Cursor when registered, else Gemini fallback
  *
- * OpenAI-compatible backends are registered under their own ids
- * (e.g. lm-studio). Point AGENT_ENV_CONS_MODEL at them as needed:
+ * Override per branch via env:
+ *   AGENT_ENV_PROS_MODEL=cursor:composer-2
  *   AGENT_ENV_CONS_MODEL=lm-studio:local-model
  */
 function refFromEnv(key: string, fallback: ModelRef): ModelRef {
   return parseModelRef(process.env[key], fallback);
 }
 
+const cursorPreferred = defaultCursorModelRef(
+  process.env['AGENT_ENV_CURSOR_MODEL']?.trim() || DEFAULT_CURSOR_MODEL,
+);
+
 const geminiFallback: ModelRef = {
   provider: 'gemini',
   model: DEFAULT_GEMINI_MODEL,
 };
 
-const prosRef = refFromEnv('AGENT_ENV_PROS_MODEL', defaultGeminiModelRef());
+const cursorOrGemini = selectModelRef(cursorPreferred, geminiFallback);
 
-const consPreferred = refFromEnv('AGENT_ENV_CONS_MODEL', {
-  provider: 'cursor',
-  model: process.env['AGENT_ENV_CURSOR_MODEL']?.trim() || DEFAULT_CURSOR_MODEL,
-});
-
-const consRef = selectModelRef(consPreferred, geminiFallback);
-
-const synthRef = refFromEnv('AGENT_ENV_SYNTH_MODEL', defaultGeminiModelRef());
+const prosRef = refFromEnv('AGENT_ENV_PROS_MODEL', cursorOrGemini);
+const consRef = refFromEnv('AGENT_ENV_CONS_MODEL', cursorOrGemini);
+const synthRef = refFromEnv('AGENT_ENV_SYNTH_MODEL', cursorOrGemini);
 
 /** Documented bindings for registry / admin UI. */
 export const pipelineModels: ModelRef[] = [prosRef, consRef, synthRef];
@@ -51,7 +48,7 @@ export const pipelineModels: ModelRef[] = [prosRef, consRef, synthRef];
 const prosAgent = new LlmAgent({
   name: 'pros_analyst',
   model: resolveModel(prosRef),
-  description: 'Lists upside / opportunities for the topic (Gemini).',
+  description: `Lists upside / opportunities (provider=${prosRef.provider}).`,
   instruction: `You analyze the user's topic and list 3 concise pros / opportunities.
 Output plain bullet points only. No preamble.`,
   outputKey: 'pros',

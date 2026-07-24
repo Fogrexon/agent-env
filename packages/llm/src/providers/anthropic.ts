@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
+import { AnthropicVertex } from '@anthropic-ai/vertex-sdk';
 import { readNumberParam } from '../openai-chat.js';
 import type {
   LlmProvider,
@@ -9,9 +10,27 @@ import type {
 } from '../types.js';
 import { resolveSecret } from '../types.js';
 
+export type ConfigStringSource = SecretSource;
+
+export interface AnthropicVertexOptions {
+  /** GCP project id (ADC). */
+  projectId: ConfigStringSource;
+  /** Vertex region, e.g. "us-east5". */
+  region: ConfigStringSource;
+}
+
 export interface CreateAnthropicProviderOptions {
   id?: string;
-  apiKey: SecretSource;
+  /**
+   * Anthropic API key.
+   * Omit when using `vertex` (Application Default Credentials).
+   */
+  apiKey?: SecretSource;
+  /**
+   * Claude on Vertex AI via ADC.
+   * When set, `apiKey` is ignored.
+   */
+  vertex?: AnthropicVertexOptions;
 }
 
 function toAnthropicMessages(
@@ -31,23 +50,57 @@ function toAnthropicMessages(
   return out;
 }
 
+function resolveVertex(
+  vertex: AnthropicVertexOptions | undefined,
+): { projectId: string; region: string } | undefined {
+  if (!vertex) return undefined;
+  const projectId = resolveSecret(vertex.projectId);
+  const region = resolveSecret(vertex.region);
+  if (!projectId || !region) return undefined;
+  return { projectId, region };
+}
+
+function createClient(
+  options: CreateAnthropicProviderOptions,
+): Anthropic | AnthropicVertex {
+  const vertex = resolveVertex(options.vertex);
+  if (vertex) {
+    return new AnthropicVertex({
+      projectId: vertex.projectId,
+      region: vertex.region,
+    });
+  }
+  return new Anthropic({
+    apiKey: resolveSecret(options.apiKey)!,
+  });
+}
+
 export function createAnthropicProvider(
   options: CreateAnthropicProviderOptions,
 ): LlmProvider {
   const id = options.id ?? 'anthropic';
+
+  if (!options.apiKey && !options.vertex) {
+    throw new Error(
+      `Anthropic provider "${id}" requires apiKey or vertex ({ projectId, region }).`,
+    );
+  }
 
   return {
     id,
     kind: 'anthropic',
 
     isConfigured(): boolean {
+      if (options.vertex) return Boolean(resolveVertex(options.vertex));
       return Boolean(resolveSecret(options.apiKey));
     },
 
     assertConfigured(): void {
       if (!this.isConfigured()) {
         throw new Error(
-          `Anthropic provider "${id}" has no API key. Pass apiKey when calling createAnthropicProvider().`,
+          options.vertex
+            ? `Anthropic provider "${id}" Vertex mode needs projectId and region.`
+            : `Anthropic provider "${id}" has no API key. Pass apiKey when calling createAnthropicProvider().`,
         );
       }
     },
@@ -58,9 +111,7 @@ export function createAnthropicProvider(
     ): Promise<ProviderGenerateResult> {
       this.assertConfigured();
 
-      const client = new Anthropic({
-        apiKey: resolveSecret(options.apiKey)!,
-      });
+      const client = createClient(options);
 
       const maxTokens =
         readNumberParam(request.params, 'maxTokens') ??
