@@ -1,12 +1,11 @@
 import { LlmAgent } from '@google/adk';
 import {
-  bootstrapProvidersFromEnv,
   createGuardedTool,
   defaultGeminiModelRef,
-  loadDotEnv,
   resolveModel,
 } from '@agent-env/harness';
 import { z } from 'zod';
+import { bootstrapProvidersFromEnv, loadDotEnv } from '@agent-env/repo-env';
 
 loadDotEnv();
 bootstrapProvidersFromEnv();

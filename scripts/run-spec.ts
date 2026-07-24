@@ -12,10 +12,12 @@ import type { BaseAgent } from '@google/adk';
 import {
   agentRegistry,
   getAgentManifest,
-  loadDotEnv,
-  bootstrapProvidersFromEnv,
   runFromSpec,
 } from '@agent-env/harness';
+import {
+  bootstrapProvidersFromEnv,
+  loadDotEnv,
+} from '@agent-env/repo-env';
 
 async function loadRootAgent(entry: string): Promise<BaseAgent> {
   const absolute = resolve(process.cwd(), entry);

@@ -1,9 +1,4 @@
-export { assertApiKey, loadDotEnv, loadHarnessConfig } from './config.js';
-export {
-  bootstrapProvidersFromEnv,
-  parseOpenaiCompatibleProvidersEnv,
-  type OpenaiCompatibleEnvEntry,
-} from './providers-bootstrap.js';
+export { assertApiKey, loadHarnessConfig } from './config.js';
 export { agentRegistry, getAgentManifest } from './registry.js';
 export { runAgent, type RunAgentOptions } from './runner.js';
 export { createTypedTool } from './tools.js';
@@ -61,6 +56,7 @@ export {
   type RegisterConnectorsOptions,
   type WebSearchProviderId,
 } from './connectors/index.js';
+
 /** Re-export LLM resolution / registration helpers for agent authors. */
 export {
   assertAnyProvider,
@@ -81,7 +77,6 @@ export {
   isProviderConfigured,
   listProviderIds,
   listProviders,
-  modelRefFromEnv,
   parseModelRef,
   registerProvider,
   registerProviders,
@@ -89,4 +84,5 @@ export {
   resolveModel,
   selectModelRef,
   unregisterProvider,
+  type RegisterProvidersConfig,
 } from '@agent-env/llm';

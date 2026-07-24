@@ -33,6 +33,11 @@ export interface CreateGrokBuildXSearchConnectorOptions {
   timeoutMs?: number;
   /** Inject for tests. */
   runGrok?: GrokRunner;
+  /**
+   * Env for the `grok` child process. Default: inherit (Node spawn default).
+   * Auth should already be configured via `grok login` on the host.
+   */
+  env?: NodeJS.ProcessEnv;
   /** Hint handles for the prompt (max ~20 on the X Search tool). */
   allowedXHandles?: string[];
   excludedXHandles?: string[];
@@ -40,14 +45,19 @@ export interface CreateGrokBuildXSearchConnectorOptions {
 
 async function defaultRunGrok(
   args: string[],
-  options: { cwd?: string; grokBin?: string; timeoutMs?: number } = {},
+  options: {
+    cwd?: string;
+    grokBin?: string;
+    timeoutMs?: number;
+    env?: NodeJS.ProcessEnv;
+  } = {},
 ): Promise<string> {
   const grokBin = options.grokBin ?? 'grok';
   const timeoutMs = options.timeoutMs ?? 120_000;
   return await new Promise((resolve, reject) => {
     const child = spawn(grokBin, args, {
       cwd: options.cwd,
-      env: process.env,
+      ...(options.env ? { env: options.env } : {}),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -244,6 +254,7 @@ export function createGrokBuildXSearchConnector(
         cwd: opts?.cwd ?? options.cwd,
         grokBin: options.grokBin,
         timeoutMs,
+        env: options.env,
       }));
 
   return createSearchConnector({

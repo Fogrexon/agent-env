@@ -65,7 +65,6 @@ export {
   defaultGeminiModelRef,
   defaultOpenaiCompatibleModelRef,
   defaultOpenaiModelRef,
-  modelRefFromEnv,
   parseModelRef,
   resolveDefaultModel,
   resolveModel,

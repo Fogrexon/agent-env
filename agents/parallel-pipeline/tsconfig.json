@@ -3,11 +3,13 @@
   "compilerOptions": {
     "outDir": "dist",
     "rootDir": ".",
-    "composite": true
+    "composite": true,
+    "noEmit": false
   },
   "include": ["*.ts"],
   "references": [
     { "path": "../../packages/shared" },
-    { "path": "../../packages/harness" }
+    { "path": "../../packages/harness" },
+    { "path": "../dev-env" }
   ]
 }

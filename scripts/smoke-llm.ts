@@ -12,8 +12,8 @@ import {
   registerProviders,
   selectModelRef,
 } from '@agent-env/llm';
-import { parseOpenaiCompatibleProvidersEnv } from '@agent-env/harness';
 import { DEFAULT_MODEL_REF } from '@agent-env/shared';
+import { parseOpenaiCompatibleProvidersJson } from '@agent-env/repo-env';
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -74,7 +74,7 @@ assert(
   'fallback',
 );
 
-const parsed = parseOpenaiCompatibleProvidersEnv(
+const parsed = parseOpenaiCompatibleProvidersJson(
   JSON.stringify([
     {
       id: 'lm-studio',

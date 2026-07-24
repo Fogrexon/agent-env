@@ -18,7 +18,7 @@ import { assertApiKey, loadHarnessConfig } from './config.js';
 export interface RunAgentOptions {
   agent: BaseAgent;
   message: string;
-  /** Defaults from env / harness config. */
+  /** Defaults from loadHarnessConfig (explicit overrides only). */
   appName?: string;
   userId?: string;
   sessionId?: string;

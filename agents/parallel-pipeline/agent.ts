@@ -5,13 +5,12 @@ import {
   type ModelRef,
 } from '@agent-env/shared';
 import {
-  bootstrapProvidersFromEnv,
   defaultGeminiModelRef,
-  loadDotEnv,
   parseModelRef,
   resolveModel,
   selectModelRef,
 } from '@agent-env/harness';
+import { bootstrapProvidersFromEnv, loadDotEnv } from '@agent-env/repo-env';
 
 loadDotEnv();
 bootstrapProvidersFromEnv();

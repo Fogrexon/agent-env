@@ -10,6 +10,7 @@
   "dependencies": {
     "@agent-env/harness": "0.1.0",
     "@agent-env/shared": "0.1.0",
-    "@google/adk": "^1.4.0"
+    "@google/adk": "^1.4.0",
+    "@agent-env/repo-env": "0.1.0"
   }
 }

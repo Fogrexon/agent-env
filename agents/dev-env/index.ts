@@ -1,43 +1,64 @@
+/**
+ * Env wiring for agents/scripts in this repo — not part of @agent-env/* packages.
+ */
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   createOpenaiCompatibleProvider,
   hasProvider,
   registerProvider,
   registerProviders,
   type RegisterProvidersConfig,
-} from '@agent-env/llm';
+} from '@agent-env/harness';
+
+/** Lightweight .env loader. Does not override existing process.env keys. */
+export function loadDotEnv(filePath = resolve(process.cwd(), '.env')): void {
+  if (!existsSync(filePath)) return;
+  const text = readFileSync(filePath, 'utf8');
+  for (const rawLine of text.split('\n')) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith('#')) continue;
+    const eq = line.indexOf('=');
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (process.env[key] === undefined) {
+      process.env[key] = value;
+    }
+  }
+}
 
 export interface OpenaiCompatibleEnvEntry {
   id: string;
   baseUrl: string;
-  /** Name of env var that holds the API key (optional). */
   apiKeyEnv?: string;
 }
 
-/**
- * Parse OPENAI_COMPATIBLE_PROVIDERS JSON, e.g.
- * [{"id":"lm-studio","baseUrl":"http://127.0.0.1:1234/v1","apiKeyEnv":"LM_STUDIO_API_KEY"},
- *  {"id":"ollama","baseUrl":"http://127.0.0.1:11434/v1"}]
- */
-export function parseOpenaiCompatibleProvidersEnv(
+/** Pure JSON parser for OPENAI_COMPATIBLE_PROVIDERS-shaped config. */
+export function parseOpenaiCompatibleProvidersJson(
   raw: string | undefined,
 ): OpenaiCompatibleEnvEntry[] {
   if (!raw?.trim()) return [];
   const parsed: unknown = JSON.parse(raw);
   if (!Array.isArray(parsed)) {
-    throw new Error('OPENAI_COMPATIBLE_PROVIDERS must be a JSON array');
+    throw new Error('openai-compatible providers JSON must be an array');
   }
   return parsed.map((entry, index) => {
     if (!entry || typeof entry !== 'object') {
-      throw new Error(`OPENAI_COMPATIBLE_PROVIDERS[${index}] must be an object`);
+      throw new Error(`providers[${index}] must be an object`);
     }
     const row = entry as Record<string, unknown>;
     const id = typeof row['id'] === 'string' ? row['id'].trim() : '';
     const baseUrl =
       typeof row['baseUrl'] === 'string' ? row['baseUrl'].trim() : '';
     if (!id || !baseUrl) {
-      throw new Error(
-        `OPENAI_COMPATIBLE_PROVIDERS[${index}] requires id and baseUrl`,
-      );
+      throw new Error(`providers[${index}] requires id and baseUrl`);
     }
     const apiKeyEnv =
       typeof row['apiKeyEnv'] === 'string' && row['apiKeyEnv'].trim()
@@ -47,15 +68,7 @@ export function parseOpenaiCompatibleProvidersEnv(
   });
 }
 
-/**
- * Optional harness convenience: register providers from process.env.
- *
- * This is NOT part of the LLM core contract — your app may instead call
- * `registerProviders` / `createOpenaiCompatibleProvider` with secrets from
- * any source (Vault, CLI flags, …). Env is just one implementation choice.
- *
- * Idempotent for well-known ids already present.
- */
+/** Register LLM providers from process.env (this app's convention). */
 export function bootstrapProvidersFromEnv(): void {
   const config: RegisterProvidersConfig = { replace: false };
 
@@ -63,7 +76,9 @@ export function bootstrapProvidersFromEnv(): void {
     process.env['GEMINI_API_KEY']?.trim() ||
     process.env['GOOGLE_API_KEY']?.trim();
   if (geminiKey && !hasProvider('gemini')) {
-    config.gemini = { apiKey: () => process.env['GEMINI_API_KEY'] ?? process.env['GOOGLE_API_KEY'] };
+    config.gemini = {
+      apiKey: () => process.env['GEMINI_API_KEY'] ?? process.env['GOOGLE_API_KEY'],
+    };
   }
 
   if (process.env['CURSOR_API_KEY']?.trim() && !hasProvider('cursor')) {
@@ -84,30 +99,25 @@ export function bootstrapProvidersFromEnv(): void {
   try {
     registerProviders(config);
   } catch (err) {
-    // replace:false may race; ignore "already registered"
     const message = err instanceof Error ? err.message : String(err);
     if (!message.includes('already registered')) throw err;
   }
 
-  const fromJson = parseOpenaiCompatibleProvidersEnv(
+  for (const entry of parseOpenaiCompatibleProvidersJson(
     process.env['OPENAI_COMPATIBLE_PROVIDERS'],
-  );
-  for (const entry of fromJson) {
+  )) {
     if (hasProvider(entry.id)) continue;
     const apiKeyEnv = entry.apiKeyEnv;
     registerProvider(
       createOpenaiCompatibleProvider({
         id: entry.id,
         baseUrl: entry.baseUrl,
-        apiKey: apiKeyEnv
-          ? () => process.env[apiKeyEnv]
-          : undefined,
+        apiKey: apiKeyEnv ? () => process.env[apiKeyEnv] : undefined,
       }),
       { replace: false },
     );
   }
 
-  // Single-endpoint shorthand → provider id "openai-compatible"
   const singleBase =
     process.env['OPENAI_COMPATIBLE_BASE_URL']?.trim() ||
     process.env['LM_STUDIO_BASE_URL']?.trim();

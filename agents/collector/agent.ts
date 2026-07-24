@@ -2,7 +2,6 @@ import { execFileSync } from 'node:child_process';
 import { LlmAgent, ParallelAgent, SequentialAgent, type BaseAgent } from '@google/adk';
 import type { DataSourceConnector } from '@agent-env/harness';
 import {
-  bootstrapProvidersFromEnv,
   createGithubGhConnector,
   createGrokBuildXSearchConnector,
   createSimpleHttpJsonConnector,
@@ -10,14 +9,14 @@ import {
   defaultGeminiModelRef,
   getConnector,
   hasConnector,
-  loadDotEnv,
   registerConnector,
   registerDemoConnectors,
   resolveModel,
 } from '@agent-env/harness';
+import { bootstrapProvidersFromEnv, loadDotEnv } from '@agent-env/repo-env';
 
 /**
- * Sample wiring: this agent owns how config/secrets are loaded.
+ * This agent owns how config/secrets are loaded (`@agent-env/repo-env`).
  * Connector factories in `@agent-env/harness` stay env-agnostic.
  */
 loadDotEnv();

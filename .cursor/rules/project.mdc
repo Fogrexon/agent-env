@@ -19,7 +19,7 @@ alwaysApply: true
 
 ## 必須ルール
 
-- 秘密情報・接続設定の取得方法は利用側（エージェント / アプリ）の責務。`create*Provider` / `create*Connector` に注入する。コネクタに `*FromEnv` や固定 env 名前提を置かない
+- 秘密情報・接続設定の取得は利用側の責務。`packages/*` は `process.env` を読まない。このリポの env 配線は `agents/dev-env` のみ
 - OpenAI 互換は `createOpenaiCompatibleProvider({ id, baseUrl, apiKey? })` を **id ごとに複数**登録してよい
 - モデルは `resolveModel({ provider, model })`（登録済み provider id）
 - 計測可能な実行は RunSpec + `runFromSpec`（成功は verifier、agent 自己申告ではない）
