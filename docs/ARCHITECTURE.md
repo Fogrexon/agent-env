@@ -28,17 +28,44 @@
 - [x] Independent verifier（`contains` / `custom`）
 - [x] サンプル: `agents/runspec-demo` + `npm run run:spec`
 
+### データソース収集オーケストレーション（優先プロダクト方向）
+
+スケジューラ（KV / 高並列 serving）は本リポの主眼にしない。代わりに **複数データソースへ接続して情報をかき集め、1 つの成果物に合成する** 経路を厚くする。
+
+- [x] Connector 契約（`DataSourceConnector` + risk-aware tool）
+- [x] Connector registry / demo fixtures（KB / CRM / status）
+- [x] 簡単追加: `createSimpleHttpJsonConnector` / `createHttpJsonConnector`
+- [x] GitHub: `createGithubGhConnector`（`gh` CLI・認証は gh 側）
+- [x] Web 検索: `createWebSearchConnector`（**Tavily 優先** / Brave 任意・鍵は利用側注入）
+- [x] X 検索: `createGrokBuildXSearchConnector`（Grok Build headless `grok -p`・認証は `grok login`）
+- [x] `registerConnectors({ demo, githubGh, grokBuildX, http, webSearch })`
+- [x] `agents/collector`: Parallel fan-out → synthesizer（http/github/web/x を自動接続）
+- [x] 収集用 RunSpec: `agents/collector/runspec.collect.json`
+
+```bash
+npm run smoke:connectors
+npm run smoke:connectors:http
+npm run run:collector   # GEMINI_API_KEY 等
+```
+
+| ファクトリ | 用途 |
+|------------|------|
+| `createMemoryConnector` | フィクスチャ / ローカル配列 |
+| `createSimpleHttpJsonConnector` | REST JSON（最速追加） |
+| `createHttpJsonConnector` | リクエスト/マッピング完全制御 |
+| `createGithubGhConnector` | `gh search issues/prs` |
+| `createWebSearchConnector` | 公開 Web（Tavily / Brave） |
+| `createGrokBuildXSearchConnector` | X posts（Grok Build CLI） |
+
+秘密情報は `apiKey: () => …` / `headers: () => …` / `gh auth` / `grok login` など利用側で注入する。
+
 未実装（意図的に後回し）:
 
 - 実 Docker/microVM sandbox
 - durable event store / exactly-once
 - Crab/DeltaBox 級 checkpoint
-- workflow-aware KV scheduler（ThunderAgent）
+- workflow-aware KV scheduler（不要寄り・本プロダクトでは非優先）
 - NLAH 自然言語 harness policy 実行器
-
-### Phase B 以降
-
-研究の P1–P3 に従い、bounded ACI、approval、process supervisor、checkpoint、並列評価を **計測後** に足す。multi-agent は同一予算 single-agent より改善する場合のみ。
 
 ## 最重要の設計判断（研究 §12.2）
 

@@ -56,3 +56,13 @@ export {
   type ToolSideEffect,
   type VerificationResult,
 } from './run-spec.js';
+export {
+  dataSourceConnectorSchema,
+  dataSourceKindSchema,
+  evidenceBundleSchema,
+  evidenceItemSchema,
+  type DataSourceConnectorMeta,
+  type DataSourceKind,
+  type EvidenceBundle,
+  type EvidenceItem,
+} from './connectors.js';

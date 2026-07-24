@@ -85,6 +85,74 @@ npm run smoke:runtime
 npm run run:spec -- agents/runspec-demo/runspec.demo.json
 ```
 
+## データソース収集（collector）
+
+複数コネクタから並列に証拠を集め、1 つの brief に合成します（スケジューラ不要）。
+
+```bash
+npm run smoke:connectors
+npm run run:collector
+# 同等: npm run run:spec -- agents/collector/runspec.collect.json collector
+```
+
+自前ソースを足す例:
+
+```typescript
+import {
+  createMemoryConnector,
+  createSimpleHttpJsonConnector,
+  createGithubGhConnector,
+  createGrokBuildXSearchConnector,
+  createWebSearchConnector,
+  registerConnectors,
+  registerConnector,
+} from '@agent-env/harness';
+
+// まとめて登録（demo + gh + HTTP + Web/Tavily + X/Grok Build）
+await registerConnectors({
+  demo: true,
+  githubGh: { repo: 'owner/name' }, // 認証は `gh auth` 側
+  webSearch: true, // TAVILY_API_KEY（優先）/ BRAVE_API_KEY
+  grokBuildX: true, // `grok` CLI があれば X 検索（認証は `grok login`）
+  http: [
+    {
+      id: 'posts',
+      title: 'Posts API',
+      description: 'REST JSON list',
+      url: 'https://jsonplaceholder.typicode.com/posts',
+      titleKey: 'title',
+      snippetKey: 'body',
+      headers: () => ({
+        Authorization: `Bearer ${process.env.MY_API_TOKEN}`,
+      }),
+    },
+  ],
+});
+
+// 個別追加も可
+registerConnector(
+  createMemoryConnector({
+    id: 'notion_mirror',
+    title: 'Notion mirror',
+    description: 'Locally synced pages',
+    records: [{ title: 'RFC', body: '...' }],
+  }),
+);
+
+registerConnector(
+  createGithubGhConnector({ repo: () => process.env.GH_REPO }),
+);
+
+registerConnector(
+  createWebSearchConnector({
+    provider: 'tavily',
+    apiKey: () => process.env.TAVILY_API_KEY,
+  }),
+);
+
+registerConnector(createGrokBuildXSearchConnector());
+```
+
 詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) と  
 [docs/research/2026-07-23-llm-agent-execution-harness.md](./docs/research/2026-07-23-llm-agent-execution-harness.md) を参照。
 

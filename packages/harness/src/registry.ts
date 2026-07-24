@@ -32,6 +32,14 @@ export const agentRegistry: readonly AgentManifest[] = [
     entry: 'agents/runspec-demo/agent.ts',
     models: [{ provider: 'gemini', model: 'gemini-2.5-flash' }],
   },
+  {
+    id: 'collector',
+    name: 'collector',
+    description:
+      'Multi-source collector: parallel KB/CRM/status connectors → synthesized brief.',
+    entry: 'agents/collector/agent.ts',
+    models: [{ provider: 'gemini', model: 'gemini-2.5-flash' }],
+  },
 ] as const;
 
 export function getAgentManifest(id: string): AgentManifest | undefined {
