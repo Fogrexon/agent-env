@@ -23,6 +23,10 @@ export function getConnector(id: string): DataSourceConnector {
   return connector;
 }
 
+export function hasConnector(id: string): boolean {
+  return connectors.has(id);
+}
+
 export function listConnectors(): readonly DataSourceConnector[] {
   return [...connectors.values()];
 }

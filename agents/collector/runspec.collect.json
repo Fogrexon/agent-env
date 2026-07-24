@@ -65,6 +65,20 @@
           "riskClass": "T0",
           "sideEffect": "none",
           "idempotency": "supported"
+        },
+        {
+          "name": "search_github",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "search_http_posts",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
         }
       ]
     },

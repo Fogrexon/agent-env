@@ -98,8 +98,34 @@ npm run run:collector
 自前ソースを足す例:
 
 ```typescript
-import { createMemoryConnector, registerConnector } from '@agent-env/harness';
+import {
+  createMemoryConnector,
+  createSimpleHttpJsonConnector,
+  createGithubGhConnector,
+  registerConnectors,
+  registerConnector,
+} from '@agent-env/harness';
 
+// まとめて登録（demo + gh + HTTP）
+await registerConnectors({
+  demo: true,
+  githubGh: { repo: 'owner/name' }, // 認証は `gh auth` 側
+  http: [
+    {
+      id: 'posts',
+      title: 'Posts API',
+      description: 'REST JSON list',
+      url: 'https://jsonplaceholder.typicode.com/posts',
+      titleKey: 'title',
+      snippetKey: 'body',
+      headers: () => ({
+        Authorization: `Bearer ${process.env.MY_API_TOKEN}`,
+      }),
+    },
+  ],
+});
+
+// 個別追加も可
 registerConnector(
   createMemoryConnector({
     id: 'notion_mirror',
@@ -107,6 +133,10 @@ registerConnector(
     description: 'Locally synced pages',
     records: [{ title: 'RFC', body: '...' }],
   }),
+);
+
+registerConnector(
+  createGithubGhConnector({ repo: () => process.env.GH_REPO }),
 );
 ```
 

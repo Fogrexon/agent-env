@@ -29,14 +29,28 @@ export {
 export {
   clearConnectors,
   createDemoConnectors,
+  createGithubGhConnector,
+  createHttpJsonConnector,
   createMemoryConnector,
+  createSearchConnector,
+  createSimpleHttpJsonConnector,
   getConnector,
+  hasConnector,
+  isGithubGhAvailable,
   listConnectors,
   registerConnector,
+  registerConnectors,
   registerDemoConnectors,
   type ConnectorSearchInput,
+  type CreateGithubGhConnectorOptions,
+  type CreateHttpJsonConnectorOptions,
   type CreateMemoryConnectorOptions,
+  type CreateSearchConnectorOptions,
+  type CreateSimpleHttpJsonConnectorOptions,
   type DataSourceConnector,
+  type GhRunner,
+  type HttpFetch,
+  type RegisterConnectorsOptions,
 } from './connectors/index.js';
 
 /** Re-export LLM resolution / registration helpers for agent authors. */

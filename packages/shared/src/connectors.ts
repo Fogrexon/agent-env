@@ -5,6 +5,7 @@ import { toolContractSchema } from './run-spec.js';
 export const dataSourceKindSchema = z.enum([
   'memory',
   'http',
+  'github',
   'filesystem',
   'custom',
 ]);

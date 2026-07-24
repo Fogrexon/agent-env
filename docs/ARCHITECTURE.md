@@ -34,15 +34,26 @@
 
 - [x] Connector 契約（`DataSourceConnector` + risk-aware tool）
 - [x] Connector registry / demo fixtures（KB / CRM / status）
-- [x] `agents/collector`: Parallel fan-out → synthesizer
+- [x] 簡単追加: `createSimpleHttpJsonConnector` / `createHttpJsonConnector`
+- [x] GitHub: `createGithubGhConnector`（`gh` CLI・認証は gh 側）
+- [x] `registerConnectors({ demo, githubGh, http })`
+- [x] `agents/collector`: Parallel fan-out → synthesizer（http/github を自動接続）
 - [x] 収集用 RunSpec: `agents/collector/runspec.collect.json`
 
 ```bash
 npm run smoke:connectors
+npm run smoke:connectors:http
 npm run run:collector   # GEMINI_API_KEY 等
 ```
 
-実コネクタを足すときは `createMemoryConnector` と同型のファクトリで秘密情報を閉包し、`registerConnector` する（取得方法は利用側の責務）。
+| ファクトリ | 用途 |
+|------------|------|
+| `createMemoryConnector` | フィクスチャ / ローカル配列 |
+| `createSimpleHttpJsonConnector` | REST JSON（最速追加） |
+| `createHttpJsonConnector` | リクエスト/マッピング完全制御 |
+| `createGithubGhConnector` | `gh search issues/prs` |
+
+秘密情報は `headers: () => …` や `gh auth` など利用側で注入する。
 
 未実装（意図的に後回し）:
 

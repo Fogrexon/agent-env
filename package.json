@@ -22,7 +22,8 @@
     "smoke:llm": "tsc -b && tsx scripts/smoke-llm.ts",
     "smoke:runtime": "tsc -b && tsx scripts/smoke-runtime.ts",
     "smoke:connectors": "tsc -b && tsx scripts/smoke-connectors.ts",
-    "smoke": "npm run smoke:llm && npm run smoke:runtime && npm run smoke:connectors"
+    "smoke:connectors:http": "tsc -b && tsx scripts/smoke-connectors-http-gh.ts",
+    "smoke": "npm run smoke:llm && npm run smoke:runtime && npm run smoke:connectors && npm run smoke:connectors:http"
   },
   "engines": {
     "node": ">=24.13.0",

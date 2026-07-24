@@ -3,13 +3,14 @@ import type {
   DataSourceConnectorMeta,
   DataSourceKind,
   EvidenceBundle,
+  EvidenceItem,
   ToolContractInput,
 } from '@agent-env/shared';
 import { dataSourceConnectorSchema } from '@agent-env/shared';
 import { z } from 'zod';
 import { createGuardedTool } from '../runtime/tool-gateway.js';
 
-const searchParamsSchema = z.object({
+export const searchParamsSchema = z.object({
   query: z
     .string()
     .min(1)
@@ -33,6 +34,71 @@ export interface DataSourceConnector {
   search(input: ConnectorSearchInput): Promise<EvidenceBundle>;
 }
 
+export interface CreateSearchConnectorOptions {
+  id: string;
+  title: string;
+  description: string;
+  kind: DataSourceKind;
+  tags?: string[];
+  contract?: Partial<ToolContractInput>;
+  search: (input: ConnectorSearchInput) => Promise<EvidenceBundle>;
+}
+
+/** Shared factory: metadata + guarded search tool around a search() impl. */
+export function createSearchConnector(
+  options: CreateSearchConnectorOptions,
+): DataSourceConnector {
+  const toolName = `search_${options.id.replace(/[^a-zA-Z0-9_]/g, '_')}`;
+  const meta = dataSourceConnectorSchema.parse({
+    id: options.id,
+    kind: options.kind,
+    title: options.title,
+    description: options.description,
+    tags: options.tags ?? [],
+    contract: {
+      version: '1.0',
+      riskClass: 'T0',
+      sideEffect: 'none',
+      idempotency: 'supported',
+      ...options.contract,
+      name: toolName,
+    },
+  });
+
+  return {
+    meta,
+    search: options.search,
+    createTool() {
+      return createGuardedTool({
+        contract: meta.contract,
+        description: `${meta.title}: ${meta.description}`,
+        parameters: searchParamsSchema,
+        execute: (input) => options.search(input),
+      });
+    },
+  };
+}
+
+export function toEvidenceItems(
+  sourceId: string,
+  rows: Array<{
+    title: string;
+    snippet: string;
+    uri?: string;
+    score?: number;
+  }>,
+): EvidenceItem[] {
+  const now = new Date().toISOString();
+  return rows.map((row) => ({
+    sourceId,
+    title: row.title,
+    snippet: row.snippet.slice(0, 500),
+    uri: row.uri,
+    score: row.score,
+    retrievedAt: now,
+  }));
+}
+
 export interface CreateMemoryConnectorOptions {
   id: string;
   title: string;
@@ -52,76 +118,49 @@ export interface CreateMemoryConnectorOptions {
 export function createMemoryConnector(
   options: CreateMemoryConnectorOptions,
 ): DataSourceConnector {
-  const toolName = `search_${options.id.replace(/[^a-zA-Z0-9_]/g, '_')}`;
-  const meta = dataSourceConnectorSchema.parse({
+  return createSearchConnector({
     id: options.id,
-    kind: options.kind ?? 'memory',
     title: options.title,
     description: options.description,
-    tags: options.tags ?? [],
-    contract: {
-      version: '1.0',
-      riskClass: 'T0',
-      sideEffect: 'none',
-      idempotency: 'supported',
-      ...options.contract,
-      name: toolName,
+    kind: options.kind ?? 'memory',
+    tags: options.tags,
+    contract: options.contract,
+    search: async (input) => {
+      const q = input.query.trim().toLowerCase();
+      const limit = input.limit ?? 5;
+      const matched = options.records
+        .map((record, index) => {
+          const hay = `${record.title}\n${record.body}`.toLowerCase();
+          const hit =
+            !q ||
+            hay.includes(q) ||
+            q.split(/\s+/).some((w) => hay.includes(w));
+          if (!hit && q) return null;
+          return {
+            title: record.title,
+            snippet: record.body,
+            uri: record.uri,
+            score: hit ? 1 - index * 0.01 : 0,
+          };
+        })
+        .filter((x): x is NonNullable<typeof x> => x != null)
+        .slice(0, limit);
+
+      const rows =
+        matched.length > 0
+          ? matched
+          : options.records.slice(0, limit).map((record, index) => ({
+              title: record.title,
+              snippet: record.body,
+              uri: record.uri,
+              score: 0.1 - index * 0.01,
+            }));
+
+      return {
+        sourceId: options.id,
+        query: input.query,
+        items: toEvidenceItems(options.id, rows),
+      };
     },
   });
-
-  const search = async (
-    input: ConnectorSearchInput,
-  ): Promise<EvidenceBundle> => {
-    const q = input.query.trim().toLowerCase();
-    const limit = input.limit ?? 5;
-    const now = new Date().toISOString();
-    const items = options.records
-      .map((record, index) => {
-        const hay = `${record.title}\n${record.body}`.toLowerCase();
-        const hit = !q || hay.includes(q) || q.split(/\s+/).some((w) => hay.includes(w));
-        if (!hit && q) return null;
-        return {
-          sourceId: options.id,
-          title: record.title,
-          snippet: record.body.slice(0, 280),
-          uri: record.uri,
-          score: hit ? 1 - index * 0.01 : 0,
-          retrievedAt: now,
-        };
-      })
-      .filter((x): x is NonNullable<typeof x> => x != null)
-      .slice(0, limit);
-
-    // If nothing matched, return top-N as weak context (collector can still synthesize).
-    const fallback =
-      items.length > 0
-        ? items
-        : options.records.slice(0, limit).map((record, index) => ({
-            sourceId: options.id,
-            title: record.title,
-            snippet: record.body.slice(0, 280),
-            uri: record.uri,
-            score: 0.1 - index * 0.01,
-            retrievedAt: now,
-          }));
-
-    return {
-      sourceId: options.id,
-      query: input.query,
-      items: fallback,
-    };
-  };
-
-  return {
-    meta,
-    search,
-    createTool() {
-      return createGuardedTool({
-        contract: meta.contract,
-        description: `${meta.title}: ${meta.description}`,
-        parameters: searchParamsSchema,
-        execute: (input) => search(input),
-      });
-    },
-  };
 }

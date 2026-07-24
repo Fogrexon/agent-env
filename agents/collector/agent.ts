@@ -1,80 +1,119 @@
-import { LlmAgent, ParallelAgent, SequentialAgent } from '@google/adk';
+import { execFileSync } from 'node:child_process';
+import { LlmAgent, ParallelAgent, SequentialAgent, type BaseAgent } from '@google/adk';
+import type { DataSourceConnector } from '@agent-env/harness';
 import {
   bootstrapProvidersFromEnv,
+  createGithubGhConnector,
+  createSimpleHttpJsonConnector,
   defaultGeminiModelRef,
+  getConnector,
+  hasConnector,
   loadDotEnv,
+  registerConnector,
   registerDemoConnectors,
   resolveModel,
-  getConnector,
 } from '@agent-env/harness';
 
 loadDotEnv();
 bootstrapProvidersFromEnv();
 registerDemoConnectors();
 
+function ghAuthenticated(): boolean {
+  try {
+    execFileSync('gh', ['auth', 'status'], { stdio: 'ignore' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+if (ghAuthenticated()) {
+  registerConnector(
+    createGithubGhConnector({
+      id: 'github',
+      repo: process.env['GH_REPO'] ?? undefined,
+    }),
+    { replace: true },
+  );
+}
+
+if (process.env['AGENT_ENV_HTTP_DEMO'] !== '0') {
+  registerConnector(
+    createSimpleHttpJsonConnector({
+      id: 'http_posts',
+      title: 'HTTP posts demo',
+      description: 'JSONPlaceholder posts (public HTTP JSON example).',
+      tags: ['http', 'demo'],
+      url: 'https://jsonplaceholder.typicode.com/posts',
+      titleKey: 'title',
+      snippetKey: 'body',
+    }),
+    { replace: true },
+  );
+}
+
 const model = resolveModel(defaultGeminiModelRef());
 
-const kb = getConnector('kb');
-const crm = getConnector('crm');
-const status = getConnector('status');
+function collectorAgent(
+  connector: DataSourceConnector,
+  outputKey: string,
+): LlmAgent {
+  return new LlmAgent({
+    name: `${connector.meta.id}_collector`,
+    model,
+    description: connector.meta.description,
+    instruction: `You gather evidence from "${connector.meta.title}" only.
+Call ${connector.meta.contract.name} with a focused query derived from the user topic.
+Then output up to 3 bullet findings grounded ONLY in the tool result. No preamble.`,
+    tools: [connector.createTool()],
+    outputKey,
+  });
+}
 
-/**
- * Fan-out collectors: each specialist only sees its own data-source tool.
- * Results land in distinct outputKeys for the synthesizer.
- */
-const kbAgent = new LlmAgent({
-  name: 'kb_collector',
-  model,
-  description: 'Searches the product knowledge base.',
-  instruction: `You gather evidence from the knowledge base only.
-Call ${kb.meta.contract.name} with a focused query derived from the user topic.
-Then output 3 bullet findings grounded ONLY in the tool result. No preamble.`,
-  tools: [kb.createTool()],
-  outputKey: 'kb_findings',
-});
+const sources: Array<{ id: string; outputKey: string; label: string }> = [
+  { id: 'kb', outputKey: 'kb_findings', label: 'Knowledge base' },
+  { id: 'crm', outputKey: 'crm_findings', label: 'CRM' },
+  { id: 'status', outputKey: 'status_findings', label: 'Status board' },
+];
 
-const crmAgent = new LlmAgent({
-  name: 'crm_collector',
-  model,
-  description: 'Searches CRM account snippets.',
-  instruction: `You gather commercial context from CRM only.
-Call ${crm.meta.contract.name} with a focused query derived from the user topic.
-Then output 3 bullet findings grounded ONLY in the tool result. No preamble.`,
-  tools: [crm.createTool()],
-  outputKey: 'crm_findings',
-});
+if (hasConnector('github')) {
+  sources.push({
+    id: 'github',
+    outputKey: 'github_findings',
+    label: 'GitHub',
+  });
+}
+if (hasConnector('http_posts')) {
+  sources.push({
+    id: 'http_posts',
+    outputKey: 'http_findings',
+    label: 'HTTP',
+  });
+}
 
-const statusAgent = new LlmAgent({
-  name: 'status_collector',
-  model,
-  description: 'Reads the ops status board.',
-  instruction: `You gather operational status only.
-Call ${status.meta.contract.name} with a focused query derived from the user topic.
-Then output 3 bullet findings grounded ONLY in the tool result. No preamble.`,
-  tools: [status.createTool()],
-  outputKey: 'status_findings',
-});
+const workers: BaseAgent[] = sources.map(({ id, outputKey }) =>
+  collectorAgent(getConnector(id), outputKey),
+);
 
 const fanOut = new ParallelAgent({
   name: 'collect_fan_out',
-  description: 'Collect evidence from KB, CRM, and status in parallel.',
-  subAgents: [kbAgent, crmAgent, statusAgent],
+  description: 'Collect evidence from registered data sources in parallel.',
+  subAgents: workers,
 });
+
+const findingsBlock = sources
+  .map((s) => `${s.label} findings:\n{${s.outputKey}}`)
+  .join('\n\n');
+
+const sourceNames = sources.map((s) => s.label).join(' / ');
 
 const synthesizer = new LlmAgent({
   name: 'brief_synthesizer',
   model,
-  description: 'Merges multi-source evidence into one ops/account brief.',
+  description: 'Merges multi-source evidence into one brief.',
   instruction: `Synthesize a short multi-source briefing.
 
-Knowledge base findings:
-{kb_findings}
-
-CRM findings:
-{crm_findings}
-
-Status board findings:
-{status_findings}
+${findingsBlock}
 
 Rules:
 - Ground every claim in the findings above (do not invent sources).
@@ -83,14 +122,14 @@ Rules:
   Sources
   Risks
   Recommendation
-- Under Sources, name which buckets contributed (KB / CRM / Status).
-- Keep the whole response under 220 words.
+- Under Sources, name which buckets contributed (${sourceNames}).
+- Keep the whole response under 250 words.
 - Include the word "verified" once near the end if evidence was present.`,
 });
 
 /**
  * Data-source collector orchestration sample.
- * Parallel read connectors → single synthesizer (no scheduler required).
+ * Parallel read connectors → single synthesizer.
  */
 export const rootAgent = new SequentialAgent({
   name: 'collector',
