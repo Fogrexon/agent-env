@@ -5,13 +5,14 @@
 ## 構成
 
 ```
-agents/                  # ADK エージェント（各フォルダが rootAgent を export）
+agents/                  # ADK エージェント（rootAgent）+ runspec-demo
 packages/
-  shared/                # Zod スキーマ・共有型
-  llm/                   # LlmProvider ポート・ファクトリ・registry・resolveModel
-  harness/               # runAgent・（任意）env からの bootstrap
+  shared/                # Zod（ModelRef / RunSpec / Event）
+  llm/                   # provider ファクトリ・registry
+  harness/               # runAgent / runFromSpec / guarded tools
+docs/                    # ARCHITECTURE + 研究レポート
 apps/                    # 将来の管理 UI
-scripts/run.ts           # CLI
+scripts/                 # run / run-spec / smoke
 ```
 
 ## セットアップ
