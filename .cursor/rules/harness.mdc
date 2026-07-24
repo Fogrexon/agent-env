@@ -8,6 +8,7 @@ alwaysApply: false
 
 - `@agent-env/shared`: Zod と型のみ。ランタイム SDK に依存しない
 - `@agent-env/llm`: provider ファクトリ・registry・`resolveModel`（秘密情報はコンストラクタ注入）
-- `@agent-env/harness`: `runAgent`。`bootstrapProvidersFromEnv` は env を使う一例に過ぎない
+- `@agent-env/harness`: `runAgent` / connectors。`bootstrapProvidersFromEnv` は **LLM 用の一例**に過ぎない
+- コネクタ（`create*Connector`）は env 名を知らない。`apiKey` / `repo` / `headers` は呼び出し側が注入する（`*FromEnv` を置かない）
 - OpenAI 互換を足すときはグローバルな単一 Base URL ではなく、新しい `id` で `createOpenaiCompatibleProvider` する
 - `AgentRunResult` の形を壊す変更は shared と一緒に更新する

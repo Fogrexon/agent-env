@@ -6,7 +6,7 @@ import {
   createGithubGhConnector,
   createGrokBuildXSearchConnector,
   createSimpleHttpJsonConnector,
-  createWebSearchConnectorFromEnv,
+  createWebSearchConnector,
   defaultGeminiModelRef,
   getConnector,
   hasConnector,
@@ -16,6 +16,10 @@ import {
   resolveModel,
 } from '@agent-env/harness';
 
+/**
+ * Sample wiring: this agent owns how config/secrets are loaded.
+ * Connector factories in `@agent-env/harness` stay env-agnostic.
+ */
 loadDotEnv();
 bootstrapProvidersFromEnv();
 registerDemoConnectors();
@@ -33,6 +37,7 @@ if (cliOk('gh', ['auth', 'status'])) {
   registerConnector(
     createGithubGhConnector({
       id: 'github',
+      // App chooses the source of repo scope (env is one option).
       repo: process.env['GH_REPO'] ?? undefined,
     }),
     { replace: true },
@@ -54,14 +59,19 @@ if (process.env['AGENT_ENV_HTTP_DEMO'] !== '0') {
   );
 }
 
-// Web search: Tavily preferred (BRAVE optional fallback via env helper).
-const web = createWebSearchConnectorFromEnv({ provider: 'tavily' })
-  ?? createWebSearchConnectorFromEnv();
-if (web) {
-  registerConnector(web, { replace: true });
+const tavilyKey = process.env['TAVILY_API_KEY']?.trim();
+if (tavilyKey) {
+  registerConnector(
+    createWebSearchConnector({
+      id: 'web',
+      provider: 'tavily',
+      apiKey: () => process.env['TAVILY_API_KEY'],
+    }),
+    { replace: true },
+  );
 }
 
-// X search via Grok Build headless (subscription auth via `grok login`).
+// X search via Grok Build headless (auth via caller's `grok login`).
 if (
   process.env['AGENT_ENV_GROK_X'] !== '0' &&
   (cliOk('grok', ['--version']) || cliOk('grok', ['--help']))

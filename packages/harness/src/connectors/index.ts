@@ -36,10 +36,7 @@ export {
 } from './register.js';
 export {
   createWebSearchConnector,
-  createWebSearchConnectorFromEnv,
-  detectWebSearchProviderFromEnv,
   type CreateWebSearchConnectorOptions,
-  type WebSearchEnvDetection,
   type WebSearchProviderId,
 } from './web-search.js';
 export {

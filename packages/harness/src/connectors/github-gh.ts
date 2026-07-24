@@ -21,7 +21,8 @@ export interface CreateGithubGhConnectorOptions {
   contract?: Partial<ToolContractInput>;
   /**
    * Limit search to a repo (`owner/name`).
-   * If omitted, uses `GH_REPO` or `gh repo view --json nameWithOwner`.
+   * If omitted, falls back to `gh repo view` in `cwd` (caller-supplied).
+   * Do not rely on env var names inside this factory — pass `repo` from the app.
    */
   repo?: string | (() => string | undefined);
   /** What to search via `gh search`. Default: issues + prs. */
@@ -102,7 +103,6 @@ export function createGithubGhConnector(
     const fromOpt =
       typeof options.repo === 'function' ? options.repo() : options.repo;
     if (fromOpt?.trim()) return fromOpt.trim();
-    if (process.env['GH_REPO']?.trim()) return process.env['GH_REPO']!.trim();
     try {
       const raw = await runGh(
         ['repo', 'view', '--json', 'nameWithOwner', '-q', '.nameWithOwner'],
