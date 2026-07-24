@@ -5,6 +5,7 @@ import {
   bootstrapProvidersFromEnv,
   createGithubGhConnector,
   createSimpleHttpJsonConnector,
+  createWebSearchConnectorFromEnv,
   defaultGeminiModelRef,
   getConnector,
   hasConnector,
@@ -52,6 +53,11 @@ if (process.env['AGENT_ENV_HTTP_DEMO'] !== '0') {
   );
 }
 
+const web = createWebSearchConnectorFromEnv();
+if (web) {
+  registerConnector(web, { replace: true });
+}
+
 const model = resolveModel(defaultGeminiModelRef());
 
 function collectorAgent(
@@ -88,6 +94,13 @@ if (hasConnector('http_posts')) {
     id: 'http_posts',
     outputKey: 'http_findings',
     label: 'HTTP',
+  });
+}
+if (hasConnector('web')) {
+  sources.push({
+    id: 'web',
+    outputKey: 'web_findings',
+    label: 'Web',
   });
 }
 

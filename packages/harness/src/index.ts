@@ -34,6 +34,9 @@ export {
   createMemoryConnector,
   createSearchConnector,
   createSimpleHttpJsonConnector,
+  createWebSearchConnector,
+  createWebSearchConnectorFromEnv,
+  detectWebSearchProviderFromEnv,
   getConnector,
   hasConnector,
   isGithubGhAvailable,
@@ -47,10 +50,13 @@ export {
   type CreateMemoryConnectorOptions,
   type CreateSearchConnectorOptions,
   type CreateSimpleHttpJsonConnectorOptions,
+  type CreateWebSearchConnectorOptions,
   type DataSourceConnector,
   type GhRunner,
   type HttpFetch,
   type RegisterConnectorsOptions,
+  type WebSearchEnvDetection,
+  type WebSearchProviderId,
 } from './connectors/index.js';
 
 /** Re-export LLM resolution / registration helpers for agent authors. */

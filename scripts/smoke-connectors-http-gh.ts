@@ -1,10 +1,13 @@
 /**
- * Offline smoke for HTTP / GitHub(gh) connectors (no live network required).
+ * Offline smoke for HTTP / GitHub(gh) / Web search connectors
+ * (no live network required).
  */
 import {
   clearConnectors,
   createGithubGhConnector,
   createSimpleHttpJsonConnector,
+  createWebSearchConnector,
+  detectWebSearchProviderFromEnv,
   registerConnector,
 } from '@agent-env/harness';
 
@@ -63,5 +66,82 @@ assert(
   ghBundle.items.some((i) => i.title.includes('HTTP connectors')),
   'gh title',
 );
+
+let braveAuthHeader = '';
+const brave = createWebSearchConnector({
+  id: 'web',
+  provider: 'brave',
+  apiKey: 'brave-test-key',
+  fetchImpl: async (input, init) => {
+    const url = String(input);
+    assert(url.includes('api.search.brave.com'), 'brave url');
+    assert(url.includes('q=agent-env'), 'brave query');
+    braveAuthHeader = String(
+      (init?.headers as Record<string, string>)?.['X-Subscription-Token'] ?? '',
+    );
+    return new Response(
+      JSON.stringify({
+        web: {
+          results: [
+            {
+              title: 'Agent env docs',
+              url: 'https://example.com/agent-env',
+              description:
+                'Harness for <strong>parallel</strong> collectors',
+            },
+          ],
+        },
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  },
+});
+const braveBundle = await brave.search({ query: 'agent-env', limit: 3 });
+assert(braveAuthHeader === 'brave-test-key', 'brave auth header');
+assert(braveBundle.items[0]?.title === 'Agent env docs', 'brave title');
+assert(
+  braveBundle.items[0]?.snippet.includes('parallel'),
+  'brave snippet stripped',
+);
+assert(!braveBundle.items[0]?.snippet.includes('<strong>'), 'no html');
+
+const tavily = createWebSearchConnector({
+  provider: 'tavily',
+  apiKey: () => 'tvly-test',
+  fetchImpl: async (_input, init) => {
+    assert(init?.method === 'POST', 'tavily method');
+    const body = JSON.parse(String(init?.body ?? '{}')) as {
+      api_key?: string;
+      query?: string;
+    };
+    assert(body.api_key === 'tvly-test', 'tavily key in body');
+    assert(body.query === 'typed connectors', 'tavily query');
+    return new Response(
+      JSON.stringify({
+        results: [
+          {
+            title: 'Tavily hit',
+            url: 'https://example.com/tavily',
+            content: 'typed web search connector',
+            score: 0.91,
+          },
+        ],
+      }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    );
+  },
+});
+const tavilyBundle = await tavily.search({
+  query: 'typed connectors',
+  limit: 2,
+});
+assert(tavilyBundle.items[0]?.title === 'Tavily hit', 'tavily title');
+assert(tavilyBundle.items[0]?.score === 0.91, 'tavily score');
+
+const detected = detectWebSearchProviderFromEnv({
+  BRAVE_API_KEY: 'x',
+  TAVILY_API_KEY: 'y',
+});
+assert(detected?.provider === 'brave', 'prefer brave when both set');
 
 console.log('✓ smoke-connectors-http-gh passed');

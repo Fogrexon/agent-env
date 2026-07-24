@@ -8,6 +8,11 @@ import {
   createSimpleHttpJsonConnector,
   type CreateSimpleHttpJsonConnectorOptions,
 } from './http.js';
+import {
+  createWebSearchConnector,
+  createWebSearchConnectorFromEnv,
+  type CreateWebSearchConnectorOptions,
+} from './web-search.js';
 import type { DataSourceConnector } from './types.js';
 
 export interface RegisterConnectorsOptions {
@@ -20,12 +25,21 @@ export interface RegisterConnectorsOptions {
   githubGh?: boolean | { repo?: string; id?: string };
   /** Extra HTTP JSON connectors (easy plug-ins). */
   http?: CreateSimpleHttpJsonConnectorOptions[];
+  /**
+   * Web search connector(s).
+   * - `true`: auto from `BRAVE_API_KEY` / `TAVILY_API_KEY`
+   * - object / array: explicit `createWebSearchConnector` options
+   */
+  webSearch?:
+    | boolean
+    | CreateWebSearchConnectorOptions
+    | CreateWebSearchConnectorOptions[];
   replace?: boolean;
 }
 
 /**
  * One-shot registration helper for apps / sample agents.
- * Pass HTTP connector configs and optional GitHub `gh` wiring.
+ * Pass HTTP connector configs and optional GitHub / web search wiring.
  */
 export async function registerConnectors(
   options: RegisterConnectorsOptions = {},
@@ -59,6 +73,23 @@ export async function registerConnectors(
     const connector = createSimpleHttpJsonConnector(http);
     registerConnector(connector, { replace });
     registered.push(connector);
+  }
+
+  if (options.webSearch === true) {
+    const web = createWebSearchConnectorFromEnv();
+    if (web) {
+      registerConnector(web, { replace });
+      registered.push(web);
+    }
+  } else if (options.webSearch) {
+    const list = Array.isArray(options.webSearch)
+      ? options.webSearch
+      : [options.webSearch];
+    for (const cfg of list) {
+      const connector = createWebSearchConnector(cfg);
+      registerConnector(connector, { replace });
+      registered.push(connector);
+    }
   }
 
   return registered;

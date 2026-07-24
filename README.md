@@ -102,14 +102,16 @@ import {
   createMemoryConnector,
   createSimpleHttpJsonConnector,
   createGithubGhConnector,
+  createWebSearchConnector,
   registerConnectors,
   registerConnector,
 } from '@agent-env/harness';
 
-// まとめて登録（demo + gh + HTTP）
+// まとめて登録（demo + gh + HTTP + Web 検索）
 await registerConnectors({
   demo: true,
   githubGh: { repo: 'owner/name' }, // 認証は `gh auth` 側
+  webSearch: true, // BRAVE_API_KEY / TAVILY_API_KEY があれば自動登録
   http: [
     {
       id: 'posts',
@@ -137,6 +139,13 @@ registerConnector(
 
 registerConnector(
   createGithubGhConnector({ repo: () => process.env.GH_REPO }),
+);
+
+registerConnector(
+  createWebSearchConnector({
+    provider: 'brave',
+    apiKey: () => process.env.BRAVE_API_KEY,
+  }),
 );
 ```
 
