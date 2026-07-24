@@ -24,6 +24,14 @@ export const agentRegistry: readonly AgentManifest[] = [
       { provider: 'lm-studio', model: 'local-model' },
     ],
   },
+  {
+    id: 'runspec-demo',
+    name: 'runspec_demo',
+    description:
+      'Phase A RunSpec demo: guarded tools (T0/T2), events, independent verifier.',
+    entry: 'agents/runspec-demo/agent.ts',
+    models: [{ provider: 'gemini', model: 'gemini-2.5-flash' }],
+  },
 ] as const;
 
 export function getAgentManifest(id: string): AgentManifest | undefined {

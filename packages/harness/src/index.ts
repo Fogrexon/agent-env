@@ -7,6 +7,25 @@ export {
 export { agentRegistry, getAgentManifest } from './registry.js';
 export { runAgent, type RunAgentOptions } from './runner.js';
 export { createTypedTool } from './tools.js';
+export {
+  BudgetManager,
+  InMemoryEventStore,
+  RunStateMachine,
+  assertTransition,
+  canTransition,
+  createGuardedTool,
+  parseRunSpec,
+  phaseForState,
+  runFromSpec,
+  verifyRunSpec,
+  type AppendEventInput,
+  type BudgetExhaustionReason,
+  type BudgetSnapshot,
+  type GuardedToolOptions,
+  type RunFromSpecOptions,
+  type RunFromSpecResult,
+  type VerifyContext,
+} from './runtime/index.js';
 
 /** Re-export LLM resolution / registration helpers for agent authors. */
 export {

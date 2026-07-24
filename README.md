@@ -75,6 +75,18 @@ resolveModel({ provider: 'ollama', model: 'llama3.2' });
 OPENAI_COMPATIBLE_PROVIDERS=[{"id":"lm-studio","baseUrl":"http://127.0.0.1:1234/v1","apiKeyEnv":"LM_STUDIO_API_KEY"},{"id":"ollama","baseUrl":"http://127.0.0.1:11434/v1"}]
 ```
 
+## RunSpec（Phase A）
+
+研究レポートに沿った **version 付き実行仕様 → state machine → 独立 verifier** の入口です。
+
+```bash
+npm run smoke:runtime
+npm run run:spec -- agents/runspec-demo/runspec.demo.json
+```
+
+詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) と  
+[docs/research/2026-07-23-llm-agent-execution-harness.md](./docs/research/2026-07-23-llm-agent-execution-harness.md) を参照。
+
 ## 実行
 
 ```bash
