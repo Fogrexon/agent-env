@@ -36,8 +36,6 @@ export {
   createSearchConnector,
   createSimpleHttpJsonConnector,
   createWebSearchConnector,
-  createWebSearchConnectorFromEnv,
-  detectWebSearchProviderFromEnv,
   extractGrokPlainText,
   getConnector,
   hasConnector,
@@ -61,10 +59,8 @@ export {
   type GrokRunner,
   type HttpFetch,
   type RegisterConnectorsOptions,
-  type WebSearchEnvDetection,
   type WebSearchProviderId,
 } from './connectors/index.js';
-
 /** Re-export LLM resolution / registration helpers for agent authors. */
 export {
   assertAnyProvider,

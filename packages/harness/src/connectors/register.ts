@@ -3,6 +3,7 @@ import { createDemoConnectors } from './demo.js';
 import {
   createGithubGhConnector,
   isGithubGhAvailable,
+  type CreateGithubGhConnectorOptions,
 } from './github-gh.js';
 import {
   createGrokBuildXSearchConnector,
@@ -15,7 +16,6 @@ import {
 } from './http.js';
 import {
   createWebSearchConnector,
-  createWebSearchConnectorFromEnv,
   type CreateWebSearchConnectorOptions,
 } from './web-search.js';
 import type { DataSourceConnector } from './types.js';
@@ -25,23 +25,22 @@ export interface RegisterConnectorsOptions {
   demo?: boolean;
   /**
    * Register GitHub via `gh` when the CLI is authenticated.
-   * Default: true when available.
+   * Pass options (e.g. `repo`) from the app — this helper does not read env.
+   * `true` ≡ `{}` (repo from `gh repo view` if available).
    */
-  githubGh?: boolean | { repo?: string; id?: string };
+  githubGh?: boolean | CreateGithubGhConnectorOptions;
   /**
    * Register X search via Grok Build headless when `grok` is available.
-   * Default: false (opt-in). Pass `true` to auto-detect.
+   * `true` ≡ `{}`. Auth is whatever `grok login` already configured.
    */
   grokBuildX?: boolean | CreateGrokBuildXSearchConnectorOptions;
   /** Extra HTTP JSON connectors (easy plug-ins). */
   http?: CreateSimpleHttpJsonConnectorOptions[];
   /**
-   * Web search connector(s) — prefer Tavily via env.
-   * - `true`: auto from `TAVILY_API_KEY` / `BRAVE_API_KEY`
-   * - object / array: explicit `createWebSearchConnector` options
+   * Web search connector(s). Caller must pass `provider` + `apiKey`
+   * (no env auto-detection in the harness).
    */
   webSearch?:
-    | boolean
     | CreateWebSearchConnectorOptions
     | CreateWebSearchConnectorOptions[];
   replace?: boolean;
@@ -49,7 +48,7 @@ export interface RegisterConnectorsOptions {
 
 /**
  * One-shot registration helper for apps / sample agents.
- * Pass HTTP / web / GitHub / Grok Build X wiring as needed.
+ * Configuration and secrets are always supplied by the caller.
  */
 export async function registerConnectors(
   options: RegisterConnectorsOptions = {},
@@ -64,16 +63,12 @@ export async function registerConnectors(
     }
   }
 
-  const wantGithub = options.githubGh !== false;
-  if (wantGithub) {
+  if (options.githubGh) {
     const ghOpts =
       typeof options.githubGh === 'object' ? options.githubGh : {};
     const available = await isGithubGhAvailable();
     if (available) {
-      const github = createGithubGhConnector({
-        id: ghOpts.id ?? 'github',
-        repo: ghOpts.repo ?? process.env['GH_REPO'],
-      });
+      const github = createGithubGhConnector(ghOpts);
       registerConnector(github, { replace });
       registered.push(github);
     }
@@ -96,13 +91,7 @@ export async function registerConnectors(
     registered.push(connector);
   }
 
-  if (options.webSearch === true) {
-    const web = createWebSearchConnectorFromEnv();
-    if (web) {
-      registerConnector(web, { replace });
-      registered.push(web);
-    }
-  } else if (options.webSearch) {
+  if (options.webSearch) {
     const list = Array.isArray(options.webSearch)
       ? options.webSearch
       : [options.webSearch];

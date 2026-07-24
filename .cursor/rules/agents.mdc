@@ -28,7 +28,7 @@ export const rootAgent = new LlmAgent({
 
 - `provider` は registry 上の id（`lm-studio` などカスタム可）
 - FunctionTools 付きは当面 `kind: "gemini"` の provider
-- 秘密情報は bootstrap / register 時に渡す（エージェント内で env 名をハードコードしないのが望ましい）
+- 秘密情報・コネクタ設定はエージェント / アプリ側で用意し、ファクトリ引数に渡す（harness のコネクタに FromEnv はない）
 
 ## チェック
 

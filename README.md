@@ -108,12 +108,15 @@ import {
   registerConnector,
 } from '@agent-env/harness';
 
-// まとめて登録（demo + gh + HTTP + Web/Tavily + X/Grok Build）
+// まとめて登録（設定・秘密は呼び出し側が渡す。harness は env を読まない）
 await registerConnectors({
   demo: true,
   githubGh: { repo: 'owner/name' }, // 認証は `gh auth` 側
-  webSearch: true, // TAVILY_API_KEY（優先）/ BRAVE_API_KEY
-  grokBuildX: true, // `grok` CLI があれば X 検索（認証は `grok login`）
+  grokBuildX: true, // `grok` があれば X 検索（認証は `grok login`）
+  webSearch: {
+    provider: 'tavily',
+    apiKey: () => process.env.TAVILY_API_KEY, // env はアプリ側の選択
+  },
   http: [
     {
       id: 'posts',

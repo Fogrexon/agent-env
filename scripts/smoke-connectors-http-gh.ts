@@ -8,7 +8,6 @@ import {
   createGrokBuildXSearchConnector,
   createSimpleHttpJsonConnector,
   createWebSearchConnector,
-  detectWebSearchProviderFromEnv,
   parseGrokXSearchEvidence,
   registerConnector,
 } from '@agent-env/harness';
@@ -139,12 +138,6 @@ const tavilyBundle = await tavily.search({
 });
 assert(tavilyBundle.items[0]?.title === 'Tavily hit', 'tavily title');
 assert(tavilyBundle.items[0]?.score === 0.91, 'tavily score');
-
-const detected = detectWebSearchProviderFromEnv({
-  BRAVE_API_KEY: 'x',
-  TAVILY_API_KEY: 'y',
-});
-assert(detected?.provider === 'tavily', 'prefer tavily when both set');
 
 const parsed = parseGrokXSearchEvidence(
   JSON.stringify({

@@ -97,8 +97,8 @@ function mapTavilyResults(
  *
  * @example
  * createWebSearchConnector({
- *   provider: 'brave',
- *   apiKey: () => process.env.BRAVE_API_KEY,
+ *   provider: 'tavily',
+ *   apiKey: () => mySecrets.tavily, // caller-owned; env is one option
  * })
  */
 export function createWebSearchConnector(
@@ -204,52 +204,5 @@ export function createWebSearchConnector(
         clearTimeout(timer);
       }
     },
-  });
-}
-
-export interface WebSearchEnvDetection {
-  provider: WebSearchProviderId;
-  apiKeyEnv: 'BRAVE_API_KEY' | 'TAVILY_API_KEY';
-}
-
-/**
- * Prefer Tavily when `TAVILY_API_KEY` is set, else Brave when `BRAVE_API_KEY` is set.
- */
-export function detectWebSearchProviderFromEnv(
-  env: NodeJS.ProcessEnv = process.env,
-): WebSearchEnvDetection | undefined {
-  if (env['TAVILY_API_KEY']?.trim()) {
-    return { provider: 'tavily', apiKeyEnv: 'TAVILY_API_KEY' };
-  }
-  if (env['BRAVE_API_KEY']?.trim()) {
-    return { provider: 'brave', apiKeyEnv: 'BRAVE_API_KEY' };
-  }
-  return undefined;
-}
-
-/**
- * Convenience: build a web connector from env keys if present.
- * Returns undefined when neither Brave nor Tavily key is configured.
- */
-export function createWebSearchConnectorFromEnv(
-  options: Omit<CreateWebSearchConnectorOptions, 'provider' | 'apiKey'> & {
-    provider?: WebSearchProviderId;
-    env?: NodeJS.ProcessEnv;
-  } = {},
-): DataSourceConnector | undefined {
-  const { env: envOpt, provider: providerOpt, ...rest } = options;
-  const env = envOpt ?? process.env;
-  const detected = detectWebSearchProviderFromEnv(env);
-  const provider = providerOpt ?? detected?.provider;
-  if (!provider) return undefined;
-
-  const apiKeyEnv =
-    provider === 'brave' ? 'BRAVE_API_KEY' : 'TAVILY_API_KEY';
-  if (!env[apiKeyEnv]?.trim()) return undefined;
-
-  return createWebSearchConnector({
-    ...rest,
-    provider,
-    apiKey: () => env[apiKeyEnv],
   });
 }

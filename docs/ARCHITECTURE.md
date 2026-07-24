@@ -36,16 +36,16 @@
 - [x] Connector registry / demo fixtures（KB / CRM / status）
 - [x] 簡単追加: `createSimpleHttpJsonConnector` / `createHttpJsonConnector`
 - [x] GitHub: `createGithubGhConnector`（`gh` CLI・認証は gh 側）
-- [x] Web 検索: `createWebSearchConnector`（**Tavily 優先** / Brave 任意・鍵は利用側注入）
-- [x] X 検索: `createGrokBuildXSearchConnector`（Grok Build headless `grok -p`・認証は `grok login`）
-- [x] `registerConnectors({ demo, githubGh, grokBuildX, http, webSearch })`
-- [x] `agents/collector`: Parallel fan-out → synthesizer（http/github/web/x を自動接続）
+- [x] Web 検索: `createWebSearchConnector`（Tavily / Brave・**鍵は呼び出し側注入**）
+- [x] X 検索: `createGrokBuildXSearchConnector`（Grok Build headless `grok -p`）
+- [x] `registerConnectors({ demo, githubGh, grokBuildX, http, webSearch })`（env 自動読みなし）
+- [x] `agents/collector`: Parallel fan-out → synthesizer（サンプル側で配線）
 - [x] 収集用 RunSpec: `agents/collector/runspec.collect.json`
 
 ```bash
 npm run smoke:connectors
 npm run smoke:connectors:http
-npm run run:collector   # GEMINI_API_KEY 等
+npm run run:collector   # サンプル agent が env 等から設定を渡す
 ```
 
 | ファクトリ | 用途 |
@@ -57,7 +57,8 @@ npm run run:collector   # GEMINI_API_KEY 等
 | `createWebSearchConnector` | 公開 Web（Tavily / Brave） |
 | `createGrokBuildXSearchConnector` | X posts（Grok Build CLI） |
 
-秘密情報は `apiKey: () => …` / `headers: () => …` / `gh auth` / `grok login` など利用側で注入する。
+コネクタ層は env 名を知らない。`apiKey` / `repo` / `headers` 等は **エージェント実装（またはアプリ）が注入**する。  
+`bootstrapProvidersFromEnv` は LLM 用の任意ヘルパーであり、コネクタには同等の FromEnv ファクトリを置かない。
 
 未実装（意図的に後回し）:
 
