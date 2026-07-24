@@ -85,6 +85,31 @@ npm run smoke:runtime
 npm run run:spec -- agents/runspec-demo/runspec.demo.json
 ```
 
+## データソース収集（collector）
+
+複数コネクタから並列に証拠を集め、1 つの brief に合成します（スケジューラ不要）。
+
+```bash
+npm run smoke:connectors
+npm run run:collector
+# 同等: npm run run:spec -- agents/collector/runspec.collect.json collector
+```
+
+自前ソースを足す例:
+
+```typescript
+import { createMemoryConnector, registerConnector } from '@agent-env/harness';
+
+registerConnector(
+  createMemoryConnector({
+    id: 'notion_mirror',
+    title: 'Notion mirror',
+    description: 'Locally synced pages',
+    records: [{ title: 'RFC', body: '...' }],
+  }),
+);
+```
+
 詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) と  
 [docs/research/2026-07-23-llm-agent-execution-harness.md](./docs/research/2026-07-23-llm-agent-execution-harness.md) を参照。
 

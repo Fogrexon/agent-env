@@ -18,9 +18,11 @@
     "run:hello": "npm run run -- hello",
     "run:parallel": "npm run run -- parallel-pipeline",
     "run:spec": "tsc -b && tsx scripts/run-spec.ts",
+    "run:collector": "npm run run:spec -- agents/collector/runspec.collect.json collector",
     "smoke:llm": "tsc -b && tsx scripts/smoke-llm.ts",
     "smoke:runtime": "tsc -b && tsx scripts/smoke-runtime.ts",
-    "smoke": "npm run smoke:llm && npm run smoke:runtime"
+    "smoke:connectors": "tsc -b && tsx scripts/smoke-connectors.ts",
+    "smoke": "npm run smoke:llm && npm run smoke:runtime && npm run smoke:connectors"
   },
   "engines": {
     "node": ">=24.13.0",

@@ -26,6 +26,18 @@ export {
   type RunFromSpecResult,
   type VerifyContext,
 } from './runtime/index.js';
+export {
+  clearConnectors,
+  createDemoConnectors,
+  createMemoryConnector,
+  getConnector,
+  listConnectors,
+  registerConnector,
+  registerDemoConnectors,
+  type ConnectorSearchInput,
+  type CreateMemoryConnectorOptions,
+  type DataSourceConnector,
+} from './connectors/index.js';
 
 /** Re-export LLM resolution / registration helpers for agent authors. */
 export {

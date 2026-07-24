@@ -28,17 +28,29 @@
 - [x] Independent verifier（`contains` / `custom`）
 - [x] サンプル: `agents/runspec-demo` + `npm run run:spec`
 
+### データソース収集オーケストレーション（優先プロダクト方向）
+
+スケジューラ（KV / 高並列 serving）は本リポの主眼にしない。代わりに **複数データソースへ接続して情報をかき集め、1 つの成果物に合成する** 経路を厚くする。
+
+- [x] Connector 契約（`DataSourceConnector` + risk-aware tool）
+- [x] Connector registry / demo fixtures（KB / CRM / status）
+- [x] `agents/collector`: Parallel fan-out → synthesizer
+- [x] 収集用 RunSpec: `agents/collector/runspec.collect.json`
+
+```bash
+npm run smoke:connectors
+npm run run:collector   # GEMINI_API_KEY 等
+```
+
+実コネクタを足すときは `createMemoryConnector` と同型のファクトリで秘密情報を閉包し、`registerConnector` する（取得方法は利用側の責務）。
+
 未実装（意図的に後回し）:
 
 - 実 Docker/microVM sandbox
 - durable event store / exactly-once
 - Crab/DeltaBox 級 checkpoint
-- workflow-aware KV scheduler（ThunderAgent）
+- workflow-aware KV scheduler（不要寄り・本プロダクトでは非優先）
 - NLAH 自然言語 harness policy 実行器
-
-### Phase B 以降
-
-研究の P1–P3 に従い、bounded ACI、approval、process supervisor、checkpoint、並列評価を **計測後** に足す。multi-agent は同一予算 single-agent より改善する場合のみ。
 
 ## 最重要の設計判断（研究 §12.2）
 
