@@ -1,4 +1,3 @@
-import type { ProviderCredentials } from '@agent-env/shared';
 import {
   openAiChatCompletion,
   readNumberParam,
@@ -8,72 +7,101 @@ import type {
   LlmProvider,
   ProviderGenerateRequest,
   ProviderGenerateResult,
+  SecretSource,
 } from '../types.js';
+import { resolveSecret } from '../types.js';
+
+export type BaseUrlSource = string | (() => string | undefined | null);
+
+export interface CreateOpenaiCompatibleProviderOptions {
+  /**
+   * Unique registry id for this backend, e.g. "lm-studio", "ollama", "vllm-prod".
+   * Use a distinct id per endpoint so many compatible APIs can coexist.
+   */
+  id: string;
+  /** Chat Completions base URL, e.g. http://127.0.0.1:1234/v1 */
+  baseUrl: BaseUrlSource;
+  /**
+   * Optional API key. Many local servers accept any/empty value.
+   * How you obtain it (env, secret manager, …) is your responsibility.
+   */
+  apiKey?: SecretSource;
+  /** Default key sent when apiKey resolves empty. Default: "local". */
+  defaultApiKey?: string;
+}
+
+function resolveBaseUrl(source: BaseUrlSource): string | undefined {
+  const value = typeof source === 'function' ? source() : source;
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
 
 /**
- * OpenAI-compatible Chat Completions (LM Studio, Ollama, vLLM, LocalAI, etc.).
- *
- * Configured when OPENAI_COMPATIBLE_BASE_URL (or LM_STUDIO_BASE_URL) is set.
- * API key is optional (defaults to "local").
- * Per-call override: ModelRef.params.baseUrl / apiKey
- *
- * Examples:
- *   OPENAI_COMPATIBLE_BASE_URL=http://127.0.0.1:1234/v1   # LM Studio
- *   OPENAI_COMPATIBLE_BASE_URL=http://127.0.0.1:11434/v1  # Ollama
+ * Factory for one OpenAI-compatible endpoint (LM Studio, Ollama, vLLM, …).
+ * Register multiple instances with different `id`s to use several at once.
  */
-export const openaiCompatibleProvider: LlmProvider = {
-  id: 'openai-compatible',
+export function createOpenaiCompatibleProvider(
+  options: CreateOpenaiCompatibleProviderOptions,
+): LlmProvider {
+  const id = options.id.trim();
+  if (!id) {
+    throw new Error('createOpenaiCompatibleProvider requires a non-empty id');
+  }
 
-  isConfigured(credentials: ProviderCredentials): boolean {
-    return Boolean(credentials.openaiCompatibleBaseUrl?.trim());
-  },
+  return {
+    id,
+    kind: 'openai-compatible',
 
-  assertConfigured(credentials: ProviderCredentials): void {
-    if (!this.isConfigured(credentials)) {
-      throw new Error(
-        'openai-compatible provider requires OPENAI_COMPATIBLE_BASE_URL ' +
-          '(e.g. http://127.0.0.1:1234/v1 for LM Studio). ' +
-          'You can also pass params.baseUrl on the ModelRef.',
-      );
-    }
-  },
+    isConfigured(): boolean {
+      return Boolean(resolveBaseUrl(options.baseUrl));
+    },
 
-  async generate(
-    request: ProviderGenerateRequest,
-    credentials: ProviderCredentials,
-    abortSignal?: AbortSignal,
-  ): Promise<ProviderGenerateResult> {
-    const baseURL =
-      readStringParam(request.params, 'baseUrl') ??
-      readStringParam(request.params, 'baseURL') ??
-      credentials.openaiCompatibleBaseUrl?.trim();
+    assertConfigured(): void {
+      if (!this.isConfigured()) {
+        throw new Error(
+          `OpenAI-compatible provider "${id}" has no baseUrl. ` +
+            `Pass baseUrl when calling createOpenaiCompatibleProvider().`,
+        );
+      }
+    },
 
-    if (!baseURL) {
-      this.assertConfigured(credentials);
-      throw new Error('openai-compatible base URL missing');
-    }
+    async generate(
+      request: ProviderGenerateRequest,
+      abortSignal?: AbortSignal,
+    ): Promise<ProviderGenerateResult> {
+      const baseURL =
+        readStringParam(request.params, 'baseUrl') ??
+        readStringParam(request.params, 'baseURL') ??
+        resolveBaseUrl(options.baseUrl);
 
-    const apiKey =
-      readStringParam(request.params, 'apiKey') ??
-      credentials.openaiCompatibleApiKey?.trim() ??
-      'local';
+      if (!baseURL) {
+        this.assertConfigured();
+        throw new Error(`OpenAI-compatible provider "${id}" baseUrl missing`);
+      }
 
-    const result = await openAiChatCompletion({
-      apiKey,
-      baseURL,
-      model: request.model,
-      systemInstruction: request.systemInstruction,
-      messages: request.messages,
-      temperature: readNumberParam(request.params, 'temperature'),
-      maxTokens: readNumberParam(request.params, 'maxTokens'),
-      abortSignal,
-    });
+      const apiKey =
+        readStringParam(request.params, 'apiKey') ??
+        resolveSecret(options.apiKey) ??
+        options.defaultApiKey ??
+        'local';
 
-    return {
-      text: result.text,
-      modelVersion: result.model ?? request.model,
-      provider: 'openai-compatible',
-      model: request.model,
-    };
-  },
-};
+      const result = await openAiChatCompletion({
+        apiKey,
+        baseURL,
+        model: request.model,
+        systemInstruction: request.systemInstruction,
+        messages: request.messages,
+        temperature: readNumberParam(request.params, 'temperature'),
+        maxTokens: readNumberParam(request.params, 'maxTokens'),
+        abortSignal,
+      });
+
+      return {
+        text: result.text,
+        modelVersion: result.model ?? request.model,
+        provider: id,
+        model: request.model,
+      };
+    },
+  };
+}

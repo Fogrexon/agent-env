@@ -3,14 +3,15 @@ export type {
   ProviderGenerateRequest,
   ProviderGenerateResult,
   ProviderMessage,
+  SecretSource,
 } from './types.js';
+export { resolveSecret } from './types.js';
 export {
   assertAnyProvider,
   assertProviders,
   isProviderConfigured,
-  loadProviderCredentials,
   selectModelRef,
-} from './credentials.js';
+} from './checks.js';
 export {
   contentsToMessages,
   contentToText,
@@ -18,12 +19,41 @@ export {
   systemInstructionToText,
 } from './prompt.js';
 export { ProviderBackedLlm } from './provider-backed-llm.js';
-export { anthropicProvider } from './providers/anthropic.js';
-export { cursorProvider } from './providers/cursor.js';
-export { geminiProvider } from './providers/gemini.js';
-export { openaiCompatibleProvider } from './providers/openai-compatible.js';
-export { openaiProvider } from './providers/openai.js';
-export { getProvider, listProviders } from './registry.js';
+export {
+  createAnthropicProvider,
+  type CreateAnthropicProviderOptions,
+} from './providers/anthropic.js';
+export {
+  createCursorProvider,
+  type CreateCursorProviderOptions,
+} from './providers/cursor.js';
+export {
+  createGeminiProvider,
+  type CreateGeminiProviderOptions,
+} from './providers/gemini.js';
+export {
+  createOpenaiCompatibleProvider,
+  type BaseUrlSource,
+  type CreateOpenaiCompatibleProviderOptions,
+} from './providers/openai-compatible.js';
+export {
+  createOpenaiProvider,
+  type CreateOpenaiProviderOptions,
+} from './providers/openai.js';
+export {
+  clearProviders,
+  getProvider,
+  hasProvider,
+  listProviderIds,
+  listProviders,
+  registerProvider,
+  unregisterProvider,
+  type RegisterProviderOptions,
+} from './registry.js';
+export {
+  registerProviders,
+  type RegisterProvidersConfig,
+} from './register.js';
 export {
   openAiChatCompletion,
   readNumberParam,

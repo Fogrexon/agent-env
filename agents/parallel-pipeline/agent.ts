@@ -5,22 +5,26 @@ import {
   type ModelRef,
 } from '@agent-env/shared';
 import {
+  bootstrapProvidersFromEnv,
   defaultGeminiModelRef,
+  loadDotEnv,
   parseModelRef,
   resolveModel,
   selectModelRef,
-} from '@agent-env/llm';
+} from '@agent-env/harness';
+
+loadDotEnv();
+bootstrapProvidersFromEnv();
 
 /**
  * Multi-provider fan-out demo:
- * - pros  → Gemini (native)
- * - cons  → Cursor when CURSOR_API_KEY is set, else Gemini fallback
+ * - pros  → Gemini
+ * - cons  → Cursor when registered, else Gemini fallback
  * - synth → Gemini
  *
- * Override with env:
- *   AGENT_ENV_PROS_MODEL=gemini:gemini-2.5-flash
- *   AGENT_ENV_CONS_MODEL=cursor:composer-2
- *   AGENT_ENV_SYNTH_MODEL=gemini:gemini-2.5-flash
+ * OpenAI-compatible backends are registered under their own ids
+ * (e.g. lm-studio). Point AGENT_ENV_CONS_MODEL at them as needed:
+ *   AGENT_ENV_CONS_MODEL=lm-studio:local-model
  */
 function refFromEnv(key: string, fallback: ModelRef): ModelRef {
   return parseModelRef(process.env[key], fallback);
@@ -45,10 +49,6 @@ const synthRef = refFromEnv('AGENT_ENV_SYNTH_MODEL', defaultGeminiModelRef());
 /** Documented bindings for registry / admin UI. */
 export const pipelineModels: ModelRef[] = [prosRef, consRef, synthRef];
 
-/**
- * Fan-out workers write to distinct session.state keys via `outputKey`.
- * Do not share keys across parallel branches (race conditions).
- */
 const prosAgent = new LlmAgent({
   name: 'pros_analyst',
   model: resolveModel(prosRef),
@@ -92,10 +92,6 @@ Rules:
 - Keep the whole response under 200 words.`,
 });
 
-/**
- * Canonical parallel template: ParallelAgent (fan-out) → LlmAgent (gather).
- * Required export for ADK CLI / web: `rootAgent`.
- */
 export const rootAgent = new SequentialAgent({
   name: 'parallel_pipeline',
   description:

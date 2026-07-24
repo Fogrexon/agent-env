@@ -6,11 +6,16 @@ alwaysApply: false
 
 # Agent definitions
 
-各エージェントは `agents/<id>/agent.ts` に置き、必ず `rootAgent` を export する。
-
 ```typescript
+import {
+  loadDotEnv,
+  bootstrapProvidersFromEnv, // または自前の registerProviders
+  resolveModel,
+} from '@agent-env/harness';
 import { LlmAgent } from '@google/adk';
-import { resolveModel } from '@agent-env/llm';
+
+loadDotEnv();
+bootstrapProvidersFromEnv();
 
 export const rootAgent = new LlmAgent({
   name: 'my_agent',
@@ -19,27 +24,14 @@ export const rootAgent = new LlmAgent({
 });
 ```
 
-## モデル（ModelRef）
+## モデル
 
-- サブエージェントごとに異なる `provider` / `model` を渡してよい（並列併用可）
-- FunctionTools を使うエージェントは当面 `provider: 'gemini'`（ネイティブ ADK）
-- Cursor 等のアダプタは tool-less のテキスト完了向き（v1）
-
-## オーケストレーション
-
-- 直列: `SequentialAgent`
-- 並列: `ParallelAgent`（独立タスクのみ。結果は `outputKey` → session state）
-- 反復: `LoopAgent`
-- fan-out → gather: `SequentialAgent([ParallelAgent(...), synthesizer])`
-
-## スクリプト連携
-
-LLM 外処理は `FunctionTool` / `createTypedTool` で包む。副作用のある処理は tool 側に置き、instruction に「いつ呼ぶか」だけ書く。
+- `provider` は registry 上の id（`lm-studio` などカスタム可）
+- FunctionTools 付きは当面 `kind: "gemini"` の provider
+- 秘密情報は bootstrap / register 時に渡す（エージェント内で env 名をハードコードしないのが望ましい）
 
 ## チェック
 
-- [ ] `export const rootAgent` がある
-- [ ] `package.json` が workspace に載っている
-- [ ] `registry.ts` に manifest を追加した
-- [ ] ルート `tsconfig.json` の references に追加した
-- [ ] モデルは `resolveModel(ModelRef)` で指定している
+- [ ] `export const rootAgent`
+- [ ] provider が register 済みの状態で `resolveModel`
+- [ ] `registry.ts` / tsconfig references 更新

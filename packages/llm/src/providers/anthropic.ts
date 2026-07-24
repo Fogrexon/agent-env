@@ -1,12 +1,18 @@
 import Anthropic from '@anthropic-ai/sdk';
-import type { ProviderCredentials } from '@agent-env/shared';
 import { readNumberParam } from '../openai-chat.js';
 import type {
   LlmProvider,
   ProviderGenerateRequest,
   ProviderGenerateResult,
   ProviderMessage,
+  SecretSource,
 } from '../types.js';
+import { resolveSecret } from '../types.js';
+
+export interface CreateAnthropicProviderOptions {
+  id?: string;
+  apiKey: SecretSource;
+}
 
 function toAnthropicMessages(
   messages: ProviderMessage[],
@@ -14,7 +20,6 @@ function toAnthropicMessages(
   const out: Anthropic.MessageParam[] = [];
   for (const message of messages) {
     if (message.role === 'system') {
-      // Fold stray system turns into user text; top-level system is separate.
       out.push({ role: 'user', content: message.text });
       continue;
     }
@@ -26,65 +31,66 @@ function toAnthropicMessages(
   return out;
 }
 
-/**
- * Anthropic Messages API adapter.
- * Env: ANTHROPIC_API_KEY
- */
-export const anthropicProvider: LlmProvider = {
-  id: 'anthropic',
+export function createAnthropicProvider(
+  options: CreateAnthropicProviderOptions,
+): LlmProvider {
+  const id = options.id ?? 'anthropic';
 
-  isConfigured(credentials: ProviderCredentials): boolean {
-    return Boolean(credentials.anthropicApiKey?.trim());
-  },
+  return {
+    id,
+    kind: 'anthropic',
 
-  assertConfigured(credentials: ProviderCredentials): void {
-    if (!this.isConfigured(credentials)) {
-      throw new Error(
-        'Anthropic provider requires ANTHROPIC_API_KEY. See https://console.anthropic.com/',
+    isConfigured(): boolean {
+      return Boolean(resolveSecret(options.apiKey));
+    },
+
+    assertConfigured(): void {
+      if (!this.isConfigured()) {
+        throw new Error(
+          `Anthropic provider "${id}" has no API key. Pass apiKey when calling createAnthropicProvider().`,
+        );
+      }
+    },
+
+    async generate(
+      request: ProviderGenerateRequest,
+      abortSignal?: AbortSignal,
+    ): Promise<ProviderGenerateResult> {
+      this.assertConfigured();
+
+      const client = new Anthropic({
+        apiKey: resolveSecret(options.apiKey)!,
+      });
+
+      const maxTokens =
+        readNumberParam(request.params, 'maxTokens') ??
+        readNumberParam(request.params, 'max_tokens') ??
+        4096;
+      const temperature = readNumberParam(request.params, 'temperature');
+
+      const response = await client.messages.create(
+        {
+          model: request.model,
+          max_tokens: maxTokens,
+          temperature,
+          system: request.systemInstruction?.trim() || undefined,
+          messages: toAnthropicMessages(request.messages),
+        },
+        { signal: abortSignal },
       );
-    }
-  },
 
-  async generate(
-    request: ProviderGenerateRequest,
-    credentials: ProviderCredentials,
-    abortSignal?: AbortSignal,
-  ): Promise<ProviderGenerateResult> {
-    this.assertConfigured(credentials);
+      const text = response.content
+        .filter((block): block is Anthropic.TextBlock => block.type === 'text')
+        .map((block) => block.text)
+        .join('\n')
+        .trim();
 
-    const client = new Anthropic({
-      apiKey: credentials.anthropicApiKey!.trim(),
-    });
-
-    const maxTokens =
-      readNumberParam(request.params, 'maxTokens') ??
-      readNumberParam(request.params, 'max_tokens') ??
-      4096;
-
-    const temperature = readNumberParam(request.params, 'temperature');
-
-    const response = await client.messages.create(
-      {
+      return {
+        text,
+        modelVersion: response.model,
+        provider: id,
         model: request.model,
-        max_tokens: maxTokens,
-        temperature,
-        system: request.systemInstruction?.trim() || undefined,
-        messages: toAnthropicMessages(request.messages),
-      },
-      { signal: abortSignal },
-    );
-
-    const text = response.content
-      .filter((block): block is Anthropic.TextBlock => block.type === 'text')
-      .map((block) => block.text)
-      .join('\n')
-      .trim();
-
-    return {
-      text,
-      modelVersion: response.model,
-      provider: 'anthropic',
-      model: request.model,
-    };
-  },
-};
+      };
+    },
+  };
+}

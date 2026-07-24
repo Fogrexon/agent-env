@@ -1,10 +1,15 @@
 import { LlmAgent } from '@google/adk';
 import {
+  bootstrapProvidersFromEnv,
   createTypedTool,
-  resolveModel,
   defaultGeminiModelRef,
+  loadDotEnv,
+  resolveModel,
 } from '@agent-env/harness';
 import { z } from 'zod';
+
+loadDotEnv();
+bootstrapProvidersFromEnv();
 
 /**
  * Example of LLM-outside script integration via a typed FunctionTool.

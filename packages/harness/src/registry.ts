@@ -21,6 +21,7 @@ export const agentRegistry: readonly AgentManifest[] = [
     models: [
       { provider: 'gemini', model: 'gemini-2.5-flash' },
       { provider: 'cursor', model: 'composer-2' },
+      { provider: 'lm-studio', model: 'local-model' },
     ],
   },
 ] as const;

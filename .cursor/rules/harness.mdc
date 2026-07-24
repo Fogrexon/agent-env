@@ -6,10 +6,8 @@ alwaysApply: false
 
 # Harness & shared packages
 
-- `@agent-env/shared`: Zod スキーマと型のみ。ADK / SDK ランタイムに依存しない
-- `@agent-env/llm`: `LlmProvider` ポート・アダプタ・`resolveModel`（ベンダー差替の唯一の入口）
-- `@agent-env/harness`: `runAgent`・設定・レジストリ・`createTypedTool`
-- Web / API からエージェントを起動する場合は必ず `runAgent` を通す（Runner を直叩きしない）
-- `AgentRunResult` の形を壊す変更は shared のスキーマと一緒に更新する
-- 起動失敗と実行失敗を混同しない（例外 = 起動/インフラ、`status: 'error'` = 実行結果）
-- 新 provider は `packages/llm/src/providers/` に追加し `registry.ts` に登録する
+- `@agent-env/shared`: Zod と型のみ。ランタイム SDK に依存しない
+- `@agent-env/llm`: provider ファクトリ・registry・`resolveModel`（秘密情報はコンストラクタ注入）
+- `@agent-env/harness`: `runAgent`。`bootstrapProvidersFromEnv` は env を使う一例に過ぎない
+- OpenAI 互換を足すときはグローバルな単一 Base URL ではなく、新しい `id` で `createOpenaiCompatibleProvider` する
+- `AgentRunResult` の形を壊す変更は shared と一緒に更新する

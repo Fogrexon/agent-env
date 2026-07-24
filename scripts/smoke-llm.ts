@@ -1,55 +1,71 @@
 /**
- * Smoke checks for @agent-env/llm (no network / no API keys required).
+ * Smoke checks for @agent-env/llm (no network).
  * Run: npx tsx scripts/smoke-llm.ts
  */
 import {
-  parseModelRef,
-  selectModelRef,
+  clearProviders,
+  createOpenaiCompatibleProvider,
   isProviderConfigured,
-  loadProviderCredentials,
-  listProviders,
+  listProviderIds,
+  parseModelRef,
+  registerProvider,
+  registerProviders,
+  selectModelRef,
 } from '@agent-env/llm';
-import { DEFAULT_MODEL_REF, LLM_PROVIDER_IDS } from '@agent-env/shared';
+import { parseOpenaiCompatibleProvidersEnv } from '@agent-env/harness';
+import { DEFAULT_MODEL_REF } from '@agent-env/shared';
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
 }
 
-const bare = parseModelRef('gemini-2.5-pro');
-assert(bare.provider === 'gemini' && bare.model === 'gemini-2.5-pro', 'bare model');
+clearProviders();
 
-const qualified = parseModelRef('cursor:composer-2');
+registerProviders({
+  gemini: { apiKey: 'test-gemini' },
+  openai: { apiKey: () => 'sk-test' },
+  openaiCompatible: [
+    {
+      id: 'lm-studio',
+      baseUrl: 'http://127.0.0.1:1234/v1',
+      apiKey: () => process.env['LM_STUDIO_API_KEY'],
+    },
+    {
+      id: 'ollama',
+      baseUrl: 'http://127.0.0.1:11434/v1',
+    },
+  ],
+});
+
+assert(isProviderConfigured('gemini'), 'gemini configured');
+assert(isProviderConfigured('openai'), 'openai configured');
+assert(isProviderConfigured('lm-studio'), 'lm-studio configured');
+assert(isProviderConfigured('ollama'), 'ollama configured');
+assert(!isProviderConfigured('cursor'), 'cursor absent');
+
+const ids = listProviderIds().slice().sort();
 assert(
-  qualified.provider === 'cursor' && qualified.model === 'composer-2',
-  'qualified',
+  ids.join(',') === ['gemini', 'lm-studio', 'ollama', 'openai'].sort().join(','),
+  `ids=${ids.join(',')}`,
 );
 
-const openaiRef = parseModelRef('openai:gpt-4o-mini');
-assert(openaiRef.provider === 'openai' && openaiRef.model === 'gpt-4o-mini', 'openai');
-
-const anthropicRef = parseModelRef('anthropic:claude-sonnet-4-5');
-assert(
-  anthropicRef.provider === 'anthropic' &&
-    anthropicRef.model === 'claude-sonnet-4-5',
-  'anthropic',
-);
-
-const compatible = parseModelRef('openai-compatible:llama-3.2');
-assert(
-  compatible.provider === 'openai-compatible' &&
-    compatible.model === 'llama-3.2',
-  'openai-compatible',
-);
-
-const json = parseModelRef(
-  JSON.stringify({
-    provider: 'openai-compatible',
-    model: 'local-model',
-    params: { baseUrl: 'http://127.0.0.1:1234/v1' },
+registerProvider(
+  createOpenaiCompatibleProvider({
+    id: 'vllm',
+    baseUrl: () => 'http://127.0.0.1:8000/v1',
+    apiKey: 'unused',
   }),
 );
-assert(json.provider === 'openai-compatible', 'json provider');
-assert(json.params?.['baseUrl'] === 'http://127.0.0.1:1234/v1', 'json params');
+assert(isProviderConfigured('vllm'), 'vllm configured');
+
+const picked = selectModelRef(
+  { provider: 'cursor', model: 'composer-2' },
+  { provider: 'gemini', model: 'gemini-2.5-flash' },
+);
+assert(picked.provider === 'gemini', 'select fallback');
+
+const lm = parseModelRef('lm-studio:qwen2.5');
+assert(lm.provider === 'lm-studio' && lm.model === 'qwen2.5', 'named compatible');
 
 const empty = parseModelRef(undefined);
 assert(
@@ -58,29 +74,17 @@ assert(
   'fallback',
 );
 
-const creds = loadProviderCredentials({
-  geminiApiKey: 'x',
-  cursorApiKey: undefined,
-  openaiApiKey: 'sk-test',
-  anthropicApiKey: undefined,
-  openaiCompatibleBaseUrl: 'http://127.0.0.1:1234/v1',
-});
-const picked = selectModelRef(
-  { provider: 'cursor', model: 'composer-2' },
-  { provider: 'gemini', model: 'gemini-2.5-flash' },
-  creds,
+const parsed = parseOpenaiCompatibleProvidersEnv(
+  JSON.stringify([
+    {
+      id: 'lm-studio',
+      baseUrl: 'http://127.0.0.1:1234/v1',
+      apiKeyEnv: 'LM_STUDIO_API_KEY',
+    },
+    { id: 'ollama', baseUrl: 'http://127.0.0.1:11434/v1' },
+  ]),
 );
-assert(picked.provider === 'gemini', 'select fallback when cursor missing');
-assert(isProviderConfigured('gemini', creds), 'gemini configured');
-assert(isProviderConfigured('openai', creds), 'openai configured');
-assert(isProviderConfigured('openai-compatible', creds), 'compatible configured');
-assert(!isProviderConfigured('cursor', creds), 'cursor not configured');
-assert(!isProviderConfigured('anthropic', creds), 'anthropic not configured');
-
-const ids = listProviders().map((p) => p.id).sort();
-assert(
-  ids.join(',') === [...LLM_PROVIDER_IDS].sort().join(','),
-  'registry matches LLM_PROVIDER_IDS',
-);
+assert(parsed.length === 2, 'parse multi compatible');
+assert(parsed[0]?.apiKeyEnv === 'LM_STUDIO_API_KEY', 'apiKeyEnv');
 
 console.log('✓ smoke-llm passed');

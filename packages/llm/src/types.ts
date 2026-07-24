@@ -1,9 +1,6 @@
 import type { Content } from '@google/genai';
-import type {
-  LlmProviderId,
-  ModelRef,
-  ProviderCredentials,
-} from '@agent-env/shared';
+import type { BaseLlm } from '@google/adk';
+import type { LlmProviderId, ModelRef } from '@agent-env/shared';
 
 /** Normalized chat turn for provider adapters (ADK-agnostic). */
 export interface ProviderMessage {
@@ -29,17 +26,36 @@ export interface ProviderGenerateResult {
 
 /**
  * Vendor-neutral LLM completion port.
- * Orchestration (ADK) stays separate; adapters implement this.
+ * Secrets (API keys, etc.) are closed over at construction time by the
+ * caller / provider factory — not passed through a global credentials bag.
  */
 export interface LlmProvider {
   readonly id: LlmProviderId;
-  isConfigured(credentials: ProviderCredentials): boolean;
-  assertConfigured(credentials: ProviderCredentials): void;
+  /** Optional taxonomy hint, e.g. "openai-compatible". */
+  readonly kind?: string;
+  isConfigured(): boolean;
+  assertConfigured(): void;
   generate(
     request: ProviderGenerateRequest,
-    credentials: ProviderCredentials,
     abortSignal?: AbortSignal,
   ): Promise<ProviderGenerateResult>;
+  /**
+   * Optional ADK-native backend (used by Gemini for FunctionTools).
+   * When present, resolveModel prefers this over ProviderBackedLlm.
+   */
+  createAdkLlm?(model: string): BaseLlm;
 }
 
-export type { ModelRef, ProviderCredentials, LlmProviderId };
+/** string | lazy getter — how you load the secret is your concern. */
+export type SecretSource = string | (() => string | undefined | null);
+
+export function resolveSecret(
+  source: SecretSource | undefined,
+): string | undefined {
+  if (source == null) return undefined;
+  const value = typeof source === 'function' ? source() : source;
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : undefined;
+}
+
+export type { ModelRef, LlmProviderId };

@@ -5,26 +5,23 @@ alwaysApply: true
 
 # agent-env
 
-並列・自律エージェントのテンプレート / ハーネス用リポジトリ。オーケストレーション基盤は **Google ADK for TypeScript** (`@google/adk`)。LLM 呼び出しは **`@agent-env/llm` の provider アダプタ** 経由。
+並列・自律エージェントのテンプレート / ハーネス。オーケストレーションは **Google ADK**、LLM は **`@agent-env/llm` の provider registry**。
 
 ## レイヤ
 
 | 層 | 場所 | 役割 |
 |----|------|------|
-| Agents | `agents/*/agent.ts` | `rootAgent` 定義（ADK が発見） |
-| LLM | `packages/llm` | `ModelRef` 解決・Gemini / Cursor / OpenAI / Anthropic / OpenAI-compatible 等 |
-| Harness | `packages/harness` | `runAgent`・レジストリ・型付きツール |
-| Shared | `packages/shared` | Zod スキーマ / 共有型（将来の Web 管理と共用） |
-| Apps | `apps/` | 将来の管理 UI（未作成） |
-
-Cursor SDK（`@cursor/sdk`）はオーケストレーション基盤ではない。LLM provider アダプタの一実装として使う。
+| Agents | `agents/*/agent.ts` | `rootAgent` |
+| LLM | `packages/llm` | ファクトリ・registry・`resolveModel` |
+| Harness | `packages/harness` | `runAgent`・任意の env bootstrap |
+| Shared | `packages/shared` | Zod / 共有型 |
 
 ## 必須ルール
 
-- 言語は TypeScript。新規エージェントも TS で追加する
-- モデルは裸の文字列より `resolveModel({ provider, model })`（`ModelRef`）を使う
-- ツール引数は Zod。`createTypedTool` を優先する
-- 並列分岐の `outputKey` は一意にする（共有 state の競合を避ける）
-- シークレットは `.env` のみ。コミットしない
-- エージェント追加時は `packages/harness/src/registry.ts` も更新する
-- 新しい LLM ベンダーは `packages/llm` に `LlmProvider` を追加してからエージェントで参照する
+- 秘密情報（API キー等）の取得方法は利用側の責務。`create*Provider` / `registerProviders` に注入する
+- OpenAI 互換は `createOpenaiCompatibleProvider({ id, baseUrl, apiKey? })` を **id ごとに複数**登録してよい
+- モデルは `resolveModel({ provider, model })`（登録済み provider id）
+- ツール引数は Zod。`createTypedTool` を優先
+- 並列分岐の `outputKey` は一意
+- シークレットをコミットしない
+- エージェント追加時は `packages/harness/src/registry.ts` も更新

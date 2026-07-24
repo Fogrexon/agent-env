@@ -1,62 +1,79 @@
 import { GoogleGenAI } from '@google/genai';
-import type { ProviderCredentials } from '@agent-env/shared';
+import { Gemini, type BaseLlm } from '@google/adk';
 import type {
   LlmProvider,
   ProviderGenerateRequest,
   ProviderGenerateResult,
+  SecretSource,
 } from '../types.js';
+import { resolveSecret } from '../types.js';
 
-/**
- * Direct Gemini completion adapter (Google AI Studio / API key).
- * Prefer resolveModel() → ADK Gemini for tool-calling LlmAgents;
- * this adapter is used by ProviderBackedLlm and non-ADK callers.
- */
-export const geminiProvider: LlmProvider = {
-  id: 'gemini',
+export interface CreateGeminiProviderOptions {
+  /** Registry id. Default: "gemini". */
+  id?: string;
+  /** API key string or lazy getter — how you store it is up to you. */
+  apiKey: SecretSource;
+}
 
-  isConfigured(credentials: ProviderCredentials): boolean {
-    return Boolean(credentials.geminiApiKey?.trim());
-  },
+export function createGeminiProvider(
+  options: CreateGeminiProviderOptions,
+): LlmProvider {
+  const id = options.id ?? 'gemini';
 
-  assertConfigured(credentials: ProviderCredentials): void {
-    if (!this.isConfigured(credentials)) {
-      throw new Error(
-        'Gemini provider requires GEMINI_API_KEY (or GOOGLE_API_KEY). Copy .env.example to .env.',
-      );
-    }
-  },
+  return {
+    id,
+    kind: 'gemini',
 
-  async generate(
-    request: ProviderGenerateRequest,
-    credentials: ProviderCredentials,
-    abortSignal?: AbortSignal,
-  ): Promise<ProviderGenerateResult> {
-    this.assertConfigured(credentials);
-    const apiKey = credentials.geminiApiKey!.trim();
-    const client = new GoogleGenAI({ apiKey });
+    isConfigured(): boolean {
+      return Boolean(resolveSecret(options.apiKey));
+    },
 
-    const contents =
-      request.contents ??
-      request.messages.map((message) => ({
-        role: message.role === 'model' ? 'model' : 'user',
-        parts: [{ text: message.text }],
-      }));
+    assertConfigured(): void {
+      if (!this.isConfigured()) {
+        throw new Error(
+          `Gemini provider "${id}" has no API key. Pass apiKey when calling createGeminiProvider().`,
+        );
+      }
+    },
 
-    const response = await client.models.generateContent({
-      model: request.model,
-      contents,
-      config: {
-        systemInstruction: request.systemInstruction,
-        abortSignal,
-      },
-    });
+    createAdkLlm(model: string): BaseLlm {
+      this.assertConfigured();
+      return new Gemini({
+        model,
+        apiKey: resolveSecret(options.apiKey),
+      });
+    },
 
-    const text = response.text?.trim() ?? '';
-    return {
-      text,
-      modelVersion: request.model,
-      provider: 'gemini',
-      model: request.model,
-    };
-  },
-};
+    async generate(
+      request: ProviderGenerateRequest,
+      abortSignal?: AbortSignal,
+    ): Promise<ProviderGenerateResult> {
+      this.assertConfigured();
+      const apiKey = resolveSecret(options.apiKey)!;
+      const client = new GoogleGenAI({ apiKey });
+
+      const contents =
+        request.contents ??
+        request.messages.map((message) => ({
+          role: message.role === 'model' ? 'model' : 'user',
+          parts: [{ text: message.text }],
+        }));
+
+      const response = await client.models.generateContent({
+        model: request.model,
+        contents,
+        config: {
+          systemInstruction: request.systemInstruction,
+          abortSignal,
+        },
+      });
+
+      return {
+        text: response.text?.trim() ?? '',
+        modelVersion: request.model,
+        provider: id,
+        model: request.model,
+      };
+    },
+  };
+}

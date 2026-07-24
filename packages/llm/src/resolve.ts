@@ -8,32 +8,22 @@ import {
   llmProviderIdSchema,
   modelRefSchema,
   type ModelRef,
-  type ProviderCredentials,
 } from '@agent-env/shared';
-import { Gemini, type BaseLlm } from '@google/adk';
+import type { BaseLlm } from '@google/adk';
 import { ProviderBackedLlm } from './provider-backed-llm.js';
 import { getProvider } from './registry.js';
-import { loadProviderCredentials } from './credentials.js';
 
 export interface ResolveModelOptions {
-  credentials?: ProviderCredentials;
   /**
-   * When true (default), gemini refs use ADK's native Gemini class
-   * so FunctionTools / streaming stay first-class.
-   * When false, always wrap via ProviderBackedLlm.
+   * When true (default), use provider.createAdkLlm when available
+   * (Gemini FunctionTools / streaming).
    */
-  preferNativeGemini?: boolean;
+  preferNativeAdk?: boolean;
 }
 
 /**
  * Parse `provider:model` or JSON ModelRef from env / CLI.
- * Examples:
- *   gemini:gemini-2.5-flash
- *   cursor:composer-2
- *   openai:gpt-4o-mini
- *   anthropic:claude-sonnet-4-5
- *   openai-compatible:llama-3.2
- *   {"provider":"openai-compatible","model":"local-model","params":{"baseUrl":"http://127.0.0.1:1234/v1"}}
+ * Provider id is any registered string (including custom openai-compatible ids).
  */
 export function parseModelRef(
   raw: string | undefined | null,
@@ -56,7 +46,6 @@ export function parseModelRef(
     return { provider, model };
   }
 
-  // Bare model id → assume gemini (legacy AGENT_ENV_MODEL=gemini-2.5-flash)
   return { provider: 'gemini', model: text };
 }
 
@@ -69,32 +58,25 @@ export function modelRefFromEnv(
 
 /**
  * Resolve a ModelRef to an ADK BaseLlm instance.
- * Different agents/sub-agents can call this with different refs concurrently.
+ * The provider must already be registered (secrets closed over at register time).
  */
 export function resolveModel(
   ref: ModelRef,
   options: ResolveModelOptions = {},
 ): BaseLlm {
-  const credentials = options.credentials ?? loadProviderCredentials();
-  const preferNativeGemini = options.preferNativeGemini ?? true;
+  const preferNativeAdk = options.preferNativeAdk ?? true;
   const provider = getProvider(ref.provider);
-  // Credential checks happen on first generate (keeps agent module import cheap).
 
-  if (ref.provider === 'gemini' && preferNativeGemini) {
-    return new Gemini({
-      model: ref.model || DEFAULT_GEMINI_MODEL,
-      apiKey: credentials.geminiApiKey,
-    });
+  if (preferNativeAdk && provider.createAdkLlm) {
+    return provider.createAdkLlm(ref.model || DEFAULT_GEMINI_MODEL);
   }
 
   return new ProviderBackedLlm({
     modelRef: ref,
     provider,
-    credentials,
   });
 }
 
-/** Convenience: resolve from env string / ModelRef with gemini default. */
 export function resolveDefaultModel(
   options: ResolveModelOptions = {},
 ): BaseLlm {
@@ -130,11 +112,12 @@ export function defaultAnthropicModelRef(): ModelRef {
   };
 }
 
-export function defaultOpenaiCompatibleModelRef(): ModelRef {
-  return {
-    provider: 'openai-compatible',
-    model:
-      process.env['AGENT_ENV_OPENAI_COMPATIBLE_MODEL']?.trim() ||
-      DEFAULT_OPENAI_COMPATIBLE_MODEL,
-  };
+/** Helper for a named openai-compatible backend id (default model only). */
+export function defaultOpenaiCompatibleModelRef(
+  providerId: string,
+  model =
+    process.env['AGENT_ENV_OPENAI_COMPATIBLE_MODEL']?.trim() ||
+    DEFAULT_OPENAI_COMPATIBLE_MODEL,
+): ModelRef {
+  return { provider: providerId, model };
 }

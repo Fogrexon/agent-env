@@ -2,18 +2,13 @@ import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   DEFAULT_MODEL_REF,
-  LLM_PROVIDER_IDS,
   harnessConfigSchema,
   type HarnessConfig,
   type LlmProviderId,
   type ModelRef,
-  type ProviderCredentials,
 } from '@agent-env/shared';
-import {
-  assertAnyProvider,
-  loadProviderCredentials,
-  parseModelRef,
-} from '@agent-env/llm';
+import { assertAnyProvider, parseModelRef } from '@agent-env/llm';
+import { bootstrapProvidersFromEnv } from './providers-bootstrap.js';
 
 /** Lightweight .env loader (no extra dependency). Does not override existing env. */
 export function loadDotEnv(filePath = resolve(process.cwd(), '.env')): void {
@@ -52,35 +47,15 @@ function resolveDefaultModelRef(
 }
 
 /**
- * Load harness config from process.env.
- * Supports multiple LLM providers (Gemini, Cursor, OpenAI, Anthropic, OpenAI-compatible).
+ * Load harness config from process.env and (optionally) bootstrap providers.
+ * Secret sourcing via env is an app convenience — override by registering
+ * providers yourself before calling runAgent.
  */
 export function loadHarnessConfig(
   overrides: Partial<HarnessConfig> = {},
 ): HarnessConfig {
   loadDotEnv();
-
-  const fromEnv = loadProviderCredentials();
-  const credentials: ProviderCredentials = {
-    ...fromEnv,
-    ...overrides.credentials,
-    geminiApiKey:
-      overrides.credentials?.geminiApiKey ??
-      overrides.geminiApiKey ??
-      fromEnv.geminiApiKey,
-    cursorApiKey: overrides.credentials?.cursorApiKey ?? fromEnv.cursorApiKey,
-    openaiApiKey: overrides.credentials?.openaiApiKey ?? fromEnv.openaiApiKey,
-    openaiBaseUrl:
-      overrides.credentials?.openaiBaseUrl ?? fromEnv.openaiBaseUrl,
-    anthropicApiKey:
-      overrides.credentials?.anthropicApiKey ?? fromEnv.anthropicApiKey,
-    openaiCompatibleBaseUrl:
-      overrides.credentials?.openaiCompatibleBaseUrl ??
-      fromEnv.openaiCompatibleBaseUrl,
-    openaiCompatibleApiKey:
-      overrides.credentials?.openaiCompatibleApiKey ??
-      fromEnv.openaiCompatibleApiKey,
-  };
+  bootstrapProvidersFromEnv();
 
   const defaultModel = resolveDefaultModelRef(overrides);
 
@@ -89,40 +64,16 @@ export function loadHarnessConfig(
     model: defaultModel.model,
     appName: overrides.appName ?? process.env['AGENT_ENV_APP_NAME'] ?? 'agent-env',
     userId: overrides.userId ?? process.env['AGENT_ENV_USER_ID'] ?? 'local-user',
-    credentials,
-    geminiApiKey: credentials.geminiApiKey,
   });
 }
 
 /**
- * Ensure at least one usable provider is configured.
- * Pass `required` to demand specific providers for an agent graph.
+ * Ensure at least one registered provider is configured.
+ * Pass `required` to demand specific provider ids.
  */
 export function assertApiKey(
-  config: HarnessConfig,
-  required: readonly LlmProviderId[] = LLM_PROVIDER_IDS,
+  _config: HarnessConfig,
+  required?: readonly LlmProviderId[],
 ): void {
-  assertAnyProvider(required, config.credentials);
-
-  // Mirror keys into process.env for native SDK clients.
-  const pairs: Array<[string, string | undefined]> = [
-    ['GEMINI_API_KEY', config.credentials.geminiApiKey],
-    ['CURSOR_API_KEY', config.credentials.cursorApiKey],
-    ['OPENAI_API_KEY', config.credentials.openaiApiKey],
-    ['OPENAI_BASE_URL', config.credentials.openaiBaseUrl],
-    ['ANTHROPIC_API_KEY', config.credentials.anthropicApiKey],
-    [
-      'OPENAI_COMPATIBLE_BASE_URL',
-      config.credentials.openaiCompatibleBaseUrl,
-    ],
-    [
-      'OPENAI_COMPATIBLE_API_KEY',
-      config.credentials.openaiCompatibleApiKey,
-    ],
-  ];
-  for (const [key, value] of pairs) {
-    if (!process.env[key] && value) {
-      process.env[key] = value;
-    }
-  }
+  assertAnyProvider(required);
 }
