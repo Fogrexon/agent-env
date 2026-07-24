@@ -29,5 +29,6 @@
  * - 研究根拠: `docs/research/2026-07-23-llm-agent-execution-harness.md`
  *
  * ## 認証
- * 利用側が register 時に渡す。サンプルは `bootstrapProvidersFromEnv()`（`.env.example` 参照）
+ * 利用側が register 時に渡す。`packages/*` は process.env を読まない。
+ * このリポのエージェント用 env 配線は `agents/dev-env/`（`@agent-env/repo-env`）
  */

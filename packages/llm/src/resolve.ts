@@ -22,8 +22,8 @@ export interface ResolveModelOptions {
 }
 
 /**
- * Parse `provider:model` or JSON ModelRef from env / CLI.
- * Provider id is any registered string (including custom openai-compatible ids).
+ * Parse `provider:model` or JSON ModelRef from a string (CLI flag, config file, …).
+ * Does not read process.env — pass the raw string from the caller.
  */
 export function parseModelRef(
   raw: string | undefined | null,
@@ -49,13 +49,6 @@ export function parseModelRef(
   return { provider: 'gemini', model: text };
 }
 
-export function modelRefFromEnv(
-  envKey = 'AGENT_ENV_MODEL',
-  fallback: ModelRef = DEFAULT_MODEL_REF,
-): ModelRef {
-  return parseModelRef(process.env[envKey], fallback);
-}
-
 /**
  * Resolve a ModelRef to an ADK BaseLlm instance.
  * The provider must already be registered (secrets closed over at register time).
@@ -77,47 +70,42 @@ export function resolveModel(
   });
 }
 
+/** Resolve using an explicit ref, or the shared default constant. */
 export function resolveDefaultModel(
+  ref: ModelRef = DEFAULT_MODEL_REF,
   options: ResolveModelOptions = {},
 ): BaseLlm {
-  return resolveModel(modelRefFromEnv(), options);
+  return resolveModel(ref, options);
 }
 
-export function defaultCursorModelRef(): ModelRef {
-  return {
-    provider: 'cursor',
-    model: process.env['AGENT_ENV_CURSOR_MODEL']?.trim() || DEFAULT_CURSOR_MODEL,
-  };
+export function defaultCursorModelRef(
+  model: string = DEFAULT_CURSOR_MODEL,
+): ModelRef {
+  return { provider: 'cursor', model };
 }
 
-export function defaultGeminiModelRef(): ModelRef {
-  return modelRefFromEnv('AGENT_ENV_MODEL', {
-    provider: 'gemini',
-    model: DEFAULT_GEMINI_MODEL,
-  });
+export function defaultGeminiModelRef(
+  model: string = DEFAULT_GEMINI_MODEL,
+): ModelRef {
+  return { provider: 'gemini', model };
 }
 
-export function defaultOpenaiModelRef(): ModelRef {
-  return {
-    provider: 'openai',
-    model: process.env['AGENT_ENV_OPENAI_MODEL']?.trim() || DEFAULT_OPENAI_MODEL,
-  };
+export function defaultOpenaiModelRef(
+  model: string = DEFAULT_OPENAI_MODEL,
+): ModelRef {
+  return { provider: 'openai', model };
 }
 
-export function defaultAnthropicModelRef(): ModelRef {
-  return {
-    provider: 'anthropic',
-    model:
-      process.env['AGENT_ENV_ANTHROPIC_MODEL']?.trim() || DEFAULT_ANTHROPIC_MODEL,
-  };
+export function defaultAnthropicModelRef(
+  model: string = DEFAULT_ANTHROPIC_MODEL,
+): ModelRef {
+  return { provider: 'anthropic', model };
 }
 
 /** Helper for a named openai-compatible backend id (default model only). */
 export function defaultOpenaiCompatibleModelRef(
   providerId: string,
-  model =
-    process.env['AGENT_ENV_OPENAI_COMPATIBLE_MODEL']?.trim() ||
-    DEFAULT_OPENAI_COMPATIBLE_MODEL,
+  model: string = DEFAULT_OPENAI_COMPATIBLE_MODEL,
 ): ModelRef {
   return { provider: providerId, model };
 }

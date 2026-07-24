@@ -7,28 +7,27 @@ alwaysApply: false
 # Agent definitions
 
 ```typescript
-import {
-  loadDotEnv,
-  bootstrapProvidersFromEnv, // または自前の registerProviders
-  resolveModel,
-} from '@agent-env/harness';
+import { resolveModel, defaultGeminiModelRef } from '@agent-env/harness';
 import { LlmAgent } from '@google/adk';
+import { bootstrapProvidersFromEnv, loadDotEnv } from '@agent-env/repo-env';
 
+// env 配線はこのリポの agents/dev-env（packages 外）
 loadDotEnv();
 bootstrapProvidersFromEnv();
 
 export const rootAgent = new LlmAgent({
   name: 'my_agent',
-  model: resolveModel({ provider: 'gemini', model: 'gemini-2.5-flash' }),
+  model: resolveModel(defaultGeminiModelRef()),
   instruction: '...',
 });
 ```
 
-## モデル
+## モデル / 秘密情報
 
 - `provider` は registry 上の id（`lm-studio` などカスタム可）
 - FunctionTools 付きは当面 `kind: "gemini"` の provider
-- 秘密情報・コネクタ設定はエージェント / アプリ側で用意し、ファクトリ引数に渡す（harness のコネクタに FromEnv はない）
+- 秘密情報・コネクタ設定はエージェント側で用意し、ファクトリ引数に渡す
+- `@agent-env/llm` / `@agent-env/harness` に `*FromEnv` や固定 env 名前提を置かない
 
 ## チェック
 

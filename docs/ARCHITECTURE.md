@@ -57,8 +57,8 @@ npm run run:collector   # サンプル agent が env 等から設定を渡す
 | `createWebSearchConnector` | 公開 Web（Tavily / Brave） |
 | `createGrokBuildXSearchConnector` | X posts（Grok Build CLI） |
 
-コネクタ層は env 名を知らない。`apiKey` / `repo` / `headers` 等は **エージェント実装（またはアプリ）が注入**する。  
-`bootstrapProvidersFromEnv` は LLM 用の任意ヘルパーであり、コネクタには同等の FromEnv ファクトリを置かない。
+`@agent-env/llm` / `@agent-env/harness` は env 名を知らない。`apiKey` / `repo` / `headers` 等は **アプリ側が注入**する。  
+このリポの env 配線は `agents/dev-env/`（`@agent-env/repo-env`）のみ。`packages/*` には置かない。
 
 未実装（意図的に後回し）:
 

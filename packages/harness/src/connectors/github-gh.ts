@@ -33,17 +33,22 @@ export interface CreateGithubGhConnectorOptions {
   cwd?: string;
   /** Inject for tests. */
   runGh?: GhRunner;
+  /**
+   * Env for the `gh` child process. Default: inherit (Node spawn default).
+   * Pass explicitly in tests; do not use this for API-key config of the connector.
+   */
+  env?: NodeJS.ProcessEnv;
 }
 
 async function defaultRunGh(
   args: string[],
-  options: { cwd?: string; ghBin?: string } = {},
+  options: { cwd?: string; ghBin?: string; env?: NodeJS.ProcessEnv } = {},
 ): Promise<string> {
   const ghBin = options.ghBin ?? 'gh';
   return await new Promise((resolve, reject) => {
     const child = spawn(ghBin, args, {
       cwd: options.cwd,
-      env: process.env,
+      ...(options.env ? { env: options.env } : {}),
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     let stdout = '';
@@ -97,7 +102,11 @@ export function createGithubGhConnector(
   const runGh =
     options.runGh ??
     ((args, opts) =>
-      defaultRunGh(args, { cwd: opts?.cwd ?? options.cwd, ghBin: options.ghBin }));
+      defaultRunGh(args, {
+        cwd: opts?.cwd ?? options.cwd,
+        ghBin: options.ghBin,
+        env: options.env,
+      }));
 
   const resolveRepo = async (): Promise<string | undefined> => {
     const fromOpt =

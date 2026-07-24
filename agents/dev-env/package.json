@@ -1,0 +1,23 @@
+{
+  "name": "@agent-env/repo-env",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Env wiring for agents in this repository only — not a reusable library API",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "typecheck": "tsc -b --pretty false"
+  },
+  "dependencies": {
+    "@agent-env/harness": "0.1.0",
+    "@agent-env/llm": "0.1.0"
+  }
+}

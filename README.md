@@ -1,15 +1,16 @@
 # agent-env
 
-並列・自律エージェント用の **TypeScript テンプレート / ハーネス**。オーケストレーションは [Google ADK](https://google.github.io/adk-docs/)（`@google/adk`）、LLM 呼び出しは **provider アダプタ**（`@agent-env/llm`）経由で差し替え・併用できます。
+並列・自律エージェント用の **TypeScript テンプレート / ハーネス**。オーケストレーションは [Google ADK](https://google.github.io/adk-docs/)（`@google/adk`）、LLM 呼び出しは **provider アダプタ**（`@agent-env/llm`）、データソースは **connector**（`@agent-env/harness`）経由で差し替え・併用できます。
 
 ## 構成
 
 ```
-agents/                  # ADK エージェント（rootAgent）+ runspec-demo
+agents/                  # ADK エージェント（rootAgent）
+  dev-env/               # このリポ専用の env 配線（@agent-env/repo-env・ライブラリAPIではない）
 packages/
-  shared/                # Zod（ModelRef / RunSpec / Event）
-  llm/                   # provider ファクトリ・registry
-  harness/               # runAgent / runFromSpec / guarded tools
+  shared/                # Zod（ModelRef / RunSpec / Connector meta）
+  llm/                   # provider ファクトリ・registry（env を読まない）
+  harness/               # runAgent / runFromSpec / connectors（env を読まない）
 docs/                    # ARCHITECTURE + 研究レポート
 apps/                    # 将来の管理 UI
 scripts/                 # run / run-spec / smoke
@@ -18,19 +19,21 @@ scripts/                 # run / run-spec / smoke
 ## セットアップ
 
 ```bash
-cp .env.example .env
-# 利用する provider に必要な値を設定（またはコードから registerProviders）
+cp .env.example .env     # このリポのエージェント用。本番では任意の秘密管理で可
 npm install
 npm run build
 ```
 
 Node.js **≥ 24.13** / npm **≥ 11.8** を想定しています。
 
-## Provider の考え方
+## 設定と秘密情報
 
-- **ライブラリ**は「どう秘密情報を取るか」を決めない
-- **利用側**が `create*Provider` / `registerProviders` で API キーや Base URL を渡す
-- OpenAI 互換サーバは **id を分けて複数登録**できる（LM Studio / Ollama / vLLM …）
+`@agent-env/llm` と `@agent-env/harness` は **env 名も `.env` も知りません**。  
+利用側が `create*Provider` / `create*Connector` にキーや URL を渡します。
+
+このリポジトリのエージェントは `@agent-env/repo-env`（`agents/dev-env/`）から env を読んで渡しています。別アプリではそのパッケージを使わず、自前で `registerProviders` / connector を配線してください。
+
+## Provider の例
 
 ```typescript
 import {
@@ -41,21 +44,20 @@ import {
 } from '@agent-env/llm';
 
 registerProviders({
-  gemini: { apiKey: () => process.env.GEMINI_API_KEY },
-  openai: { apiKey: process.env.OPENAI_API_KEY! },
-  anthropic: { apiKey: () => process.env.ANTHROPIC_API_KEY },
-  cursor: { apiKey: () => process.env.CURSOR_API_KEY },
+  gemini: { apiKey: () => mySecrets.gemini },
+  openai: { apiKey: mySecrets.openai },
+  anthropic: { apiKey: () => mySecrets.anthropic },
+  cursor: { apiKey: () => mySecrets.cursor },
   openaiCompatible: [
     {
       id: 'lm-studio',
       baseUrl: 'http://127.0.0.1:1234/v1',
-      apiKey: () => process.env.LM_STUDIO_API_KEY, // 任意
+      apiKey: () => mySecrets.lmStudio,
     },
     { id: 'ollama', baseUrl: 'http://127.0.0.1:11434/v1' },
   ],
 });
 
-// 追加の互換エンドポイントを後から足すことも可
 registerProvider(
   createOpenaiCompatibleProvider({
     id: 'vllm-prod',
@@ -65,20 +67,9 @@ registerProvider(
 );
 
 resolveModel({ provider: 'lm-studio', model: 'local-model' });
-resolveModel({ provider: 'ollama', model: 'llama3.2' });
-```
-
-ハーネスの `bootstrapProvidersFromEnv()` は **env を読む一例**です（`runAgent` / サンプルエージェントが利用）。Vault 等にしたい場合は自前で `registerProviders` してください。
-
-複数の OpenAI 互換を env で渡す例:
-
-```bash
-OPENAI_COMPATIBLE_PROVIDERS=[{"id":"lm-studio","baseUrl":"http://127.0.0.1:1234/v1","apiKeyEnv":"LM_STUDIO_API_KEY"},{"id":"ollama","baseUrl":"http://127.0.0.1:11434/v1"}]
 ```
 
 ## RunSpec（Phase A）
-
-研究レポートに沿った **version 付き実行仕様 → state machine → 独立 verifier** の入口です。
 
 ```bash
 npm run smoke:runtime
@@ -91,73 +82,46 @@ npm run run:spec -- agents/runspec-demo/runspec.demo.json
 
 ```bash
 npm run smoke:connectors
+npm run smoke:connectors:http
 npm run run:collector
-# 同等: npm run run:spec -- agents/collector/runspec.collect.json collector
 ```
 
-自前ソースを足す例:
+| ファクトリ | 用途 |
+|------------|------|
+| `createMemoryConnector` | フィクスチャ / ローカル配列 |
+| `createSimpleHttpJsonConnector` | REST JSON（最速追加） |
+| `createHttpJsonConnector` | リクエスト / マッピング完全制御 |
+| `createGithubGhConnector` | `gh search` issues/PRs |
+| `createWebSearchConnector` | 公開 Web（Tavily / Brave） |
+| `createGrokBuildXSearchConnector` | X posts（Grok Build headless） |
 
 ```typescript
 import {
-  createMemoryConnector,
-  createSimpleHttpJsonConnector,
-  createGithubGhConnector,
-  createGrokBuildXSearchConnector,
   createWebSearchConnector,
+  createGrokBuildXSearchConnector,
+  createGithubGhConnector,
   registerConnectors,
-  registerConnector,
 } from '@agent-env/harness';
 
-// まとめて登録（設定・秘密は呼び出し側が渡す。harness は env を読まない）
 await registerConnectors({
   demo: true,
-  githubGh: { repo: 'owner/name' }, // 認証は `gh auth` 側
-  grokBuildX: true, // `grok` があれば X 検索（認証は `grok login`）
+  githubGh: { repo: 'owner/name' },
+  grokBuildX: { model: 'grok-4' },
   webSearch: {
     provider: 'tavily',
-    apiKey: () => process.env.TAVILY_API_KEY, // env はアプリ側の選択
+    apiKey: () => mySecretStore.get('tavily'),
   },
-  http: [
-    {
-      id: 'posts',
-      title: 'Posts API',
-      description: 'REST JSON list',
-      url: 'https://jsonplaceholder.typicode.com/posts',
-      titleKey: 'title',
-      snippetKey: 'body',
-      headers: () => ({
-        Authorization: `Bearer ${process.env.MY_API_TOKEN}`,
-      }),
-    },
-  ],
 });
-
-// 個別追加も可
-registerConnector(
-  createMemoryConnector({
-    id: 'notion_mirror',
-    title: 'Notion mirror',
-    description: 'Locally synced pages',
-    records: [{ title: 'RFC', body: '...' }],
-  }),
-);
-
-registerConnector(
-  createGithubGhConnector({ repo: () => process.env.GH_REPO }),
-);
 
 registerConnector(
   createWebSearchConnector({
     provider: 'tavily',
-    apiKey: () => process.env.TAVILY_API_KEY,
+    apiKey: () => mySecretStore.get('tavily'),
   }),
 );
-
-registerConnector(createGrokBuildXSearchConnector());
 ```
 
-詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) と  
-[docs/research/2026-07-23-llm-agent-execution-harness.md](./docs/research/2026-07-23-llm-agent-execution-harness.md) を参照。
+詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)。
 
 ## 実行
 
@@ -165,7 +129,7 @@ registerConnector(createGrokBuildXSearchConnector());
 npm run adk:web
 npm run run -- hello "ホストの現在時刻を教えて"
 npm run run -- parallel-pipeline "リモートワークを評価して"
-npm run smoke:llm
+npm run smoke
 ```
 
 ## モデル指定（ModelRef）
@@ -185,7 +149,7 @@ model: resolveModel({ provider: 'lm-studio', model: 'local-model' })
 
 ## 新しいエージェント
 
-1. `agents/<id>/agent.ts` で provider を register してから `resolveModel`
+1. `agents/<id>/agent.ts` で provider / connector を register してから `resolveModel`
 2. workspace `package.json` / `tsconfig.json`
 3. `packages/harness/src/registry.ts` に manifest
 4. ルート `tsconfig.json` の references
