@@ -17,7 +17,10 @@
     "run": "tsc -b && tsx scripts/run.ts",
     "run:hello": "npm run run -- hello",
     "run:parallel": "npm run run -- parallel-pipeline",
-    "smoke:llm": "tsc -b && tsx scripts/smoke-llm.ts"
+    "run:spec": "tsc -b && tsx scripts/run-spec.ts",
+    "smoke:llm": "tsc -b && tsx scripts/smoke-llm.ts",
+    "smoke:runtime": "tsc -b && tsx scripts/smoke-runtime.ts",
+    "smoke": "npm run smoke:llm && npm run smoke:runtime"
   },
   "engines": {
     "node": ">=24.13.0",

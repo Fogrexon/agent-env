@@ -6,6 +6,7 @@
     { "path": "packages/harness" },
     { "path": "agents/hello" },
     { "path": "agents/parallel-pipeline" },
+    { "path": "agents/runspec-demo" },
     { "path": "scripts" }
   ]
 }

@@ -5,13 +5,14 @@
 ## 構成
 
 ```
-agents/                  # ADK エージェント（各フォルダが rootAgent を export）
+agents/                  # ADK エージェント（rootAgent）+ runspec-demo
 packages/
-  shared/                # Zod スキーマ・共有型
-  llm/                   # LlmProvider ポート・ファクトリ・registry・resolveModel
-  harness/               # runAgent・（任意）env からの bootstrap
+  shared/                # Zod（ModelRef / RunSpec / Event）
+  llm/                   # provider ファクトリ・registry
+  harness/               # runAgent / runFromSpec / guarded tools
+docs/                    # ARCHITECTURE + 研究レポート
 apps/                    # 将来の管理 UI
-scripts/run.ts           # CLI
+scripts/                 # run / run-spec / smoke
 ```
 
 ## セットアップ
@@ -74,6 +75,18 @@ resolveModel({ provider: 'ollama', model: 'llama3.2' });
 ```bash
 OPENAI_COMPATIBLE_PROVIDERS=[{"id":"lm-studio","baseUrl":"http://127.0.0.1:1234/v1","apiKeyEnv":"LM_STUDIO_API_KEY"},{"id":"ollama","baseUrl":"http://127.0.0.1:11434/v1"}]
 ```
+
+## RunSpec（Phase A）
+
+研究レポートに沿った **version 付き実行仕様 → state machine → 独立 verifier** の入口です。
+
+```bash
+npm run smoke:runtime
+npm run run:spec -- agents/runspec-demo/runspec.demo.json
+```
+
+詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md) と  
+[docs/research/2026-07-23-llm-agent-execution-harness.md](./docs/research/2026-07-23-llm-agent-execution-harness.md) を参照。
 
 ## 実行
 
