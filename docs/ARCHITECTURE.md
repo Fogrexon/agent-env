@@ -25,8 +25,9 @@
 - [x] Append-only event log（in-memory）
 - [x] Hard budget（tool / wall / tokens / cost）
 - [x] Tool risk T0–T3 + fail-closed T2/T3（`createGuardedTool`）
-- [x] Independent verifier（`contains` / `custom`）
-- [x] サンプル: `agents/runspec-demo` + `npm run run:spec`
+- [x] Independent verifier（`test_suite` / `json_schema` / `artifact_*` / `custom` / 補助 `llm_grade`）
+- [x] LLM-as-judge 単独禁止（`allowLlmGradeAlone` デフォルト false）
+- [x] サンプル: `agents/runspec-demo`（構造化 artifact + 外部 process oracle）+ `npm run run:spec`
 
 ### データソース収集オーケストレーション（優先プロダクト方向）
 
@@ -59,6 +60,19 @@ npm run run:collector   # サンプル agent が env 等から設定を渡す
 
 `@agent-env/llm` / `@agent-env/harness` は env 名を知らない。`apiKey` / `repo` / `headers` 等は **アプリ側が注入**する。  
 このリポの env 配線は `agents/dev-env/`（`@agent-env/repo-env`）のみ。`packages/*` には置かない。
+
+### Evaluation plane（合否）
+
+成功は agent の自己申告ではない。`verifyRunSpec` が RunSpec の `successCriteria` を評価する。
+
+| criterion | 判定材料 | 強さ |
+|-----------|----------|------|
+| `test_suite` | `VerifyContext.testSuites`（例: `createCommandTestSuite`） | 強（外部 process） |
+| `json_schema` | artifact + 登録 Zod スキーマ | 強 |
+| `artifact_equals` / `artifact_path_exists` | `VerifyContext.artifacts` | 強 |
+| `custom` | 呼び出し側 predicate | 強〜中 |
+| `contains` | finalText 部分一致 | 弱（自己申告しやすい） |
+| `llm_grade` | 注入した別 grader（`createTextLlmGrader`） | 補助のみ（単独不可） |
 
 未実装（意図的に後回し）:
 

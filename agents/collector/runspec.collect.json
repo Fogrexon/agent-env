@@ -12,19 +12,8 @@
       "objective": "Prepare a short briefing about customer risk and current API latency for ops + account teams.",
       "successCriteria": [
         {
-          "type": "contains",
-          "text": "Sources",
-          "caseInsensitive": true
-        },
-        {
-          "type": "contains",
-          "text": "Recommendation",
-          "caseInsensitive": true
-        },
-        {
-          "type": "contains",
-          "text": "verified",
-          "caseInsensitive": true
+          "type": "custom",
+          "verifierId": "collector_brief_structure"
         }
       ]
     },

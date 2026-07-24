@@ -103,14 +103,31 @@ export const harnessPolicySpecSchema = z.object({
 });
 export type HarnessPolicySpec = z.infer<typeof harnessPolicySpecSchema>;
 
+/**
+ * Postconditions evaluated by the independent verifier (not the agent).
+ * Prefer deterministic types (test_suite / json_schema / artifact_*) over contains / llm_grade.
+ */
 export const successCriterionSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('test_suite'),
+    /** Registry key for a TestSuiteRunner supplied in VerifyContext. */
     ref: z.string().min(1),
   }),
   z.object({
     type: z.literal('json_schema'),
+    /** Registry key for a Zod schema (or parseable validator) in VerifyContext. */
     schemaRef: z.string().min(1),
+    /** Key into VerifyContext.artifacts. Default: "output". */
+    artifactKey: z.string().min(1).default('output'),
+  }),
+  z.object({
+    type: z.literal('artifact_equals'),
+    key: z.string().min(1),
+    expected: z.unknown(),
+  }),
+  z.object({
+    type: z.literal('artifact_path_exists'),
+    key: z.string().min(1),
   }),
   z.object({
     type: z.literal('contains'),
@@ -121,8 +138,26 @@ export const successCriterionSchema = z.discriminatedUnion('type', [
     type: z.literal('custom'),
     verifierId: z.string().min(1),
   }),
+  z.object({
+    type: z.literal('llm_grade'),
+    /**
+     * Rubric / question for an injected grader model.
+     * Cannot be the sole criterion unless evaluation.allowLlmGradeAlone is true.
+     */
+    rubric: z.string().min(1),
+    passLabel: z.string().min(1).default('PASS'),
+  }),
 ]);
 export type SuccessCriterion = z.infer<typeof successCriterionSchema>;
+
+/** Criterion types treated as deterministic (external evidence / code). */
+export const DETERMINISTIC_CRITERION_TYPES = [
+  'test_suite',
+  'json_schema',
+  'artifact_equals',
+  'artifact_path_exists',
+  'custom',
+] as const;
 
 /**
  * Versioned intent before execution (research §6.1).
@@ -185,8 +220,17 @@ export const runSpecSchema = z.object({
         graderVersion: z.string().default('local-v1'),
         seed: z.number().int().optional(),
         repetitions: z.number().int().positive().default(1),
+        /**
+         * When false (default), llm_grade alone cannot pass a run
+         * (research: LLM-as-judge is not a sole release gate).
+         */
+        allowLlmGradeAlone: z.boolean().default(false),
       })
-      .default({ graderVersion: 'local-v1', repetitions: 1 }),
+      .default({
+        graderVersion: 'local-v1',
+        repetitions: 1,
+        allowLlmGradeAlone: false,
+      }),
     retention: z
       .object({
         eventDays: z.number().int().positive().default(30),

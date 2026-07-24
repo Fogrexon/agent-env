@@ -3,18 +3,26 @@
   "kind": "RunSpec",
   "metadata": {
     "tenantId": "local-demo",
-    "idempotencyKey": "runspec-demo-v1"
+    "idempotencyKey": "runspec-demo-v2-eval"
   },
   "spec": {
     "task": {
       "taskId": "demo-brief",
-      "revision": "2026-07-24",
+      "revision": "2026-07-24-eval",
       "objective": "Summarize what a RunSpec-driven harness should measure for one coding-style agent run.",
       "successCriteria": [
         {
-          "type": "contains",
-          "text": "verified",
-          "caseInsensitive": true
+          "type": "json_schema",
+          "schemaRef": "brief-v1",
+          "artifactKey": "brief"
+        },
+        {
+          "type": "custom",
+          "verifierId": "brief_has_recommendation"
+        },
+        {
+          "type": "test_suite",
+          "ref": "oracle-process"
         }
       ]
     },
@@ -36,7 +44,7 @@
     "tools": {
       "allow": [
         {
-          "name": "echo_note",
+          "name": "save_brief",
           "version": "1.0",
           "riskClass": "T0",
           "sideEffect": "none",
@@ -56,8 +64,9 @@
       "maxWallSeconds": 180
     },
     "evaluation": {
-      "graderVersion": "demo-contains-v1",
-      "repetitions": 1
+      "graderVersion": "demo-deterministic-v1",
+      "repetitions": 1,
+      "allowLlmGradeAlone": false
     }
   }
 }
