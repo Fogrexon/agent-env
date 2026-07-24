@@ -55,6 +55,7 @@ const proposePublish = createGuardedTool({
 
 /**
  * Demonstrates research-aligned harness usage via RunSpec (see scripts/run-spec.ts).
+ * Stays on Gemini: ADK FunctionTools are not bridged for Cursor/ProviderBackedLlm yet.
  * Agent instruction asks for a brief plan that includes the keyword "verified".
  */
 export const rootAgent = new LlmAgent({

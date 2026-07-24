@@ -84,5 +84,12 @@ export {
   resolveModel,
   selectModelRef,
   unregisterProvider,
+  type AnthropicVertexOptions,
+  type CreateAnthropicProviderOptions,
+  type CreateCursorProviderOptions,
+  type CreateGeminiProviderOptions,
+  type CreateOpenaiCompatibleProviderOptions,
+  type CreateOpenaiProviderOptions,
+  type GeminiVertexOptions,
   type RegisterProvidersConfig,
 } from '@agent-env/llm';

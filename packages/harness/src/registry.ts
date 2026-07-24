@@ -9,18 +9,19 @@ export const agentRegistry: readonly AgentManifest[] = [
   {
     id: 'hello',
     name: 'hello',
-    description: 'Minimal LlmAgent + typed FunctionTool (script integration).',
+    description: 'Minimal LlmAgent on Cursor SDK (Gemini fallback).',
     entry: 'agents/hello/agent.ts',
+    models: [{ provider: 'cursor', model: 'composer-2' }],
   },
   {
     id: 'parallel-pipeline',
     name: 'parallel_pipeline',
     description:
-      'Fan-out / gather with per-branch ModelRef (Gemini + Cursor when configured).',
+      'Fan-out / gather with per-branch ModelRef (Cursor by default).',
     entry: 'agents/parallel-pipeline/agent.ts',
     models: [
-      { provider: 'gemini', model: 'gemini-2.5-flash' },
       { provider: 'cursor', model: 'composer-2' },
+      { provider: 'gemini', model: 'gemini-2.5-flash' },
       { provider: 'lm-studio', model: 'local-model' },
     ],
   },
@@ -28,7 +29,7 @@ export const agentRegistry: readonly AgentManifest[] = [
     id: 'runspec-demo',
     name: 'runspec_demo',
     description:
-      'Phase A RunSpec demo: guarded tools (T0/T2), events, independent verifier.',
+      'Phase A RunSpec demo: guarded tools (T0/T2), events, independent verifier (Gemini + FunctionTools).',
     entry: 'agents/runspec-demo/agent.ts',
     models: [{ provider: 'gemini', model: 'gemini-2.5-flash' }],
   },
@@ -36,9 +37,12 @@ export const agentRegistry: readonly AgentManifest[] = [
     id: 'collector',
     name: 'collector',
     description:
-      'Multi-source collector: parallel KB/CRM/status connectors → synthesized brief.',
+      'Multi-source collector: Gemini tool workers + Cursor synthesizer when configured.',
     entry: 'agents/collector/agent.ts',
-    models: [{ provider: 'gemini', model: 'gemini-2.5-flash' }],
+    models: [
+      { provider: 'gemini', model: 'gemini-2.5-flash' },
+      { provider: 'cursor', model: 'composer-2' },
+    ],
   },
 ] as const;
 

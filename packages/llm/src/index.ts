@@ -21,6 +21,7 @@ export {
 export { ProviderBackedLlm } from './provider-backed-llm.js';
 export {
   createAnthropicProvider,
+  type AnthropicVertexOptions,
   type CreateAnthropicProviderOptions,
 } from './providers/anthropic.js';
 export {
@@ -30,6 +31,7 @@ export {
 export {
   createGeminiProvider,
   type CreateGeminiProviderOptions,
+  type GeminiVertexOptions,
 } from './providers/gemini.js';
 export {
   createOpenaiCompatibleProvider,

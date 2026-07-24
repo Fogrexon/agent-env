@@ -68,6 +68,28 @@ export function parseOpenaiCompatibleProvidersJson(
   });
 }
 
+function envFlagTrue(name: string): boolean {
+  const raw = process.env[name]?.trim().toLowerCase();
+  return raw === '1' || raw === 'true' || raw === 'yes';
+}
+
+function gcpProject(): string | undefined {
+  return (
+    process.env['GOOGLE_CLOUD_PROJECT']?.trim() ||
+    process.env['GCLOUD_PROJECT']?.trim() ||
+    process.env['ANTHROPIC_VERTEX_PROJECT_ID']?.trim() ||
+    undefined
+  );
+}
+
+function gcpLocation(): string | undefined {
+  return (
+    process.env['GOOGLE_CLOUD_LOCATION']?.trim() ||
+    process.env['CLOUD_ML_REGION']?.trim() ||
+    undefined
+  );
+}
+
 /** Register LLM providers from process.env (this app's convention). */
 export function bootstrapProvidersFromEnv(): void {
   const config: RegisterProvidersConfig = { replace: false };
@@ -78,6 +100,20 @@ export function bootstrapProvidersFromEnv(): void {
   if (geminiKey && !hasProvider('gemini')) {
     config.gemini = {
       apiKey: () => process.env['GEMINI_API_KEY'] ?? process.env['GOOGLE_API_KEY'],
+    };
+  } else if (
+    envFlagTrue('GOOGLE_GENAI_USE_VERTEXAI') &&
+    gcpProject() &&
+    gcpLocation() &&
+    !hasProvider('gemini')
+  ) {
+    config.gemini = {
+      vertex: {
+        project: () =>
+          process.env['GOOGLE_CLOUD_PROJECT'] ?? process.env['GCLOUD_PROJECT'],
+        location: () =>
+          process.env['GOOGLE_CLOUD_LOCATION'] ?? process.env['CLOUD_ML_REGION'],
+      },
     };
   }
 
@@ -92,8 +128,25 @@ export function bootstrapProvidersFromEnv(): void {
     };
   }
 
-  if (process.env['ANTHROPIC_API_KEY']?.trim() && !hasProvider('anthropic')) {
+  const anthropicKey = process.env['ANTHROPIC_API_KEY']?.trim();
+  if (anthropicKey && !hasProvider('anthropic')) {
     config.anthropic = { apiKey: () => process.env['ANTHROPIC_API_KEY'] };
+  } else if (
+    envFlagTrue('ANTHROPIC_USE_VERTEXAI') &&
+    gcpProject() &&
+    gcpLocation() &&
+    !hasProvider('anthropic')
+  ) {
+    config.anthropic = {
+      vertex: {
+        projectId: () =>
+          process.env['ANTHROPIC_VERTEX_PROJECT_ID'] ??
+          process.env['GOOGLE_CLOUD_PROJECT'] ??
+          process.env['GCLOUD_PROJECT'],
+        region: () =>
+          process.env['CLOUD_ML_REGION'] ?? process.env['GOOGLE_CLOUD_LOCATION'],
+      },
+    };
   }
 
   try {

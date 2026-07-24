@@ -1,49 +1,24 @@
 import { LlmAgent } from '@google/adk';
-import {
-  createTypedTool,
-  defaultGeminiModelRef,
-  resolveModel,
-} from '@agent-env/harness';
-import { z } from 'zod';
+import { defaultCursorModelRef, resolveModel, selectModelRef } from '@agent-env/harness';
+import { DEFAULT_CURSOR_MODEL, DEFAULT_GEMINI_MODEL } from '@agent-env/shared';
 import { bootstrapProvidersFromEnv, loadDotEnv } from '@agent-env/repo-env';
 
 loadDotEnv();
 bootstrapProvidersFromEnv();
 
 /**
- * Example of LLM-outside script integration via a typed FunctionTool.
- * Replace `execute` with any Node-side logic (HTTP, DB, CLI, etc.).
+ * Minimal single-agent template on Cursor SDK.
+ * (ADK FunctionTools still need a gemini provider — see runspec-demo / collector.)
  */
-const getWorkspaceClock = createTypedTool({
-  name: 'get_workspace_clock',
-  description: 'Returns the current ISO timestamp and timezone offset for the host.',
-  parameters: z.object({
-    label: z
-      .string()
-      .describe('Short label to include in the report, e.g. "standup".'),
-  }),
-  execute: ({ label }) => {
-    const now = new Date();
-    return {
-      status: 'success' as const,
-      label,
-      iso: now.toISOString(),
-      timezoneOffsetMinutes: now.getTimezoneOffset(),
-    };
-  },
+const modelRef = selectModelRef(defaultCursorModelRef(), {
+  provider: 'gemini',
+  model: DEFAULT_GEMINI_MODEL,
 });
 
-/**
- * Minimal single-agent template.
- * Uses Gemini via resolveModel (native ADK Gemini keeps FunctionTools working).
- * Required export for ADK CLI / web: `rootAgent`.
- */
 export const rootAgent = new LlmAgent({
   name: 'hello',
-  model: resolveModel(defaultGeminiModelRef()),
-  description: 'Greets the user and can read the host clock via a script tool.',
+  model: resolveModel(modelRef),
+  description: `Greets the user (provider=${modelRef.provider}, model=${modelRef.model || DEFAULT_CURSOR_MODEL}).`,
   instruction: `You are a concise assistant for the agent-env harness.
-When the user asks about the current time or clock, call get_workspace_clock.
-Otherwise greet briefly and explain you can check the host clock.`,
-  tools: [getWorkspaceClock],
+Greet briefly and explain that this demo runs via the Cursor SDK provider when CURSOR_API_KEY is set.`,
 });

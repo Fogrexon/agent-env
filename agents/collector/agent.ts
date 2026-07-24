@@ -6,12 +6,14 @@ import {
   createGrokBuildXSearchConnector,
   createSimpleHttpJsonConnector,
   createWebSearchConnector,
+  defaultCursorModelRef,
   defaultGeminiModelRef,
   getConnector,
   hasConnector,
   registerConnector,
   registerDemoConnectors,
   resolveModel,
+  selectModelRef,
 } from '@agent-env/harness';
 import { bootstrapProvidersFromEnv, loadDotEnv } from '@agent-env/repo-env';
 
@@ -84,7 +86,14 @@ if (
   );
 }
 
-const model = resolveModel(defaultGeminiModelRef());
+/**
+ * Connector workers need ADK FunctionTools → Gemini (native createAdkLlm).
+ * Synthesizer has no tools → Cursor when configured.
+ */
+const toolModel = resolveModel(defaultGeminiModelRef());
+const synthModel = resolveModel(
+  selectModelRef(defaultCursorModelRef(), defaultGeminiModelRef()),
+);
 
 function collectorAgent(
   connector: DataSourceConnector,
@@ -92,7 +101,7 @@ function collectorAgent(
 ): LlmAgent {
   return new LlmAgent({
     name: `${connector.meta.id}_collector`,
-    model,
+    model: toolModel,
     description: connector.meta.description,
     instruction: `You gather evidence from "${connector.meta.title}" only.
 Call ${connector.meta.contract.name} with a focused query derived from the user topic.
@@ -155,7 +164,7 @@ const sourceNames = sources.map((s) => s.label).join(' / ');
 
 const synthesizer = new LlmAgent({
   name: 'brief_synthesizer',
-  model,
+  model: synthModel,
   description: 'Merges multi-source evidence into one brief.',
   instruction: `Synthesize a short multi-source briefing.
 

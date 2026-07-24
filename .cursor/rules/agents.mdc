@@ -7,7 +7,7 @@ alwaysApply: false
 # Agent definitions
 
 ```typescript
-import { resolveModel, defaultGeminiModelRef } from '@agent-env/harness';
+import { resolveModel, defaultCursorModelRef } from '@agent-env/harness';
 import { LlmAgent } from '@google/adk';
 import { bootstrapProvidersFromEnv, loadDotEnv } from '@agent-env/repo-env';
 
@@ -17,7 +17,7 @@ bootstrapProvidersFromEnv();
 
 export const rootAgent = new LlmAgent({
   name: 'my_agent',
-  model: resolveModel(defaultGeminiModelRef()),
+  model: resolveModel(defaultCursorModelRef()),
   instruction: '...',
 });
 ```
@@ -25,7 +25,8 @@ export const rootAgent = new LlmAgent({
 ## モデル / 秘密情報
 
 - `provider` は registry 上の id（`lm-studio` などカスタム可）
-- FunctionTools 付きは当面 `kind: "gemini"` の provider
+- デモ既定は Cursor SDK（`CURSOR_API_KEY`）
+- FunctionTools 付きは当面 `kind: "gemini"` の provider（Vertex ADC 可）
 - 秘密情報・コネクタ設定はエージェント側で用意し、ファクトリ引数に渡す
 - `@agent-env/llm` / `@agent-env/harness` に `*FromEnv` や固定 env 名前提を置かない
 

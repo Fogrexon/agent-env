@@ -1,32 +1,36 @@
 import type { LlmProvider } from './types.js';
-import { createAnthropicProvider } from './providers/anthropic.js';
-import { createCursorProvider } from './providers/cursor.js';
-import { createGeminiProvider } from './providers/gemini.js';
-import { createOpenaiCompatibleProvider } from './providers/openai-compatible.js';
-import { createOpenaiProvider } from './providers/openai.js';
+import {
+  createAnthropicProvider,
+  type CreateAnthropicProviderOptions,
+} from './providers/anthropic.js';
+import {
+  createCursorProvider,
+  type CreateCursorProviderOptions,
+} from './providers/cursor.js';
+import {
+  createGeminiProvider,
+  type CreateGeminiProviderOptions,
+} from './providers/gemini.js';
+import {
+  createOpenaiCompatibleProvider,
+  type CreateOpenaiCompatibleProviderOptions,
+} from './providers/openai-compatible.js';
+import {
+  createOpenaiProvider,
+  type CreateOpenaiProviderOptions,
+} from './providers/openai.js';
 import { registerProvider } from './registry.js';
-import type { SecretSource } from './types.js';
-import type { BaseUrlSource } from './providers/openai-compatible.js';
 
 export interface RegisterProvidersConfig {
-  gemini?: { id?: string; apiKey: SecretSource };
-  cursor?: { id?: string; apiKey: SecretSource; cwd?: string | (() => string) };
-  openai?: {
-    id?: string;
-    apiKey: SecretSource;
-    baseUrl?: string | (() => string | undefined);
-  };
-  anthropic?: { id?: string; apiKey: SecretSource };
+  gemini?: CreateGeminiProviderOptions;
+  cursor?: CreateCursorProviderOptions;
+  openai?: CreateOpenaiProviderOptions;
+  anthropic?: CreateAnthropicProviderOptions;
   /**
    * Zero or more OpenAI-compatible backends (LM Studio, Ollama, vLLM, …).
    * Each entry becomes its own provider id.
    */
-  openaiCompatible?: Array<{
-    id: string;
-    baseUrl: BaseUrlSource;
-    apiKey?: SecretSource;
-    defaultApiKey?: string;
-  }>;
+  openaiCompatible?: CreateOpenaiCompatibleProviderOptions[];
   /** Replace existing ids. Default true for bootstrap ergonomics. */
   replace?: boolean;
 }
