@@ -6,9 +6,16 @@ alwaysApply: false
 
 # Harness & shared packages
 
-- `@agent-env/shared`: Zod と型のみ。ランタイム SDK に依存しない
+- `@agent-env/shared`: Zod と型のみ。ランタイム SDK に依存しない。**具体エージェントの定数・一覧を置かない**
 - `@agent-env/llm`: provider ファクトリ・registry・`resolveModel`（秘密はコンストラクタ注入。**process.env を読まない**）
-- `@agent-env/harness`: `runAgent` / connectors（**process.env を読まない**）
-- env / `.env` 配線は利用アプリ側（このリポでは `agents/dev-env`）。`packages/*` に置かない
+- `@agent-env/harness`: `runAgent` / connectors / AgentParams loader（**process.env を読まない**、**agent registry を持たない**）
+- env / `.env` 配線とエージェント発見は利用アプリ側（このリポでは `agents/dev-env`）。`packages/*` に置かない
 - OpenAI 互換を足すときはグローバルな単一 Base URL ではなく、新しい `id` で `createOpenaiCompatibleProvider` する
+- provider を足すときは `media`（`ProviderMediaSupport`）で対応 MIME を宣言し、`generate` の先頭で `assertMediaSupported` する。添付を黙って捨てない
 - `AgentRunResult` の形を壊す変更は shared と一緒に更新する
+
+## 禁止
+
+- `agentRegistry` や `hello` / `collector` など固有 id の列挙
+- `*FromEnv` や固定 env 名前提の API
+- 「このリポのデモ用」コメント付きのエージェント配線

@@ -1,0 +1,12 @@
+apiVersion: agent-env/v1
+kind: AgentParams
+agentId: code-exec
+title: Code Exec
+description: FunctionTools for fixed logic; optional AI-generated TS in a per-agent exec npm env.
+fields:
+  - id: message
+    type: text
+    label: 初回クエリ
+    required: true
+    placeholder: 実行したい内容
+    default: "sum で 1, 2, 3 を足して"

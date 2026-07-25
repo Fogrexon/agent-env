@@ -3,31 +3,35 @@
   "kind": "RunSpec",
   "metadata": {
     "tenantId": "local-demo",
-    "idempotencyKey": "runspec-demo-v1"
+    "idempotencyKey": "runspec-demo-v2"
   },
   "spec": {
     "task": {
       "taskId": "demo-brief",
-      "revision": "2026-07-24",
+      "revision": "2026-07-25-v2",
       "objective": "Summarize what a RunSpec-driven harness should measure for one coding-style agent run.",
-      "successCriteria": [
-        {
-          "type": "contains",
-          "text": "verified",
-          "caseInsensitive": true
-        }
-      ]
+      "outputSchemaRef": "agents/runspec-demo/schemas/result.schema.json"
     },
     "harness": {
-      "policyRef": "harness://phase-a/bounded-loop-v1",
+      "policyRef": "harness://phase-a/bounded-loop-v2",
       "maxSteps": 12,
-      "maxRepairs": 0
+      "maxRepairs": 1
     },
     "model": {
       "primary": {
-        "provider": "gemini",
-        "model": "gemini-2.5-flash"
-      }
+        "provider": "cursor",
+        "model": "auto"
+      },
+      "allowed": [
+        {
+          "provider": "cursor",
+          "model": "auto"
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.6-flash"
+        }
+      ]
     },
     "environment": {
       "backend": "none",
@@ -56,8 +60,7 @@
       "maxWallSeconds": 180
     },
     "evaluation": {
-      "graderVersion": "demo-contains-v1",
-      "repetitions": 1
+      "ref": "./evaluation.json"
     }
   }
 }

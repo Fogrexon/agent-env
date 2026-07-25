@@ -197,7 +197,7 @@ export function parseGrokXSearchEvidence(
   return [
     {
       title: 'X search summary (Grok Build)',
-      snippet: fallback.slice(0, 500),
+      snippet: fallback,
       score: 0.5,
     },
   ];
@@ -271,6 +271,15 @@ export function createGrokBuildXSearchConnector(
       idempotency: 'supported',
       timeoutMs,
       ...options.contract,
+    },
+    publicConfig: {
+      timeoutMs,
+      ...(options.allowedXHandles?.length
+        ? { allowedXHandles: options.allowedXHandles }
+        : {}),
+      ...(options.excludedXHandles?.length
+        ? { excludedXHandles: options.excludedXHandles }
+        : {}),
     },
     search: async (input: ConnectorSearchInput) => {
       const limit = input.limit ?? 5;

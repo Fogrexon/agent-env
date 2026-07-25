@@ -1,0 +1,65 @@
+{
+  "apiVersion": "agent.platform/v1",
+  "kind": "RunSpec",
+  "metadata": {
+    "tenantId": "local-demo",
+    "idempotencyKey": "super-debate-v1"
+  },
+  "spec": {
+    "task": {
+      "taskId": "super-debate",
+      "revision": "2026-07-25",
+      "objective": "Remote work should be the default for small engineering teams"
+    },
+    "harness": {
+      "policyRef": "harness://super-debate/v1",
+      "maxSteps": 120,
+      "maxRepairs": 0
+    },
+    "model": {
+      "primary": { "provider": "cursor", "model": "gpt-5.6-sol" },
+      "allowed": [
+        { "provider": "cursor", "model": "cursor-grok-4.5" },
+        { "provider": "cursor", "model": "gpt-5.6-terra" },
+        { "provider": "cursor", "model": "claude-sonnet-5" },
+        { "provider": "cursor", "model": "gemini-3.6-flash" },
+        { "provider": "cursor", "model": "gpt-5.6-sol" }
+      ]
+    },
+    "environment": {
+      "backend": "none",
+      "networkPolicy": "unrestricted",
+      "egressDomains": []
+    },
+    "tools": {
+      "allow": [
+        {
+          "name": "search_web",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "search_x",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "fetch_pages",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        }
+      ]
+    },
+    "budget": {
+      "maxToolCalls": 100,
+      "maxWallSeconds": 1800
+    },
+    "evaluation": { "ref": "./evaluation.json" }
+  }
+}

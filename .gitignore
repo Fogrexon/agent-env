@@ -9,3 +9,5 @@ coverage/
 .turbo/
 *.log
 .adk/
+.agent-env/
+.runs/

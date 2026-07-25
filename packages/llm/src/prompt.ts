@@ -1,4 +1,5 @@
 import type { Content, Part } from '@google/genai';
+import type { ProviderAttachment } from './media.js';
 import type { ProviderMessage } from './types.js';
 
 function partText(part: Part): string {
@@ -31,6 +32,28 @@ export function contentsToMessages(contents: Content[]): ProviderMessage[] {
     messages.push({ role, text });
   }
   return messages;
+}
+
+/**
+ * Collect inlineData parts (multimodal attachments) from ADK contents so
+ * non-Gemini adapters can map them onto their own vendor payloads.
+ */
+export function contentsToAttachments(
+  contents: readonly Content[] | undefined,
+): ProviderAttachment[] {
+  const attachments: ProviderAttachment[] = [];
+  for (const content of contents ?? []) {
+    for (const part of content.parts ?? []) {
+      const inline = part.inlineData;
+      if (!inline?.data || !inline.mimeType) continue;
+      attachments.push({
+        mimeType: inline.mimeType.toLowerCase(),
+        data: inline.data,
+        ...(inline.displayName ? { name: inline.displayName } : {}),
+      });
+    }
+  }
+  return attachments;
 }
 
 export function systemInstructionToText(

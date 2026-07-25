@@ -7,7 +7,8 @@
   "license": "MIT",
   "workspaces": [
     "packages/*",
-    "agents/*"
+    "agents/*",
+    "apps/*"
   ],
   "scripts": {
     "build": "tsc -b",
@@ -15,15 +16,22 @@
     "adk:web": "adk web agents",
     "adk:run": "adk run",
     "run": "tsc -b && tsx scripts/run.ts",
-    "run:hello": "npm run run -- hello",
-    "run:parallel": "npm run run -- parallel-pipeline",
-    "run:spec": "tsc -b && tsx scripts/run-spec.ts",
-    "run:collector": "npm run run:spec -- agents/collector/runspec.collect.json collector",
+    "admin": "npm run dev -w @agent-env/admin",
+    "admin:api": "npm run dev:api -w @agent-env/admin",
+    "admin:ui": "npm run dev:ui -w @agent-env/admin",
     "smoke:llm": "tsc -b && tsx scripts/smoke-llm.ts",
     "smoke:runtime": "tsc -b && tsx scripts/smoke-runtime.ts",
     "smoke:connectors": "tsc -b && tsx scripts/smoke-connectors.ts",
     "smoke:connectors:http": "tsc -b && tsx scripts/smoke-connectors-http-gh.ts",
-    "smoke": "npm run smoke:llm && npm run smoke:runtime && npm run smoke:connectors && npm run smoke:connectors:http"
+    "smoke:params": "tsc -b && tsx scripts/smoke-params.ts",
+    "smoke:progress": "tsc -b && tsx scripts/smoke-progress.ts",
+    "smoke:run-history": "tsc -b && tsx scripts/smoke-run-history.ts",
+    "smoke:http-download-pdf": "tsc -b && tsx scripts/smoke-http-download-pdf.ts",
+    "smoke:media": "tsc -b && tsx scripts/smoke-media.ts",
+    "smoke:code-exec": "tsc -b && tsx scripts/smoke-code-exec.ts",
+    "smoke:spec-policy": "tsc -b && tsx scripts/smoke-spec-policy.ts",
+    "exec:env": "tsc -b && tsx scripts/exec-env.ts",
+    "smoke": "npm run smoke:llm && npm run smoke:runtime && npm run smoke:connectors && npm run smoke:connectors:http && npm run smoke:params && npm run smoke:progress && npm run smoke:run-history && npm run smoke:http-download-pdf && npm run smoke:media && npm run smoke:code-exec && npm run smoke:spec-policy"
   },
   "engines": {
     "node": ">=24.13.0",

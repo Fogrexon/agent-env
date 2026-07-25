@@ -6,6 +6,7 @@ import {
   type ToolRiskClass,
 } from '@agent-env/shared';
 import type { z } from 'zod';
+import { emitToolProgress } from './progress-context.js';
 
 type AnyZodObject = z.ZodObject<z.ZodRawShape>;
 
@@ -15,6 +16,11 @@ export interface GuardedToolOptions<TSchema extends AnyZodObject> {
   parameters: TSchema;
   execute: (input: z.infer<TSchema>) => Promise<unknown> | unknown;
   isLongRunning?: boolean;
+  /**
+   * Non-secret factory config shown in live progress when the tool runs.
+   * Never put API keys or tokens here.
+   */
+  publicConfig?: Record<string, unknown>;
   /**
    * Approval hook for T2/T3. Default: deny T2/T3 (fail closed).
    * Return true to allow exact-argument execution.
@@ -43,6 +49,19 @@ export function createGuardedTool<TSchema extends AnyZodObject>(
     isLongRunning: options.isLongRunning,
     execute: async (raw) => {
       const input = raw as z.infer<TSchema>;
+      emitToolProgress({
+        author: `tool:${contract.name}`,
+        message: `invoke ${contract.name}`,
+        payload: {
+          tool: contract.name,
+          riskClass: contract.riskClass,
+          sideEffect: contract.sideEffect,
+          input: input as Record<string, unknown>,
+          ...(options.publicConfig
+            ? { config: options.publicConfig }
+            : {}),
+        },
+      });
       if (!AUTO_RISKS.includes(contract.riskClass)) {
         const ok = options.approve
           ? await options.approve({ contract, input })

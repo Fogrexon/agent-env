@@ -88,8 +88,8 @@ registerProvider(
 assert(isProviderConfigured('vllm'), 'vllm configured');
 
 const picked = selectModelRef(
-  { provider: 'cursor', model: 'composer-2' },
-  { provider: 'gemini', model: 'gemini-2.5-flash' },
+  { provider: 'cursor', model: 'auto' },
+  { provider: 'gemini', model: 'gemini-3.6-flash' },
 );
 assert(picked.provider === 'gemini', 'select fallback');
 

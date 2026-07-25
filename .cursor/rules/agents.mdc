@@ -1,37 +1,67 @@
 ---
 description: ADK エージェント定義の書き方（agents/）
-globs: agents/**/*.ts
+globs: agents/**/*
 alwaysApply: false
 ---
 
 # Agent definitions
 
+エージェント固有のすべて（コード・入力・実行ポリシー・評価）は **`agents/<id>/` に閉じる**。
+
 ```typescript
-import { resolveModel, defaultCursorModelRef } from '@agent-env/harness';
+import { defineAgent, resolveModel, defaultCursorModelRef } from '@agent-env/harness';
 import { LlmAgent } from '@google/adk';
-import { bootstrapProvidersFromEnv, loadDotEnv } from '@agent-env/repo-env';
 
-// env 配線はこのリポの agents/dev-env（packages 外）
-loadDotEnv();
-bootstrapProvidersFromEnv();
-
-export const rootAgent = new LlmAgent({
-  name: 'my_agent',
-  model: resolveModel(defaultCursorModelRef()),
-  instruction: '...',
+export const agentDefinition = defineAgent({
+  id: 'my-agent',
+  name: 'My Agent',
+  description: '…',
+  createAgent() {
+    return new LlmAgent({
+      name: 'my_agent',
+      model: resolveModel(defaultCursorModelRef()),
+      instruction: '...',
+    });
+  },
 });
 ```
 
+必須ファイル:
+
+- `agents/<id>/agent.ts` — `export const agentDefinition`
+- `agents/<id>/params.yaml` — `agentId` はディレクトリ名と一致（呼出し入力のみ）
+- `agents/<id>/runspec.json` — 実行ポリシー
+- `agents/<id>/evaluation.json` — EvaluationSpec（成功判定）
+
+ファイル / 画像フィールド:
+
+- `type: file|files|image|images`
+- `delivery: path` … パス文字列として inputs へ（file 既定）
+- `delivery: content` … LLM ユーザー入力へ添付（image 既定・provider 依存）
+- `objectiveField`（既定 `message`）… RunRequest の objective
+- 管理 UI はパス手入力とファイル選択の両方を出す。渡し方は YAML が決める
+
+`delivery: content` を使うときは、実行 provider の対応メディアを確認する（`GET /api/providers` / `docs/ARCHITECTURE.md`）。
+
+- gemini: 画像・音声・動画・PDF・テキスト / openai: 画像・音声(wav,mp3)・PDF / anthropic: 画像・PDF / cursor: 画像のみ
+- 非対応 MIME は `UnsupportedMediaError` で実行前に落ちる。音声を扱うなら gemini など対応 provider を選ぶこと
+
 ## モデル / 秘密情報
 
-- `provider` は registry 上の id（`lm-studio` などカスタム可）
-- デモ既定は Cursor SDK（`CURSOR_API_KEY`）
-- FunctionTools 付きは当面 `kind: "gemini"` の provider（Vertex ADC 可）
-- 秘密情報・コネクタ設定はエージェント側で用意し、ファクトリ引数に渡す
+- `provider` は registry 上の id（カスタム可）
+- 秘密情報・コネクタ設定は `createAgent` 内で用意し、ファクトリ引数に渡す（モジュール先頭で env bootstrap しない — `runDiscoveredAgent` / admin が行う）
 - `@agent-env/llm` / `@agent-env/harness` に `*FromEnv` や固定 env 名前提を置かない
+
+## コネクタ / ツール
+
+- 外部データ源・vendor API は **harness の connector / tool factory** に置く。エージェント内に同じ仕事の自前 `fetch` を書かない（`reuse-existing.mdc`）
+- 足りないオプションは **ファクトリ側に汎用追加**し、エージェントは注入だけ行う
+- エージェントに残してよいのは配線（env → ファクトリ引数）と、本当にエージェント固有の業務ロジックだけ
 
 ## チェック
 
-- [ ] `export const rootAgent`
-- [ ] provider が register 済みの状態で `resolveModel`
-- [ ] `registry.ts` / tsconfig references 更新
+- [ ] `export const agentDefinition`
+- [ ] 同ディレクトリに `params.yaml` / `runspec.json` / `evaluation.json`
+- [ ] コネクタ向きの能力をエージェント内の自前 HTTP 関数にしていない
+- [ ] `packages/*` / `scripts/` にこのエージェント向けの定数・default・分岐を追加していない
+- [ ] ルート `package.json` に per-agent script を追加していない

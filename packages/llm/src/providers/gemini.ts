@@ -1,12 +1,68 @@
 import { GoogleGenAI } from '@google/genai';
-import { Gemini, type BaseLlm } from '@google/adk';
+import {
+  Gemini,
+  type BaseLlm,
+  type LlmRequest,
+  type LlmResponse,
+} from '@google/adk';
+import {
+  assertMediaSupported,
+  GEMINI_AUDIO_MIME_TYPES,
+  GEMINI_IMAGE_MIME_TYPES,
+  GEMINI_VIDEO_MIME_TYPES,
+  PDF_MIME_TYPE,
+  TEXT_MIME_TYPES,
+  type ProviderMediaSupport,
+} from '../media.js';
+import { contentsToAttachments } from '../prompt.js';
 import type {
   LlmProvider,
   ProviderGenerateRequest,
   ProviderGenerateResult,
+  ProviderStreamChunk,
   SecretSource,
 } from '../types.js';
 import { resolveSecret } from '../types.js';
+
+/**
+ * Gemini accepts the widest inline media set of the registered providers.
+ * 20 MB is the documented inline-request ceiling; larger files need the Files API.
+ */
+export const GEMINI_MEDIA_SUPPORT: ProviderMediaSupport = {
+  mimeTypes: [
+    ...GEMINI_IMAGE_MIME_TYPES,
+    ...GEMINI_AUDIO_MIME_TYPES,
+    ...GEMINI_VIDEO_MIME_TYPES,
+    PDF_MIME_TYPE,
+    ...TEXT_MIME_TYPES,
+  ],
+  maxBytesPerFile: 20 * 1024 * 1024,
+  notes: 'Inline data only; files above 20MB require the Gemini Files API.',
+};
+
+/** ADK-native Gemini that rejects media the provider does not declare. */
+class MediaGuardedGemini extends Gemini {
+  readonly providerId: string;
+
+  constructor(params: ConstructorParameters<typeof Gemini>[0] & { providerId: string }) {
+    const { providerId, ...rest } = params;
+    super(rest as ConstructorParameters<typeof Gemini>[0]);
+    this.providerId = providerId;
+  }
+
+  override async *generateContentAsync(
+    llmRequest: LlmRequest,
+    stream = false,
+    abortSignal?: AbortSignal,
+  ): AsyncGenerator<LlmResponse, void> {
+    assertMediaSupported(
+      this.providerId,
+      GEMINI_MEDIA_SUPPORT,
+      contentsToAttachments(llmRequest.contents),
+    );
+    yield* super.generateContentAsync(llmRequest, stream, abortSignal);
+  }
+}
 
 /** Project / location / region string or lazy getter (caller injects; no process.env). */
 export type ConfigStringSource = SecretSource;
@@ -57,6 +113,7 @@ export function createGeminiProvider(
   return {
     id,
     kind: 'gemini',
+    media: GEMINI_MEDIA_SUPPORT,
 
     isConfigured(): boolean {
       if (options.vertex) return Boolean(resolveVertex(options.vertex));
@@ -77,14 +134,16 @@ export function createGeminiProvider(
       this.assertConfigured();
       const vertex = resolveVertex(options.vertex);
       if (vertex) {
-        return new Gemini({
+        return new MediaGuardedGemini({
+          providerId: id,
           model,
           vertexai: true,
           project: vertex.project,
           location: vertex.location,
         });
       }
-      return new Gemini({
+      return new MediaGuardedGemini({
+        providerId: id,
         model,
         apiKey: resolveSecret(options.apiKey),
       });
@@ -95,21 +154,7 @@ export function createGeminiProvider(
       abortSignal?: AbortSignal,
     ): Promise<ProviderGenerateResult> {
       this.assertConfigured();
-      const vertex = resolveVertex(options.vertex);
-      const client = vertex
-        ? new GoogleGenAI({
-            vertexai: true,
-            project: vertex.project,
-            location: vertex.location,
-          })
-        : new GoogleGenAI({ apiKey: resolveSecret(options.apiKey)! });
-
-      const contents =
-        request.contents ??
-        request.messages.map((message) => ({
-          role: message.role === 'model' ? 'model' : 'user',
-          parts: [{ text: message.text }],
-        }));
+      const { client, contents } = buildGeminiRequest(id, options, request);
 
       const response = await client.models.generateContent({
         model: request.model,
@@ -127,5 +172,87 @@ export function createGeminiProvider(
         model: request.model,
       };
     },
+
+    async *generateStream(
+      request: ProviderGenerateRequest,
+      abortSignal?: AbortSignal,
+    ): AsyncGenerator<ProviderStreamChunk, ProviderGenerateResult, void> {
+      this.assertConfigured();
+      const { client, contents } = buildGeminiRequest(id, options, request);
+
+      const stream = await client.models.generateContentStream({
+        model: request.model,
+        contents,
+        config: {
+          systemInstruction: request.systemInstruction,
+          abortSignal,
+        },
+      });
+
+      let text = '';
+      for await (const chunk of stream) {
+        const piece = chunk.text;
+        if (typeof piece === 'string' && piece.length > 0) {
+          // Gemini stream chunks are cumulative snapshots in some SDKs and
+          // deltas in others; prefer delta when the chunk is a suffix.
+          if (piece.startsWith(text)) {
+            const delta = piece.slice(text.length);
+            text = piece;
+            if (delta) yield { delta };
+          } else {
+            text += piece;
+            yield { delta: piece };
+          }
+        }
+      }
+
+      return {
+        text: text.trim(),
+        modelVersion: request.model,
+        provider: id,
+        model: request.model,
+      };
+    },
   };
+}
+
+function buildGeminiRequest(
+  id: string,
+  options: CreateGeminiProviderOptions,
+  request: ProviderGenerateRequest,
+) {
+  const client = createGeminiClient(options);
+
+  const attachments = request.attachments ?? [];
+  assertMediaSupported(id, GEMINI_MEDIA_SUPPORT, attachments);
+
+  const contents =
+    request.contents ??
+    request.messages.map((message, index) => ({
+      role: message.role === 'model' ? 'model' : 'user',
+      parts: [
+        { text: message.text },
+        ...(index === request.messages.length - 1
+          ? attachments.map((attachment) => ({
+              inlineData: {
+                data: attachment.data,
+                mimeType: attachment.mimeType,
+              },
+            }))
+          : []),
+      ],
+    }));
+
+  return { client, contents };
+}
+
+function createGeminiClient(options: CreateGeminiProviderOptions): GoogleGenAI {
+  const vertex = resolveVertex(options.vertex);
+  return vertex
+    ? new GoogleGenAI({
+        vertexai: true,
+        project: vertex.project,
+        location: vertex.location,
+      })
+    : new GoogleGenAI({ apiKey: resolveSecret(options.apiKey)! });
 }

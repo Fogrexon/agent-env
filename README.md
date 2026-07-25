@@ -5,15 +5,20 @@
 ## 構成
 
 ```
-agents/                  # ADK エージェント（rootAgent）
-  dev-env/               # このリポ専用の env 配線（@agent-env/repo-env・ライブラリAPIではない）
+agents/                  # エージェントパッケージ（agentDefinition）
+  <id>/
+    agent.ts             # export agentDefinition
+    params.yaml          # 呼出し入力スキーマ
+    runspec.json         # 実行ポリシー
+    evaluation.json      # 成功判定（EvaluationSpec）
+  dev-env/               # このリポ専用の env 配線（@agent-env/repo-env）
 packages/
-  shared/                # Zod（ModelRef / RunSpec / Connector meta）
+  shared/                # Zod（ModelRef / RunSpec / EvaluationSpec / Connector meta）
   llm/                   # provider ファクトリ・registry（env を読まない）
-  harness/               # runAgent / runFromSpec / connectors（env を読まない）
+  harness/               # defineAgent / runFromSpec / connectors（env を読まない）
 docs/                    # ARCHITECTURE + 研究レポート
-apps/                    # 将来の管理 UI
-scripts/                 # run / run-spec / smoke
+apps/                    # admin UI
+scripts/                 # run / smoke
 ```
 
 ## セットアップ
@@ -72,11 +77,45 @@ registerProvider(
 resolveModel({ provider: 'lm-studio', model: 'local-model' });
 ```
 
-## RunSpec（Phase A）
+## RunSpec + EvaluationSpec
 
 ```bash
 npm run smoke:runtime
-npm run run:spec -- agents/runspec-demo/runspec.demo.json
+npm run run -- runspec-demo "短いデモを実行して"
+```
+
+実行は常に `agents/<id>/runspec.json` と `evaluation.json` を discovery 経由で読みます（別パス指定の `run:spec` は廃止）。
+
+## TypeScript 実行（code-exec）
+
+固定処理はエージェント側の **FunctionTool**（LLM が関数呼び出し）。  
+AI が書いた TS だけ `createTsCodeRunnerTool` で process jail 実行します（Docker/microVM は未実装）。
+
+依存はエージェント単位の `agents/<id>/exec/package.json` に宣言し、`ensureExecEnv` / `createExecEnvGuard` が必要時に `npm install` します（モデルが任意パッケージを入れない）。
+
+```bash
+npm run smoke:code-exec
+npm run exec:env -- agents/code-exec/exec          # 依存を用意
+npm run run -- code-exec "sum で 1, 2, 3 を足して"
+# 生成コード実行を許可する場合:
+# AGENT_ENV_CODE_EXEC_ALLOW=1 npm run run -- code-exec "ms で 1h をミリ秒にして"
+```
+
+```typescript
+import {
+  createExecEnvGuard,
+  createGuardedTool,
+  createTsCodeRunnerTool,
+} from '@agent-env/harness';
+
+const hello = createGuardedTool({ /* 固定ロジック */ ... });
+
+const execRoot = resolve(agentDir, 'exec');
+const runTsCode = createTsCodeRunnerTool({
+  workRoot: execRoot,
+  prepare: createExecEnvGuard({ moduleRoot: execRoot }),
+  approve: () => allowGeneratedCode, // T2: fail-closed without this
+});
 ```
 
 ## データソース収集（collector）
@@ -95,11 +134,19 @@ npm run run:collector
 | `createSimpleHttpJsonConnector` | REST JSON（最速追加） |
 | `createHttpJsonConnector` | リクエスト / マッピング完全制御 |
 | `createGithubGhConnector` | `gh search` issues/PRs |
+| `createGithubTools` | GitHub 書き込み系（`createPr` 等） |
 | `createWebSearchConnector` | 公開 Web（Tavily / Brave） |
+| `createTavilyExtractTool` | Tavily Extract（ページ本文） |
+| `createHttpDownloadTool` | URL をルート限定でバイナリ DL（画像など） |
+| `createMarkdownPdfTool` | Markdown→PDF（相対画像対応・md-to-pdf） |
+| `createWorkspaceFsTools` | ルート限定の list / read / write |
+| `createGitCloneTool` | `git clone`（shallow） |
+| `createArxivConnector` | arXiv プレプリント（Atom API・鍵不要） |
 | `createGrokBuildXSearchConnector` | X posts（Grok Build headless） |
 
 ```typescript
 import {
+  createArxivConnector,
   createWebSearchConnector,
   createGrokBuildXSearchConnector,
   createGithubGhConnector,
@@ -108,6 +155,7 @@ import {
 
 await registerConnectors({
   demo: true,
+  arxiv: { categories: ['cs.AI'] },
   githubGh: { repo: 'owner/name' },
   grokBuildX: { model: 'grok-4' },
   webSearch: {
@@ -117,47 +165,72 @@ await registerConnectors({
 });
 
 registerConnector(
-  createWebSearchConnector({
-    provider: 'tavily',
-    apiKey: () => mySecretStore.get('tavily'),
-  }),
+  createArxivConnector({ categories: ['cs.LG'] }),
 );
 ```
 
 詳細は [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)。
+
+## デモエージェント
+
+すべて **Cursor SDK が既定**（`CURSOR_API_KEY`。未設定時は Gemini にフォールバック）。ツール付きエージェントも `ProviderBackedLlm` → Cursor SDK `customTools` ブリッジで Cursor 上で動きます。
+
+| id | 内容 | 追加要件 |
+|----|------|----------|
+| `hello` | 最小の単一エージェント | — |
+| `parallel-pipeline` | PRO/CON 開弁→反論×2（並列）→判定（web/X 検索可） | `TAVILY_API_KEY`（任意・推奨） |
+| `runspec-demo` | RunSpec + guarded tools + 独立 verifier | — |
+| `collector` | 複数コネクタ並列収集 → brief | 任意: `gh` / `TAVILY_API_KEY` |
+| `deep-research` | **Tavily** + optional **X (Grok Build)** deep research（問い分解 → 探索 → ギャップ埋め → 一枚レポート） | `TAVILY_API_KEY`（X は `grok login`） |
+| `security-audit` | GitHub clone → **並列 scout** → Finding/Patch → RunSpec 別モデル評価（**REVISE 時はパッチ修正→再評価**）→ 構造化 PR | `git` / PR には `gh` |
+
+```bash
+npm run run -- deep-research "…"
+npm run run -- security-audit "Audit https://github.com/Fogrexon/CGEngine ..."
+```
+
+security-audit の書き込み系ツールは fail-closed の権限境界デモです:
+
+- `write_fix`（T2）… `AGENT_ENV_AUDIT_ALLOW_WRITE=1` で許可
+- `create_pr`（T3）… `AGENT_ENV_AUDIT_ALLOW_PR=1` + push 権限で許可
+- 評価モデル上書き … `AGENT_ENV_AUDIT_EVALUATOR_MODEL=provider:model`
 
 ## 実行
 
 ```bash
 npm run adk:web
 npm run run -- hello "ホストの現在時刻を教えて"
-npm run run -- parallel-pipeline "リモートワークを評価して"
+npm run run -- parallel-pipeline "Remote work should be the default for small engineering teams"
+# params.yaml と同形の values JSON（admin の { values } と同じ）:
+# npm run run -- security-audit --params ./my-audit.json
+# npm run run -- security-audit --params ./my-audit.json --input maxFindings=3 "上書きメッセージ"
 npm run smoke
 ```
 
 ## モデル指定（ModelRef）
 
 ```typescript
-model: resolveModel({ provider: 'cursor', model: 'composer-2' })
-model: resolveModel({ provider: 'gemini', model: 'gemini-2.5-flash' })
+model: resolveModel({ provider: 'cursor', model: 'auto' })
+model: resolveModel({ provider: 'gemini', model: 'gemini-3.6-flash' })
 model: resolveModel({ provider: 'lm-studio', model: 'local-model' })
 ```
 
 | kind / 典型 id | 用途 |
 |----------------|------|
-| `cursor` | Cursor SDK（ツールなしデモの既定） |
-| `gemini` | Google Gemini（ADK ネイティブ / FunctionTools。API key または Vertex ADC） |
+| `cursor` | Cursor SDK（デモの既定。FunctionTools は SDK customTools 経由でブリッジ） |
+| `gemini` | Google Gemini（ADK ネイティブ FunctionTools。API key または Vertex ADC。フォールバック） |
 | `openai` | OpenAI 公式 |
 | `anthropic` | Anthropic（API key または Vertex ADC） |
 | 任意 id (`lm-studio` 等) | OpenAI 互換（`kind: "openai-compatible"`） |
 
 ## 新しいエージェント
 
-1. `agents/<id>/agent.ts` で provider / connector を register してから `resolveModel`
-2. workspace `package.json` / `tsconfig.json`
-3. `packages/harness/src/registry.ts` に manifest
-4. ルート `tsconfig.json` の references
-5. `npm install && npm run build`
+1. `agents/<id>/agent.ts`（`export const agentDefinition = defineAgent({…})`、必要なら connector 配線）
+2. `agents/<id>/params.yaml`（呼出し入力フォーム定義）
+3. `agents/<id>/runspec.json` + `evaluation.json`
+4. 完了 — `packages/*`・ルート `package.json` は触らない（`scripts/` / admin が `agents/*/` を自動発見）
+
+任意: workspace 用に `agents/<id>/package.json` + root `tsconfig.json` references（型チェック用）
 
 ## ドキュメント
 

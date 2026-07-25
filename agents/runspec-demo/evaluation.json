@@ -1,0 +1,21 @@
+{
+  "apiVersion": "agent.platform/v1",
+  "kind": "EvaluationSpec",
+  "metadata": { "id": "runspec-demo", "version": "1" },
+  "artifacts": [],
+  "graders": [
+    {
+      "id": "schema",
+      "kind": "deterministic",
+      "ref": "grader://json-schema/v1",
+      "config": {
+        "schemaRef": "agents/runspec-demo/schemas/result.schema.json"
+      }
+    }
+  ],
+  "acceptance": {
+    "all": [
+      { "id": "valid-json", "grader": "schema", "assertion": "schema" }
+    ]
+  }
+}

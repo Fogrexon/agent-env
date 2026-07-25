@@ -25,6 +25,14 @@ export {
   type HttpMappedItem,
 } from './http.js';
 export {
+  buildArxivSearchQuery,
+  createArxivConnector,
+  parseArxivAtom,
+  type ArxivSortBy,
+  type ArxivSortOrder,
+  type CreateArxivConnectorOptions,
+} from './arxiv.js';
+export {
   createGithubGhConnector,
   isGithubGhAvailable,
   type CreateGithubGhConnectorOptions,
@@ -39,6 +47,36 @@ export {
   type CreateWebSearchConnectorOptions,
   type WebSearchProviderId,
 } from './web-search.js';
+export {
+  createTavilyExtractTool,
+  tavilyExtractParamsSchema,
+  type CreateTavilyExtractToolOptions,
+  type TavilyExtractInput,
+} from './tavily-extract.js';
+export {
+  createHttpDownloadTool,
+  type CreateHttpDownloadToolOptions,
+} from './http-download.js';
+export {
+  createMarkdownPdfTool,
+  type CreateMarkdownPdfToolOptions,
+} from './markdown-pdf.js';
+export {
+  assertInsideAnyRoot,
+  createWorkspaceFsTools,
+  type CreateWorkspaceFsToolsOptions,
+  type WorkspaceFsTools,
+  type WorkspaceRootsSource,
+} from './workspace-fs.js';
+export {
+  createGitCloneTool,
+  type CreateGitCloneToolOptions,
+} from './git-clone.js';
+export {
+  createGithubTools,
+  type CreateGithubToolsOptions,
+  type GithubTools,
+} from './github-tools.js';
 export {
   createGrokBuildXSearchConnector,
   extractGrokPlainText,

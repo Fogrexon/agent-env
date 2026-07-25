@@ -1,0 +1,29 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "agent-env/runspec-demo/result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["status", "summary", "measured"],
+  "properties": {
+    "status": {
+      "type": "string",
+      "const": "verified"
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 20,
+      "maxLength": 600
+    },
+    "measured": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 8,
+      "items": {
+        "type": "string",
+        "minLength": 4,
+        "maxLength": 160
+      },
+      "description": "Concrete things a RunSpec harness should measure for one run"
+    }
+  }
+}

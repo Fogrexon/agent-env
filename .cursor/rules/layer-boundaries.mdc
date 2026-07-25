@@ -1,0 +1,49 @@
+---
+description: レイヤ境界 — エージェント固有設定の置き場所（違反禁止）
+alwaysApply: true
+---
+
+# Layer boundaries（厳守）
+
+エージェント固有・環境固有の値は **置き場を間違えない**。便利のために `packages/*` や `scripts/` へ漏らさない。
+
+## 何をどこに置くか
+
+| 置き場 | 置いてよい | 置いてはいけない |
+|--------|------------|------------------|
+| `agents/<id>/` | そのエージェントの `agent.ts` / `params.yaml` / `runspec.json` / `evaluation.json`・固有 instruction・モデル選択 | — |
+| `agents/dev-env` | このリポの `.env` 配線・provider bootstrap・`agents/*/` **ディスカバリ** | 個別エージェントの業務設定・params 内容の複製 |
+| `packages/*` | 汎用スキーマ・`runAgent`・`loadAgentParamsFile(path)`・connector **ファクトリ** | エージェント名の列挙、固定 registry、特定 agent の default、env 名前提 |
+| `scripts/` | argv を解釈しディスカバリ結果で実行する **薄い CLI** | エージェント ID のハードコード、固有パラメータ、per-agent 分岐 |
+| `apps/admin` | ディスカバリ駆動の汎用 UI/API | 特定エージェント向けの専用画面ロジックや固定 ID |
+| ルート `package.json` | `run` / `admin` / `smoke:*` など汎用 script | `run:hello` のような per-agent script |
+
+## 原則
+
+1. **Source of truth は `agents/<id>/` だけ**（コード + params.yaml + RunSpec）。
+2. **`packages/*` はどのエージェントが存在するかを知らない**。パスや id を引数で受け取る。
+3. **`scripts/` もエージェント固有設定を持たない**。一覧は `discoverAgents`、実行対象は argv（またはパス規約からの推論）のみ。コメント例に固有 id を書くのは可、実行時 default に固有 id を焼くのは不可。
+4. エージェント追加 = `agents/<id>/` にファイルを置く。`packages/*`・`scripts/`・ルート scripts を増やさない。
+5. 迷ったら「この定数を消しても別エージェント追加に影響しないか？」→ No なら `agents/<id>/` へ。
+
+## 違反の例（やってはいけない）
+
+```ts
+// packages/harness にエージェント一覧 — NG
+export const agentRegistry = [{ id: 'hello', ... }];
+
+// scripts に固有 default — NG
+const agentId = process.argv[3] ?? 'runspec-demo';
+
+// packages が process.env.GEMINI_API_KEY を読む — NG
+```
+
+## 正しい例
+
+```ts
+// scripts: ディスカバリ + argv のみ
+const manifest = getDiscoveredAgent({ agentsDir, repoRoot }, agentIdFromArgv);
+
+// packages: パスを受けて読むだけ
+loadAgentParamsFile(paramsFilePath);
+```

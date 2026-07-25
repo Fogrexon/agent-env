@@ -31,6 +31,8 @@ export interface CreateWebSearchConnectorOptions {
   country?: string;
   /** Brave: search language (e.g. "jp"). */
   searchLang?: string;
+  /** Tavily: search depth. Default: API default ("basic"). */
+  searchDepth?: 'basic' | 'advanced';
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {
@@ -131,6 +133,13 @@ export function createWebSearchConnector(
       timeoutMs,
       ...options.contract,
     },
+    publicConfig: {
+      provider,
+      timeoutMs,
+      ...(options.country ? { country: options.country } : {}),
+      ...(options.searchLang ? { searchLang: options.searchLang } : {}),
+      ...(options.searchDepth ? { searchDepth: options.searchDepth } : {}),
+    },
     search: async (input: ConnectorSearchInput) => {
       const apiKey = resolveSecret(options.apiKey);
       if (!apiKey) {
@@ -177,6 +186,9 @@ export function createWebSearchConnector(
               query: input.query,
               max_results: Math.min(limit, 20),
               include_answer: false,
+              ...(options.searchDepth
+                ? { search_depth: options.searchDepth }
+                : {}),
             }),
             signal: controller.signal,
           });

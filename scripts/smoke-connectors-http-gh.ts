@@ -1,13 +1,16 @@
 /**
- * Offline smoke for HTTP / GitHub(gh) / Web search connectors
+ * Offline smoke for HTTP / GitHub(gh) / Web / arXiv / X connectors
  * (no live network required).
  */
 import {
+  buildArxivSearchQuery,
   clearConnectors,
+  createArxivConnector,
   createGithubGhConnector,
   createGrokBuildXSearchConnector,
   createSimpleHttpJsonConnector,
   createWebSearchConnector,
+  parseArxivAtom,
   parseGrokXSearchEvidence,
   registerConnector,
 } from '@agent-env/harness';
@@ -138,6 +141,82 @@ const tavilyBundle = await tavily.search({
 });
 assert(tavilyBundle.items[0]?.title === 'Tavily hit', 'tavily title');
 assert(tavilyBundle.items[0]?.score === 0.91, 'tavily score');
+
+assert(
+  buildArxivSearchQuery('transformers') === 'all:transformers',
+  'arxiv query single token',
+);
+assert(
+  buildArxivSearchQuery('attention is all you need') ===
+    'all:"attention is all you need"',
+  'arxiv query phrase',
+);
+assert(
+  buildArxivSearchQuery('cat:cs.AI AND ti:agent', ['cs.LG']) ===
+    'cat:cs.AI AND ti:agent AND cat:cs.LG',
+  'arxiv field query + category',
+);
+
+const atomFixture = `<?xml version="1.0" encoding="UTF-8"?>
+<feed xmlns="http://www.w3.org/2005/Atom">
+  <entry>
+    <id>http://arxiv.org/abs/1706.03762v7</id>
+    <published>2017-06-12T17:57:34Z</published>
+    <title>Attention Is All You Need</title>
+    <summary>The dominant sequence transduction models are based on
+      complex recurrent or convolutional neural networks.</summary>
+    <author><name>Ashish Vaswani</name></author>
+    <author><name>Noam Shazeer</name></author>
+    <link href="http://arxiv.org/abs/1706.03762v7" rel="alternate" type="text/html"/>
+  </entry>
+</feed>`;
+const atomRows = parseArxivAtom(atomFixture, 3);
+assert(atomRows[0]?.title === 'Attention Is All You Need', 'arxiv parse title');
+assert(
+  atomRows[0]?.uri === 'https://arxiv.org/abs/1706.03762v7',
+  'arxiv parse uri https',
+);
+assert(atomRows[0]?.snippet.includes('Vaswani'), 'arxiv parse authors');
+
+let arxivUrl = '';
+const arxiv = createArxivConnector({
+  id: 'arxiv',
+  categories: ['cs.AI'],
+  sortBy: 'relevance',
+  fetchImpl: async (input, init) => {
+    arxivUrl = String(input);
+    assert(arxivUrl.includes('export.arxiv.org'), 'arxiv host');
+    assert(arxivUrl.includes('search_query='), 'arxiv search_query');
+    assert(
+      decodeURIComponent(arxivUrl).includes('cat:cs.AI'),
+      'arxiv category filter',
+    );
+    assert(
+      String(
+        (init?.headers as Record<string, string>)?.['User-Agent'] ?? '',
+      ).includes('agent-env-arxiv'),
+      'arxiv user-agent',
+    );
+    return new Response(atomFixture, {
+      status: 200,
+      headers: { 'Content-Type': 'application/atom+xml' },
+    });
+  },
+});
+registerConnector(arxiv, { replace: true });
+const arxivBundle = await arxiv.search({
+  query: 'attention is all you need',
+  limit: 2,
+});
+assert(arxiv.meta.kind === 'arxiv', 'arxiv kind');
+assert(
+  arxivBundle.items[0]?.title === 'Attention Is All You Need',
+  'arxiv connector title',
+);
+assert(
+  arxivBundle.items[0]?.uri?.includes('arxiv.org/abs/1706.03762'),
+  'arxiv connector uri',
+);
 
 const parsed = parseGrokXSearchEvidence(
   JSON.stringify({

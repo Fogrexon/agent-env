@@ -139,6 +139,10 @@ export function createGithubGhConnector(
       timeoutMs: 30_000,
       ...options.contract,
     },
+    publicConfig: {
+      targets,
+      ...(typeof options.repo === 'string' ? { repo: options.repo } : {}),
+    },
     search: async (input: ConnectorSearchInput) => {
       const limit = input.limit ?? 5;
       const repo = await resolveRepo();

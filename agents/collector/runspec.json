@@ -9,24 +9,7 @@
     "task": {
       "taskId": "multi-source-brief",
       "revision": "2026-07-24",
-      "objective": "Prepare a short briefing about customer risk and current API latency for ops + account teams.",
-      "successCriteria": [
-        {
-          "type": "contains",
-          "text": "Sources",
-          "caseInsensitive": true
-        },
-        {
-          "type": "contains",
-          "text": "Recommendation",
-          "caseInsensitive": true
-        },
-        {
-          "type": "contains",
-          "text": "verified",
-          "caseInsensitive": true
-        }
-      ]
+      "objective": "Prepare a multi-source briefing about customer risk and current API latency for ops + account teams."
     },
     "harness": {
       "policyRef": "harness://collector/fan-out-v1",
@@ -35,9 +18,19 @@
     },
     "model": {
       "primary": {
-        "provider": "gemini",
-        "model": "gemini-2.5-flash"
-      }
+        "provider": "cursor",
+        "model": "auto"
+      },
+      "allowed": [
+        {
+          "provider": "cursor",
+          "model": "auto"
+        },
+        {
+          "provider": "gemini",
+          "model": "gemini-3.6-flash"
+        }
+      ]
     },
     "environment": {
       "backend": "none",
@@ -79,16 +72,36 @@
           "riskClass": "T0",
           "sideEffect": "none",
           "idempotency": "supported"
+        },
+        {
+          "name": "search_web",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "search_arxiv",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "search_x",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
         }
       ]
     },
     "budget": {
       "maxToolCalls": 40,
-      "maxWallSeconds": 300
+      "maxWallSeconds": 600
     },
     "evaluation": {
-      "graderVersion": "collector-brief-v1",
-      "repetitions": 1
+      "ref": "./evaluation.json"
     }
   }
 }

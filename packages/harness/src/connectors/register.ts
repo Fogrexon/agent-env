@@ -1,4 +1,8 @@
 import { registerConnector } from './registry.js';
+import {
+  createArxivConnector,
+  type CreateArxivConnectorOptions,
+} from './arxiv.js';
 import { createDemoConnectors } from './demo.js';
 import {
   createGithubGhConnector,
@@ -23,6 +27,11 @@ import type { DataSourceConnector } from './types.js';
 export interface RegisterConnectorsOptions {
   /** Include KB/CRM/status fixtures. Default true. */
   demo?: boolean;
+  /**
+   * Register arXiv Atom search. No API key required.
+   * `true` ≡ `{}`.
+   */
+  arxiv?: boolean | CreateArxivConnectorOptions;
   /**
    * Register GitHub via `gh` when the CLI is authenticated.
    * Pass options (e.g. `repo`) from the app — this helper does not read env.
@@ -61,6 +70,14 @@ export async function registerConnectors(
       registerConnector(connector, { replace });
       registered.push(connector);
     }
+  }
+
+  if (options.arxiv) {
+    const arxivOpts =
+      typeof options.arxiv === 'object' ? options.arxiv : {};
+    const arxiv = createArxivConnector(arxivOpts);
+    registerConnector(arxiv, { replace });
+    registered.push(arxiv);
   }
 
   if (options.githubGh) {

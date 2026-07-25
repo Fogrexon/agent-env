@@ -103,14 +103,78 @@ export const harnessPolicySpecSchema = z.object({
 });
 export type HarnessPolicySpec = z.infer<typeof harnessPolicySpecSchema>;
 
+/** Base directory a verifier path/command resolves against. */
+export const verifyBaseDirSchema = z.enum(['workspace', 'repo']);
+export type VerifyBaseDir = z.infer<typeof verifyBaseDirSchema>;
+
 export const successCriterionSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('test_suite'),
     ref: z.string().min(1),
   }),
+  /**
+   * Strongest gate: run a fixed argv and require an exit code.
+   * Evidence the agent cannot author by narrating (tests, build, linters).
+   */
+  z.object({
+    type: z.literal('command'),
+    bin: z.string().min(1),
+    args: z.array(z.string()).default([]),
+    baseDir: verifyBaseDirSchema.default('workspace'),
+    /** Optional sub-path under baseDir to run in. */
+    subdir: z.string().optional(),
+    expectExitCode: z.number().int().default(0),
+    /** Optional substring required in stdout+stderr. */
+    outputContains: z.string().min(1).optional(),
+    timeoutMs: z.number().int().positive().default(120_000),
+    /** Run via platform shell. Only for fixed shims (e.g. npm.cmd). */
+    shell: z.boolean().default(false),
+  }),
+  /** Artifacts actually written to disk (state, not prose). */
+  z.object({
+    type: z.literal('file_exists'),
+    paths: z.array(z.string().min(1)).min(1),
+    baseDir: verifyBaseDirSchema.default('workspace'),
+    /** Each file must be at least this many bytes. */
+    minBytes: z.number().int().nonnegative().default(1),
+  }),
   z.object({
     type: z.literal('json_schema'),
+    /** Repo-relative or absolute path to a JSON Schema document. */
     schemaRef: z.string().min(1),
+    /**
+     * Validate this file instead of the agent's final text.
+     * Prefer this: a written artifact beats parsing prose.
+     */
+    sourcePath: z.string().optional(),
+    baseDir: verifyBaseDirSchema.default('workspace'),
+  }),
+  z.object({
+    type: z.literal('markdown_headings'),
+    /** Required ATX heading titles (text after `#`…, compared case-insensitively). */
+    headings: z.array(z.string().min(1)).min(1),
+    /** Inclusive ATX level range, e.g. 2–2 matches `## Title` only. */
+    minLevel: z.number().int().min(1).max(6).default(1),
+    maxLevel: z.number().int().min(1).max(6).default(3),
+    /**
+     * Prefer reading this workspace/repo file over `finalText`.
+     * Report format is per-agent — MD agents point at `report.md`.
+     */
+    sourcePath: z.string().optional(),
+    baseDir: verifyBaseDirSchema.default('workspace'),
+  }),
+  /**
+   * HTML report structure (agent may ship `report.html` instead of markdown).
+   * Matches `<hN>…</hN>` titles case-insensitively after stripping nested tags.
+   */
+  z.object({
+    type: z.literal('html_headings'),
+    headings: z.array(z.string().min(1)).min(1),
+    minLevel: z.number().int().min(1).max(6).default(1),
+    maxLevel: z.number().int().min(1).max(6).default(3),
+    /** Default `report.html` when omitted and `finalText` is empty — prefer explicit. */
+    sourcePath: z.string().optional(),
+    baseDir: verifyBaseDirSchema.default('workspace'),
   }),
   z.object({
     type: z.literal('contains'),
@@ -142,9 +206,10 @@ export const runSpecSchema = z.object({
       taskId: z.string().min(1),
       revision: z.string().default('1'),
       objective: z.string().min(1),
+      /** Structured per-run values after params validation. */
+      inputs: z.record(z.string(), z.unknown()).default({}),
       inputArtifactDigest: z.string().optional(),
       outputSchemaRef: z.string().optional(),
-      successCriteria: z.array(successCriterionSchema).default([]),
     }),
     harness: harnessPolicySpecSchema.default({
       maxSteps: 20,
@@ -182,11 +247,10 @@ export const runSpecSchema = z.object({
     }),
     evaluation: z
       .object({
-        graderVersion: z.string().default('local-v1'),
-        seed: z.number().int().optional(),
-        repetitions: z.number().int().positive().default(1),
+        ref: z.string().min(1).default('./evaluation.json'),
+        digest: z.string().min(1).optional(),
       })
-      .default({ graderVersion: 'local-v1', repetitions: 1 }),
+      .default({ ref: './evaluation.json' }),
     retention: z
       .object({
         eventDays: z.number().int().positive().default(30),

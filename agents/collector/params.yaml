@@ -1,0 +1,46 @@
+apiVersion: agent-env/v1
+kind: AgentParams
+agentId: collector
+title: Collector
+description: Multi-source collector — parallel workers then a light brief (conclusion / method / collected / links).
+fields:
+  - id: message
+    type: text
+    label: 収集ブリーフィングの目的
+    required: true
+    placeholder: 収集・合成してほしいトピック
+    default: "Prepare a multi-source briefing about customer risk and current API latency for ops + account teams."
+  - id: maxItems
+    type: number
+    label: ソースあたりの最大件数
+    required: false
+    default: 15
+    min: 1
+    max: 50
+    step: 1
+  - id: focusFiles
+    type: files
+    label: 参照ファイル（任意）
+    delivery: path
+    required: false
+    description: パス手入力または参照ダイアログ。stateDelta にパス配列として渡す。
+    accept:
+      - .md
+      - .ts
+      - .json
+      - .yaml
+      - .yml
+  - id: screenshot
+    type: image
+    label: 参考画像（任意）
+    delivery: path
+    required: false
+    description: "パスとして渡す例。LLM に画像そのものを載せる場合は delivery: content"
+    accept:
+      - image/*
+  - id: includeHttpDemo
+    type: boolean
+    label: HTTP demo connector を意識する
+    required: false
+    default: true
+    description: 実行メタ情報のみ（UI / ログ用）。

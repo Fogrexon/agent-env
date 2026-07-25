@@ -1,0 +1,10 @@
+{
+  "name": "@agent-env/agent-code-exec-env",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated npm env for AI-generated TS in agents/code-exec (not a workspace member).",
+  "dependencies": {
+    "ms": "^2.1.3"
+  }
+}

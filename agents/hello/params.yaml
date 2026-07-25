@@ -1,0 +1,12 @@
+apiVersion: agent-env/v1
+kind: AgentParams
+agentId: hello
+title: Hello
+description: Minimal single-agent greeting demo (Cursor SDK when configured).
+fields:
+  - id: message
+    type: text
+    label: 初回クエリ
+    required: true
+    placeholder: エージェントへの最初のメッセージ
+    default: "Hello — briefly introduce what you can do."

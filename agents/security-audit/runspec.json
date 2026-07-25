@@ -1,0 +1,109 @@
+{
+  "apiVersion": "agent.platform/v1",
+  "kind": "RunSpec",
+  "metadata": {
+    "tenantId": "local-demo",
+    "idempotencyKey": "security-audit-v2"
+  },
+  "spec": {
+    "task": {
+      "taskId": "security-audit-pr",
+      "revision": "2026-07-25-v3",
+      "objective": "Audit https://github.com/Fogrexon/CGEngine — clone it, run parallel security scouts, consolidate findings, author exact before/after patches, evaluate with a second model (revise patches on REVISE and re-evaluate), then attempt a structured GitHub PR."
+    },
+    "harness": {
+      "policyRef": "harness://security-audit/scout-consolidate-patch-eval-revise-pr-v3",
+      "maxSteps": 100,
+      "maxRepairs": 0
+    },
+    "model": {
+      "primary": {
+        "provider": "cursor",
+        "model": "auto"
+      },
+      "allowed": [
+        { "provider": "cursor", "model": "auto" },
+        { "provider": "gemini", "model": "gemini-3.6-flash" }
+      ]
+    },
+    "environment": {
+      "backend": "process",
+      "networkPolicy": "allowlist",
+      "egressDomains": ["github.com", "api.github.com"]
+    },
+    "tools": {
+      "allow": [
+        {
+          "name": "clone_repo",
+          "version": "1.0",
+          "riskClass": "T1",
+          "sideEffect": "reversible",
+          "idempotency": "supported"
+        },
+        {
+          "name": "list_files",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "read_file",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "record_findings",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "record_patches",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "evaluate_audit",
+          "version": "1.0",
+          "riskClass": "T1",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "publish_security_pr",
+          "version": "1.0",
+          "riskClass": "T1",
+          "sideEffect": "irreversible",
+          "idempotency": "required"
+        },
+        {
+          "name": "write_fix",
+          "version": "1.0",
+          "riskClass": "T2",
+          "sideEffect": "reversible",
+          "idempotency": "supported"
+        },
+        {
+          "name": "create_pr",
+          "version": "1.0",
+          "riskClass": "T3",
+          "sideEffect": "irreversible",
+          "idempotency": "required"
+        }
+      ]
+    },
+    "budget": {
+      "maxToolCalls": 140,
+      "maxWallSeconds": 3600
+    },
+    "evaluation": {
+      "ref": "./evaluation.json"
+    }
+  }
+}

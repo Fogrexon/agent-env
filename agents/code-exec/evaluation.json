@@ -1,0 +1,19 @@
+{
+  "apiVersion": "agent.platform/v1",
+  "kind": "EvaluationSpec",
+  "metadata": { "id": "code-exec", "version": "1" },
+  "artifacts": [],
+  "graders": [
+    {
+      "id": "output",
+      "kind": "deterministic",
+      "ref": "grader://non-empty/v1",
+      "config": {}
+    }
+  ],
+  "acceptance": {
+    "all": [
+      { "id": "has-output", "grader": "output", "assertion": "non-empty" }
+    ]
+  }
+}

@@ -9,6 +9,10 @@
     { "path": "agents/parallel-pipeline" },
     { "path": "agents/runspec-demo" },
     { "path": "agents/collector" },
+    { "path": "agents/deep-research" },
+    { "path": "agents/security-audit" },
+    { "path": "agents/code-exec" },
+    { "path": "agents/super-debate" },
     { "path": "scripts" }
   ]
 }

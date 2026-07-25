@@ -1,0 +1,62 @@
+{
+  "apiVersion": "agent.platform/v1",
+  "kind": "RunSpec",
+  "metadata": {
+    "tenantId": "local-demo",
+    "idempotencyKey": "parallel-pipeline-debate-v1"
+  },
+  "spec": {
+    "task": {
+      "taskId": "parallel-pipeline-debate",
+      "revision": "2026-07-25-debate",
+      "objective": "Remote work should be the default for small engineering teams"
+    },
+    "harness": {
+      "policyRef": "harness://parallel-pipeline/debate-v1",
+      "maxSteps": 80,
+      "maxRepairs": 0
+    },
+    "model": {
+      "primary": { "provider": "cursor", "model": "auto" },
+      "allowed": [
+        { "provider": "cursor", "model": "auto" },
+        { "provider": "gemini", "model": "gemini-3.6-flash" }
+      ]
+    },
+    "environment": {
+      "backend": "none",
+      "networkPolicy": "unrestricted",
+      "egressDomains": []
+    },
+    "tools": {
+      "allow": [
+        {
+          "name": "search_web",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "search_x",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "fetch_pages",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        }
+      ]
+    },
+    "budget": {
+      "maxToolCalls": 80,
+      "maxWallSeconds": 1200
+    },
+    "evaluation": { "ref": "./evaluation.json" }
+  }
+}

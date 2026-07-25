@@ -1,0 +1,43 @@
+{
+  "name": "@agent-env/admin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local admin console: AgentParams forms + run control plane",
+  "scripts": {
+    "dev": "concurrently -k -n api,ui -c blue,green \"npm run dev:api\" \"npm run dev:ui\"",
+    "dev:api": "tsx watch server/index.ts",
+    "dev:ui": "vite",
+    "build": "tsc -b && vite build",
+    "typecheck": "tsc -b --pretty false",
+    "start": "node dist-server/index.js"
+  },
+  "dependencies": {
+    "@agent-env/harness": "0.1.0",
+    "@agent-env/llm": "0.1.0",
+    "@agent-env/repo-env": "0.1.0",
+    "@agent-env/shared": "0.1.0",
+    "@google/adk": "^1.4.0",
+    "@uiw/react-md-editor": "^4.1.1",
+    "busboy": "^1.6.0",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
+    "react": "^19.1.0",
+    "react-dom": "^19.1.0",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/busboy": "^1.5.4",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.3",
+    "@types/react": "^19.1.8",
+    "@types/react-dom": "^19.1.6",
+    "@vitejs/plugin-react": "^4.7.0",
+    "concurrently": "^9.2.0",
+    "tsx": "^4.23.1",
+    "typescript": "^5.9.3",
+    "vite": "^7.0.5"
+  }
+}

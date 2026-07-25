@@ -42,6 +42,8 @@ export interface CreateHttpJsonConnectorOptions {
   /** Inject for tests; defaults to global fetch. */
   fetchImpl?: HttpFetch;
   timeoutMs?: number;
+  /** Non-secret knobs for live progress (e.g. base URL template). */
+  publicConfig?: Record<string, unknown>;
 }
 
 function getAtPath(data: unknown, path: string): unknown {
@@ -76,6 +78,10 @@ export function createHttpJsonConnector(
       idempotency: 'supported',
       timeoutMs,
       ...options.contract,
+    },
+    publicConfig: {
+      timeoutMs,
+      ...options.publicConfig,
     },
     search: async (input) => {
       const req = options.buildRequest(input);
@@ -174,6 +180,13 @@ export function createSimpleHttpJsonConnector(
     tags: options.tags,
     contract: options.contract,
     fetchImpl: options.fetchImpl,
+    publicConfig: {
+      ...(typeof options.url === 'string' ? { url: options.url } : { url: '(dynamic)' }),
+      titleKey,
+      snippetKey,
+      ...(uriKey ? { uriKey } : {}),
+      ...(options.itemsPath ? { itemsPath: options.itemsPath } : {}),
+    },
     buildRequest: (input) => {
       const url =
         typeof options.url === 'function'

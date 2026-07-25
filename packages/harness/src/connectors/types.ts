@@ -41,6 +41,10 @@ export interface CreateSearchConnectorOptions {
   kind: DataSourceKind;
   tags?: string[];
   contract?: Partial<ToolContractInput>;
+  /**
+   * Non-secret factory knobs shown in live progress when the search tool runs.
+   */
+  publicConfig?: Record<string, unknown>;
   search: (input: ConnectorSearchInput) => Promise<EvidenceBundle>;
 }
 
@@ -73,6 +77,13 @@ export function createSearchConnector(
         contract: meta.contract,
         description: `${meta.title}: ${meta.description}`,
         parameters: searchParamsSchema,
+        publicConfig: {
+          connectorId: meta.id,
+          kind: meta.kind,
+          title: meta.title,
+          tags: meta.tags,
+          ...options.publicConfig,
+        },
         execute: (input) => options.search(input),
       });
     },
@@ -92,7 +103,7 @@ export function toEvidenceItems(
   return rows.map((row) => ({
     sourceId,
     title: row.title,
-    snippet: row.snippet.slice(0, 500),
+    snippet: row.snippet,
     uri: row.uri,
     score: row.score,
     retrievedAt: now,

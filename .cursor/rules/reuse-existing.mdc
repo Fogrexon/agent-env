@@ -1,0 +1,62 @@
+---
+description: コネクタとして実装すべき能力をエージェント内の自前関数にしない
+alwaysApply: true
+---
+
+# Connectors over ad-hoc functions
+
+**外部データソース / vendor API へのアクセスはコネクタ（または harness のツール・ファクトリ）として実装する。** エージェント内に同じ仕事の自前 `fetch` 関数を置かない。
+
+「既にあるコネクタを再実装するな」だけでなく、**そもそもコネクタにすべきものをローカル関数として新設しない**。
+
+## コネクタにすべきもの
+
+次のような能力は `packages/harness/src/connectors/`（または同等の harness ファクトリ）へ:
+
+- 公開 Web 検索・ページ抽出（Tavily / Brave 等）
+- GitHub / git clone / PR 作成 / HTTP JSON / arXiv / X など再利用可能なデータ源
+- ルート限定のファイル list / read / write
+- 複数エージェントから呼ばれうる vendor API
+
+## エージェント内に残してよいもの
+
+- **配線**（`apiKey` / `repo` 等を env や secret からファクトリへ渡す）
+- **そのエージェントの構成でしか意味を持たない処理**（例: security-audit の「findings を別モデルの RunSpec 評価にかける」ようなエージェント固有のワークフローツール）。汎用データ源アクセスでなければ、無理に harness へ昇格させない
+
+判断基準: **「他のエージェントも欲しがりうる外部データ源アクセスか？」** YES → connector/factory。NO（そのエージェントの業務ロジック）→ agent.ts 内でよい。
+
+## 原則
+
+1. **先に既存を探す** — `packages/harness/src/connectors/`、既存エージェントの配線。
+2. **あるものは使う** — 例: `createWebSearchConnector`、`createTavilyExtractTool`、`createGithubGhConnector`。
+3. **無いならファクトリを足す** — エージェントに `async function tavilyX()` を書くのではなく、harness に汎用 `create*Connector` / `create*Tool` を追加し、エージェントは注入だけ行う。
+4. **足りないノブはファクトリを拡張** — エージェント固有の複製関数で逃げない。
+
+## NG / OK
+
+```ts
+// ❌ コネクタ向きの能力をエージェント内に直書き
+async function tavilySearch(q: string) { await fetch('https://api.tavily.com/search', …); }
+function listFiles(dir: string) { /* readdir jail を自前実装 */ }
+
+// ✅ harness ファクトリ + 呼び出し側で秘密 / ルートを注入
+const web = createWebSearchConnector({
+  provider: 'tavily',
+  apiKey: () => process.env['TAVILY_API_KEY'],
+  searchDepth: 'advanced',
+});
+const extract = createTavilyExtractTool({
+  apiKey: () => process.env['TAVILY_API_KEY'],
+});
+const fs = createWorkspaceFsTools({
+  roots: () => [...workRoots],
+  write: { approve: () => allowWrite },
+});
+tools: [web.createTool(), extract, fs.listFiles, fs.readFile, fs.writeFile];
+```
+
+## チェック
+
+- [ ] この能力は再利用可能な外部データ源か？ → YES なら harness connector/tool factory
+- [ ] エージェントに vendor HTTP の自前関数を増やしていない
+- [ ] エージェント内に残したものは「配線」または「そのエージェント構成でしか使わない処理」だけ

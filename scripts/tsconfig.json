@@ -11,10 +11,6 @@
     { "path": "../packages/shared" },
     { "path": "../packages/llm" },
     { "path": "../packages/harness" },
-    { "path": "../agents/dev-env" },
-    { "path": "../agents/hello" },
-    { "path": "../agents/parallel-pipeline" },
-    { "path": "../agents/runspec-demo" },
-    { "path": "../agents/collector" }
+    { "path": "../agents/dev-env" }
   ]
 }

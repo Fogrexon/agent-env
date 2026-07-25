@@ -1,0 +1,95 @@
+{
+  "apiVersion": "agent.platform/v1",
+  "kind": "RunSpec",
+  "metadata": {
+    "tenantId": "local-demo",
+    "idempotencyKey": "deep-research-v3"
+  },
+  "spec": {
+    "task": {
+      "taskId": "deep-research-report",
+      "revision": "2026-07-25-v4",
+      "objective": "What are the current best practices for securing LLM agent tool-calling, and which mitigations matter most in production?"
+    },
+    "harness": {
+      "policyRef": "harness://deep-research/scope-plan-hunt-gap-write-publish-v3",
+      "maxSteps": 100,
+      "maxRepairs": 0
+    },
+    "model": {
+      "primary": {
+        "provider": "cursor",
+        "model": "auto"
+      },
+      "allowed": [
+        { "provider": "cursor", "model": "auto" },
+        { "provider": "gemini", "model": "gemini-3.6-flash" }
+      ]
+    },
+    "environment": {
+      "backend": "none",
+      "networkPolicy": "unrestricted",
+      "egressDomains": []
+    },
+    "tools": {
+      "allow": [
+        {
+          "name": "search_web",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "search_x",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "fetch_pages",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "register_workspace",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "download_url",
+          "version": "1.0",
+          "riskClass": "T1",
+          "sideEffect": "reversible",
+          "idempotency": "supported"
+        },
+        {
+          "name": "write_file",
+          "version": "1.0",
+          "riskClass": "T2",
+          "sideEffect": "reversible",
+          "idempotency": "supported"
+        },
+        {
+          "name": "markdown_to_pdf",
+          "version": "1.0",
+          "riskClass": "T1",
+          "sideEffect": "reversible",
+          "idempotency": "supported"
+        }
+      ]
+    },
+    "budget": {
+      "maxToolCalls": 120,
+      "maxWallSeconds": 3600
+    },
+    "evaluation": {
+      "ref": "./evaluation.json"
+    }
+  }
+}

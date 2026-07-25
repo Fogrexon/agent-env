@@ -1,0 +1,106 @@
+/**
+ * Offline smoke for file-backed run history (no network / LLM).
+ */
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import {
+  composeProgressSinks,
+  createRunHistoryStore,
+  RUN_WORKSPACE_STATE_KEY,
+} from '@agent-env/harness';
+import { createProgressSequencer } from '@agent-env/shared';
+import type { AgentProgressEvent, AgentRunResult } from '@agent-env/shared';
+
+function assert(cond: unknown, msg: string): asserts cond {
+  if (!cond) throw new Error(msg);
+}
+
+const baseDir = mkdtempSync(join(tmpdir(), 'agent-env-run-history-'));
+
+try {
+  const store = createRunHistoryStore({ baseDir });
+  const writer = store.open({
+    runId: '11111111-2222-3333-4444-555555555555',
+    agentId: 'demo-agent',
+    runMode: 'agent',
+    message: 'smoke message',
+  });
+
+  assert(writer.dir.includes('demo-agent'), 'dir includes agent id');
+  assert(
+    writer.workspaceDir.endsWith('workspace') ||
+      writer.workspaceDir.endsWith('workspace\\') ||
+      writer.workspaceDir.includes(`${join('workspace')}`),
+    'workspaceDir set',
+  );
+  assert(RUN_WORKSPACE_STATE_KEY === 'runWorkspaceDir', 'state key');
+
+  const memory: AgentProgressEvent[] = [];
+  const sink = composeProgressSinks(writer.progressSink, (e) => memory.push(e));
+  const progress = createProgressSequencer(writer.runId, sink);
+
+  progress.emit('run.started', { message: 'start' });
+  // Streaming partials reach live sinks but must not land on disk.
+  progress.emit('agent.event', {
+    author: 'demo',
+    message: 'hel',
+    agentEvent: {
+      author: 'demo',
+      isFinal: false,
+      partial: true,
+      text: 'hel',
+    },
+  });
+  progress.emit('agent.event', {
+    author: 'demo',
+    message: 'hello world',
+    agentEvent: { author: 'demo', isFinal: true, text: 'hello world' },
+  });
+  progress.emit('run.completed', { message: 'done' });
+
+  assert(memory.length === 4, 'memory sink got all 4 (incl. partial)');
+
+  const progressRaw = readFileSync(join(writer.dir, 'progress.jsonl'), 'utf8')
+    .trim()
+    .split('\n');
+  assert(progressRaw.length === 3, 'progress.jsonl skips partials');
+  const diskMiddle = JSON.parse(progressRaw[1]!) as AgentProgressEvent;
+  assert(
+    diskMiddle.message === undefined &&
+      diskMiddle.agentEvent?.text === 'hello world',
+    'disk line drops duplicate message',
+  );
+
+  const result: AgentRunResult = {
+    status: 'finished',
+    finalText: 'hello world',
+    events: [{ author: 'demo', isFinal: true, text: 'hello world' }],
+    sessionId: writer.runId,
+    userId: 'u',
+    appName: 'smoke',
+    agentName: 'demo',
+    startedAt: new Date().toISOString(),
+    finishedAt: new Date().toISOString(),
+  };
+  writer.writeResult(result);
+
+  const listed = store.listRuns();
+  assert(listed.length === 1, 'listRuns length 1');
+  assert(listed[0]?.runId === writer.runId, 'listRuns runId');
+  assert(listed[0]?.status === 'completed', 'listRuns status');
+  assert(listed[0]?.finalTextPreview?.includes('hello'), 'preview');
+
+  const read = store.readRun(writer.runId);
+  assert(read, 'readRun');
+  assert(read.events.length === 3, 'read events');
+  assert(read.finalText?.includes('hello world'), 'final.md');
+  assert(read.meta.workspaceDir === writer.workspaceDir, 'workspace meta');
+
+  const missing = store.readRun('does-not-exist');
+  assert(missing === undefined, 'missing run');
+
+  console.log('✓ smoke-run-history passed');
+} finally {
+  rmSync(baseDir, { recursive: true, force: true });
+}

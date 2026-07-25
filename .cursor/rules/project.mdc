@@ -7,25 +7,27 @@ alwaysApply: true
 
 並列・自律エージェントのテンプレート / ハーネス。オーケストレーションは **Google ADK**、LLM は **`@agent-env/llm` の provider registry**。
 
-## レイヤ
+## レイヤ（詳細は `layer-boundaries.mdc`）
 
 | 層 | 場所 | 役割 |
 |----|------|------|
-| Agents | `agents/*/agent.ts` | `rootAgent` |
-| LLM | `packages/llm` | ファクトリ・registry・`resolveModel` |
-| Harness | `packages/harness` | `runAgent` / `runFromSpec` / guarded tools |
-| Shared | `packages/shared` | Zod（ModelRef・RunSpec・Event） |
+| Agents | `agents/<id>/` | **固有設定の唯一の置き場**（agent.ts + params.yaml + runspec.json + evaluation.json） |
+| Repo wiring | `agents/dev-env` | env bootstrap + `agents/*/` ディスカバリ |
+| Libraries | `packages/*` | 汎用ランタイム・Zod（エージェント非依存） |
+| Entrypoints | `scripts/` / `apps/admin` | 汎用 CLI / UI（ディスカバリ駆動・固有値なし） |
 | Docs | `docs/` | ARCHITECTURE + 研究レポート |
 
 ## 必須ルール
 
-- 秘密情報・接続設定の取得は利用側の責務。`packages/*` は `process.env` を読まない。このリポの env 配線は `agents/dev-env` のみ
+- 秘密情報・接続設定の取得は利用側の責務。`packages/*` は `process.env` を読まない。env 配線は `agents/dev-env` のみ
+- **エージェント固有の設定・一覧・default id は `agents/<id>/` に閉じる。`packages/*` にも `scripts/` にも入れない**（`layer-boundaries.mdc`）
+- エージェント追加は `agents/<id>/agent.ts` + `params.yaml` + `runspec.json` + `evaluation.json` のみ。ルート `package.json` に per-agent script を増やさない
 - OpenAI 互換は `createOpenaiCompatibleProvider({ id, baseUrl, apiKey? })` を **id ごとに複数**登録してよい
 - Gemini / Anthropic は API key または Vertex ADC（`vertex: { project, location|region }`）をファクトリに注入
 - モデルは `resolveModel({ provider, model })`（登録済み provider id）
-- ツールなしデモの既定は Cursor SDK。FunctionTools 付きは当面 Gemini
-- 計測可能な実行は RunSpec + `runFromSpec`（成功は verifier、agent 自己申告ではない）
+- デモの既定は Cursor SDK。FunctionTools も Cursor で動く（`ProviderBackedLlm` が SDK customTools にブリッジ）。Gemini はフォールバック / ADK ネイティブ
+- 計測可能な実行は RunSpec + EvaluationSpec + `runFromSpec` / `runDiscoveredAgent`（成功は verifier、agent 自己申告ではない）
 - ツール引数は Zod。権限境界は `createGuardedTool`（T0–T3）
+- **既存コネクタを再実装しないだけでなく、コネクタ向きの能力をエージェント内の自前関数にしない**（`reuse-existing.mdc`）。例: 検索は `createWebSearchConnector`、抽出は `createTavilyExtractTool`
 - 並列分岐の `outputKey` は一意
 - シークレットをコミットしない
-- エージェント追加時は `packages/harness/src/registry.ts` も更新

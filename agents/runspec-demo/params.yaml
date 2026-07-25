@@ -1,0 +1,12 @@
+apiVersion: agent-env/v1
+kind: AgentParams
+agentId: runspec-demo
+title: RunSpec Demo
+description: Phase A RunSpec + guarded tools + JSON Schema verifier (Cursor SDK).
+fields:
+  - id: message
+    type: text
+    label: 初回クエリ / objective 上書き
+    required: true
+    placeholder: RunSpec の objective を上書きするメッセージ
+    default: "Summarize what a RunSpec-driven harness should measure for one coding-style agent run."

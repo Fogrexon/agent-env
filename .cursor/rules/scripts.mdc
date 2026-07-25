@@ -1,0 +1,16 @@
+---
+description: scripts/ は汎用 CLI のみ（エージェント固有設定禁止）
+globs: scripts/**/*.ts
+alwaysApply: false
+---
+
+# Scripts
+
+`scripts/` は **薄い汎用エントリポイント**だけ。
+
+- エージェント一覧は `discoverAgents` / `getDiscoveredAgent` / `getResolvedAgentPackage`（`@agent-env/repo-env`）から取得
+- 実行対象の agent id は **argv 必須**
+- 実行は `runDiscoveredAgent` のみ（canonical `runspec.json` + `evaluation.json`）
+- **禁止:** デフォルト agent id のハードコード、エージェント別の if 分岐、params の複製、固有モデル名の埋め込み
+- コメントの使用例に id を書くのは可。実行時 fallback に特定 id を焼くのは不可
+- ルート `package.json` に per-agent script を追加しない（`run` / `admin` / `smoke:*` のみ）

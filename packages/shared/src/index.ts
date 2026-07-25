@@ -38,6 +38,7 @@ export {
   toolIdempotencySchema,
   toolRiskClassSchema,
   toolSideEffectSchema,
+  verifyBaseDirSchema,
   verificationResultSchema,
   type BudgetSpec,
   type BudgetSpecInput,
@@ -54,6 +55,7 @@ export {
   type ToolIdempotency,
   type ToolRiskClass,
   type ToolSideEffect,
+  type VerifyBaseDir,
   type VerificationResult,
 } from './run-spec.js';
 export {
@@ -66,3 +68,56 @@ export {
   type EvidenceBundle,
   type EvidenceItem,
 } from './connectors.js';
+export {
+  agentAttachmentSchema,
+  agentParamsSpecSchema,
+  appliedAgentParamsSchema,
+  isFileLikeParamType,
+  isMultiFileParamType,
+  paramDeliverySchema,
+  paramEnumOptionSchema,
+  paramFieldSchema,
+  paramFieldTypeSchema,
+  type AgentAttachment,
+  type AgentParamsSpec,
+  type AppliedAgentParams,
+  type ParamDelivery,
+  type ParamEnumOption,
+  type ParamField,
+  type ParamFieldType,
+} from './agent-params.js';
+export {
+  agentProgressEventSchema,
+  agentProgressKindSchema,
+  createProgressSequencer,
+  type AgentProgressEvent,
+  type AgentProgressKind,
+  type AgentProgressSink,
+} from './progress.js';
+export {
+  appendFoldedProgressEvent,
+  clearPartialAgentProgress,
+  findOpenStreamIndexForParent,
+  isPartialAgentProgress,
+  progressStreamKey,
+  rebuildProgressStreamRows,
+  type FoldProgressAppendResult,
+} from './progress-fold.js';
+export {
+  agentRunRequestSchema,
+  runInputSnapshotSchema,
+  type AgentRunRequest,
+  type RunInputSnapshot,
+} from './agent-run.js';
+export {
+  acceptanceAssertionSchema,
+  artifactContractSchema,
+  evaluationRefSchema,
+  evaluationSpecSchema,
+  graderSpecSchema,
+  type AcceptanceAssertion,
+  type ArtifactContract,
+  type EvaluationRef,
+  type EvaluationSpec,
+  type GraderSpec,
+} from './evaluation-spec.js';

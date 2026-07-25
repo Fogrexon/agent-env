@@ -1,0 +1,37 @@
+{
+  "apiVersion": "agent.platform/v1",
+  "kind": "RunSpec",
+  "metadata": {
+    "tenantId": "local-demo",
+    "idempotencyKey": "hello-v1"
+  },
+  "spec": {
+    "task": {
+      "taskId": "hello-greet",
+      "revision": "2026-07-25",
+      "objective": "Hello — briefly introduce what you can do."
+    },
+    "harness": {
+      "policyRef": "harness://hello/v1",
+      "maxSteps": 8,
+      "maxRepairs": 0
+    },
+    "model": {
+      "primary": { "provider": "cursor", "model": "auto" },
+      "allowed": [
+        { "provider": "cursor", "model": "auto" },
+        { "provider": "gemini", "model": "gemini-3.6-flash" }
+      ]
+    },
+    "environment": {
+      "backend": "none",
+      "networkPolicy": "deny"
+    },
+    "tools": { "allow": [] },
+    "budget": {
+      "maxToolCalls": 5,
+      "maxWallSeconds": 120
+    },
+    "evaluation": { "ref": "./evaluation.json" }
+  }
+}

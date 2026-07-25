@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@agent-env/harness": "0.1.0",
-    "@agent-env/llm": "0.1.0"
+    "@agent-env/llm": "0.1.0",
+    "@agent-env/shared": "0.1.0"
   }
 }
