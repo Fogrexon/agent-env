@@ -32,6 +32,7 @@ export {
   describeProviderMedia,
   listProviderMedia,
   providerIdOfModel,
+  providerSupportsMime,
 } from './media-catalog.js';
 export type { ProviderMediaInfo } from './media-catalog.js';
 export {
@@ -74,6 +75,7 @@ export {
   OPENAI_COMPATIBLE_DEFAULT_MEDIA_SUPPORT,
   type BaseUrlSource,
   type CreateOpenaiCompatibleProviderOptions,
+  type OpenaiCompatibleToolOptions,
 } from './providers/openai-compatible.js';
 export {
   createOpenaiProvider,
@@ -99,7 +101,15 @@ export {
   openAiChatCompletionStream,
   readNumberParam,
   readStringParam,
+  toOpenAiMessages,
 } from './openai-chat.js';
+export {
+  openAiChatWithTools,
+  estimateTokensApprox,
+  type ContextOverflowStrategy,
+  type OpenAiToolContextOptions,
+  type OpenAiToolLoopOptions,
+} from './openai-tools.js';
 export {
   defaultAnthropicModelRef,
   defaultCursorModelRef,

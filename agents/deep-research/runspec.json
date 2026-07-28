@@ -3,16 +3,16 @@
   "kind": "RunSpec",
   "metadata": {
     "tenantId": "local-demo",
-    "idempotencyKey": "deep-research-v3"
+    "idempotencyKey": "deep-research-v4"
   },
   "spec": {
     "task": {
       "taskId": "deep-research-report",
-      "revision": "2026-07-25-v4",
+      "revision": "2026-07-28-typed-handoff",
       "objective": "What are the current best practices for securing LLM agent tool-calling, and which mitigations matter most in production?"
     },
     "harness": {
-      "policyRef": "harness://deep-research/scope-plan-hunt-gap-write-publish-v3",
+      "policyRef": "harness://deep-research/typed-handoff-v1",
       "maxSteps": 100,
       "maxRepairs": 0
     },
@@ -81,11 +81,46 @@
           "riskClass": "T1",
           "sideEffect": "reversible",
           "idempotency": "supported"
+        },
+        {
+          "name": "emit_research_scope",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_research_plan",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_evidence_ledger",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_gap_fill",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_draft_report",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
         }
       ]
     },
     "budget": {
-      "maxToolCalls": 120,
+      "maxToolCalls": 140,
       "maxWallSeconds": 3600
     },
     "evaluation": {

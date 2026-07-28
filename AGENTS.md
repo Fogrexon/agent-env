@@ -9,6 +9,11 @@
  *
  * ## 実行
  * - `npm run run -- <agent-id> "..."`（discovery → RunSpec + EvaluationSpec）
+ * - `npm run run -- <agent-id> --params ./values.json`
  * - `npm run admin`
- * - 追加: agents/<id>/ に agent.ts / params.yaml / runspec.json / evaluation.json を置くだけ
+ * - 追加: agents/<id>/ に 4 必須ファイルを置くだけ
+ *
+ * ## 実装者向け仕様
+ * - docs/AGENT_PACKAGE.md … パッケージ規約・params / RunSpec / EvaluationSpec / CLI
+ * - docs/ARCHITECTURE.md … 五 plane・ハーネス全体
  */

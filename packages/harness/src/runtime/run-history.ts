@@ -9,9 +9,10 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  rmSync,
   writeFileSync,
 } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type {
   AgentProgressEvent,
   AgentProgressSink,
@@ -181,6 +182,8 @@ export interface RunHistoryStore {
   listRuns(): RunHistoryListItem[];
   readRun(runId: string): RunHistoryReadResult | undefined;
   findRunDir(runId: string): string | undefined;
+  /** Remove a run directory from disk. Returns false if not found. */
+  deleteRun(runId: string): boolean;
 }
 
 function createWriter(
@@ -379,6 +382,20 @@ export function createRunHistoryStore(
         result: readJsonFile(join(dir, 'result.json')),
         ...(finalRaw !== undefined ? { finalText: finalRaw } : {}),
       };
+    },
+    deleteRun: (runId) => {
+      const dir = findRunDir(runId);
+      if (!dir) return false;
+      rmSync(dir, { recursive: true, force: true });
+      const agentDir = dirname(dir);
+      if (
+        agentDir !== baseDir &&
+        existsSync(agentDir) &&
+        readdirSync(agentDir).length === 0
+      ) {
+        rmSync(agentDir, { recursive: true, force: true });
+      }
+      return true;
     },
   };
 }

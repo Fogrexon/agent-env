@@ -6,6 +6,7 @@ import {
   createGitCloneTool,
   createGithubTools,
   createGuardedTool,
+  createHandoffArtifact,
   createWorkspaceFsTools,
   defaultCursorModelRef,
   defaultGeminiModelRef,
@@ -19,6 +20,7 @@ import {
 } from '@agent-env/harness';
 import { z } from 'zod';
 import {
+  AUDIT_FINDINGS_HANDOFF_SCHEMA_ID,
   auditEvaluationSchema,
   auditFindingSchema,
   auditFilePatchSchema,
@@ -154,6 +156,19 @@ export const agentDefinition = defineAgent({
         );
         auditState.pkg.repoUrl = repoUrl;
         auditState.pkg.findings = findings;
+        const handoff = createHandoffArtifact({
+          fromAgent: 'consolidator',
+          toAgent: 'patch_author',
+          objective: `Validated security findings for ${repoUrl}`,
+          outputSchema: AUDIT_FINDINGS_HANDOFF_SCHEMA_ID,
+          payload: { findings },
+          payloadSchema: auditFindingsListSchema,
+          doneCriteria: [
+            'findings validated against AuditFinding schema',
+            'ids renumbered F1..Fn',
+          ],
+          contextSummary: `${findings.length} findings recorded for ${repoUrl}`,
+        });
         return {
           status: 'success' as const,
           count: findings.length,
@@ -163,6 +178,8 @@ export const agentDefinition = defineAgent({
               (s) => [s, findings.filter((f) => f.severity === s).length],
             ),
           ),
+          handoffDigest: handoff.digest,
+          handoffSchema: handoff.outputSchema,
         };
       },
     });

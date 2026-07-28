@@ -2,7 +2,32 @@
   "apiVersion": "agent.platform/v1",
   "kind": "EvaluationSpec",
   "metadata": { "id": "super-debate", "version": "1" },
-  "artifacts": [],
+  "artifacts": [
+    {
+      "id": "debate-grok",
+      "mediaTypes": ["text/markdown"],
+      "required": false,
+      "minBytes": 80
+    },
+    {
+      "id": "debate-sol",
+      "mediaTypes": ["text/markdown"],
+      "required": false,
+      "minBytes": 80
+    },
+    {
+      "id": "debate-opus",
+      "mediaTypes": ["text/markdown"],
+      "required": false,
+      "minBytes": 80
+    },
+    {
+      "id": "debate-gemini",
+      "mediaTypes": ["text/markdown"],
+      "required": false,
+      "minBytes": 80
+    }
+  ],
   "graders": [
     {
       "id": "output",

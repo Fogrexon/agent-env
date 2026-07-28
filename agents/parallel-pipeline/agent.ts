@@ -1,11 +1,17 @@
 import { execFileSync } from 'node:child_process';
-import { LlmAgent, ParallelAgent, SequentialAgent, type FunctionTool } from '@google/adk';
+import {
+  LlmAgent,
+  ParallelAgent,
+  SequentialAgent,
+  type FunctionTool,
+} from '@google/adk';
 import {
   DEFAULT_CURSOR_MODEL,
   DEFAULT_GEMINI_MODEL,
   type ModelRef,
 } from '@agent-env/shared';
 import {
+  createEmitHandoffTool,
   createGrokBuildXSearchConnector,
   createTavilyExtractTool,
   createWebSearchConnector,
@@ -16,24 +22,23 @@ import {
   selectModelRef,
   type AgentBuildContext,
 } from '@agent-env/harness';
+import {
+  DEBATE_TURN_SCHEMA_ID,
+  debateTurnSchema,
+  type DebateTurn,
+} from './schema.js';
 
 /**
- * Structured debate demo (Cursor SDK by default):
+ * Structured debate with typed handoff artifacts between rounds.
  *
- *   1. opening   — PRO / CON open in parallel (claims + evidence)
- *   2. rebuttal1 — each side rebuts the other in parallel
- *   3. rebuttal2 — second exchange in parallel
- *   4. judge     — impartial verdict from the full transcript
- *
- * Debaters may reinforce claims via web search / page extract / optional X
- * search (Tavily + Grok Build). Override per role via config:
- *   AGENT_ENV_PROS_MODEL / AGENT_ENV_CONS_MODEL / AGENT_ENV_JUDGE_MODEL
+ *   opening → rebuttal1 → rebuttal2 → judge
+ * Each PRO/CON turn must emit a DebateTurn handoff (digest + schema).
  */
 export const agentDefinition = defineAgent({
   id: 'parallel-pipeline',
   name: 'Parallel Pipeline',
   description:
-    'Multi-round PRO/CON debate with search-backed rebuttals, then a judge verdict.',
+    'Multi-round PRO/CON debate with typed DebateTurn handoffs, then a judge verdict.',
   createAgent(context: AgentBuildContext) {
     function refFromConfig(key: string, fallback: ModelRef): ModelRef {
       return parseModelRef(context.config(key), fallback);
@@ -51,12 +56,10 @@ export const agentDefinition = defineAgent({
     const cursorPreferred = defaultCursorModelRef(
       context.config('AGENT_ENV_CURSOR_MODEL')?.trim() || DEFAULT_CURSOR_MODEL,
     );
-
     const geminiFallback: ModelRef = {
       provider: 'gemini',
       model: DEFAULT_GEMINI_MODEL,
     };
-
     const cursorOrGemini = selectModelRef(cursorPreferred, geminiFallback);
 
     const prosRef = refFromConfig('AGENT_ENV_PROS_MODEL', cursorOrGemini);
@@ -79,7 +82,6 @@ export const agentDefinition = defineAgent({
       });
       debateTools.push(web.createTool());
       toolNames.push('search_web');
-
       debateTools.push(
         createTavilyExtractTool({
           apiKey: () => context.secret('TAVILY_API_KEY'),
@@ -105,174 +107,225 @@ export const agentDefinition = defineAgent({
 
     const toolsHint =
       toolNames.length > 0
-        ? `You MAY call tools (${toolNames.join(', ')}) to find or verify evidence before writing. Prefer 1–3 focused searches; cite URLs when you used a tool. Do not invent citations.`
-        : `No search tools are available this run — argue from general knowledge and label uncertainty clearly. Do not invent URLs.`;
+        ? `You MAY call tools (${toolNames.join(', ')}) before emitting the handoff. Prefer 1–3 focused searches; put URLs in evidence[].source. Do not invent citations.`
+        : `No search tools this run — argue from general knowledge and label uncertainty. Do not invent URLs.`;
 
-    const openingFormat = `Output markdown only (no preamble):
+    const docsHint = `If the user attached reference documents ([attachment: ...]), ground claims in them and cite as [attachment: <name>].`;
 
-## Claims
-1. <claim> — <1–2 sentence warrant>
-2. …
-(aim for {maxClaims?} claims; default 3–4)
+    function emitTurn(opts: {
+      name: string;
+      fromAgent: string;
+      toAgent: string;
+      side: DebateTurn['side'];
+      round: DebateTurn['round'];
+    }) {
+      return createEmitHandoffTool({
+        name: opts.name,
+        fromAgent: opts.fromAgent,
+        toAgent: opts.toAgent,
+        outputSchema: DEBATE_TURN_SCHEMA_ID,
+        payloadSchema: debateTurnSchema,
+        defaultObjective: `${opts.side.toUpperCase()} ${opts.round}`,
+        doneCriteria: [
+          'payload matches DebateTurn schema',
+          'claims grounded; evidence sources real when present',
+        ],
+        description: `Emit typed DebateTurn handoff (${opts.side} / ${opts.round}).`,
+      });
+    }
 
-## Evidence
-- <fact or quote> — <source / URL if searched>
+    function turnInstruction(opts: {
+      side: DebateTurn['side'];
+      round: DebateTurn['round'];
+      emitName: string;
+      contextBlock: string;
+    }): string {
+      const sideLabel = opts.side === 'pro' ? 'PRO (FOR)' : 'CON (AGAINST)';
+      return `You are the ${sideLabel} advocate in a typed-handoff debate (${opts.round}).
 
-## Closing
-<one sentence stake in the ground>`;
+${opts.contextBlock}
 
-    const rebuttalFormat = `Output markdown only (no preamble):
+${toolsHint}
 
-## Target
-- Which opponent claims you are answering (quote or paraphrase briefly)
+${docsHint}
 
-## Rebuttals
-1. <counter> — why their claim fails or is incomplete
-2. …
+After tools (if any), call ${opts.emitName} ONCE with payloadJson matching:
+{
+  "side": "${opts.side}",
+  "round": "${opts.round}",
+  "claims": [{ "text": "...", "warrant": "..." }],
+  "evidence": [{ "fact": "...", "source": "url or attachment name" }],
+  "targets": ["opponent claim paraphrases — required for rebuttal rounds, else []"],
+  "closing": "one sentence"
+}
+Aim for 3–4 claims. Do not invent sources.
 
-## Reinforced case
-- What still stands on your side after this exchange
+Your FINAL message MUST be the envelope string returned by ${opts.emitName}.`;
+    }
 
-## Evidence
-- <fact or quote> — <source / URL if searched>`;
+    const emitProsOpening = emitTurn({
+      name: 'emit_pros_opening',
+      fromAgent: 'pros_opening',
+      toAgent: 'debate_judge',
+      side: 'pro',
+      round: 'opening',
+    });
+    const emitConsOpening = emitTurn({
+      name: 'emit_cons_opening',
+      fromAgent: 'cons_opening',
+      toAgent: 'debate_judge',
+      side: 'con',
+      round: 'opening',
+    });
+    const emitProsR1 = emitTurn({
+      name: 'emit_pros_rebuttal_1',
+      fromAgent: 'pros_rebuttal_1',
+      toAgent: 'debate_judge',
+      side: 'pro',
+      round: 'rebuttal_1',
+    });
+    const emitConsR1 = emitTurn({
+      name: 'emit_cons_rebuttal_1',
+      fromAgent: 'cons_rebuttal_1',
+      toAgent: 'debate_judge',
+      side: 'con',
+      round: 'rebuttal_1',
+    });
+    const emitProsR2 = emitTurn({
+      name: 'emit_pros_rebuttal_2',
+      fromAgent: 'pros_rebuttal_2',
+      toAgent: 'debate_judge',
+      side: 'pro',
+      round: 'rebuttal_2',
+    });
+    const emitConsR2 = emitTurn({
+      name: 'emit_cons_rebuttal_2',
+      fromAgent: 'cons_rebuttal_2',
+      toAgent: 'debate_judge',
+      side: 'con',
+      round: 'rebuttal_2',
+    });
 
     const prosOpening = new LlmAgent({
       name: 'pros_opening',
       model: resolveModel(prosRef),
-      description: `PRO opening statement (provider=${prosRef.provider}).`,
-      instruction: `You are the PRO advocate in a structured debate.
-Argue FOR the user's proposition / topic. Build the strongest affirmative case.
-
-${toolsHint}
-
-${openingFormat}`,
-      tools: debateTools,
+      description: `PRO opening (typed handoff).`,
+      instruction: turnInstruction({
+        side: 'pro',
+        round: 'opening',
+        emitName: 'emit_pros_opening',
+        contextBlock: 'Argue FOR the user proposition. Build the affirmative case.',
+      }),
+      tools: [...debateTools, emitProsOpening],
       outputKey: 'pros_opening',
     });
 
     const consOpening = new LlmAgent({
       name: 'cons_opening',
       model: resolveModel(consRef),
-      description: `CON opening statement (provider=${consRef.provider}).`,
-      instruction: `You are the CON advocate in a structured debate.
-Argue AGAINST the user's proposition / topic. Build the strongest negative case (risks, costs, failure modes, counter-evidence).
-
-${toolsHint}
-
-${openingFormat}`,
-      tools: debateTools,
+      description: `CON opening (typed handoff).`,
+      instruction: turnInstruction({
+        side: 'con',
+        round: 'opening',
+        emitName: 'emit_cons_opening',
+        contextBlock:
+          'Argue AGAINST the user proposition (risks, costs, failure modes).',
+      }),
+      tools: [...debateTools, emitConsOpening],
       outputKey: 'cons_opening',
-    });
-
-    const opening = new ParallelAgent({
-      name: 'debate_opening',
-      description: 'PRO and CON open in parallel.',
-      subAgents: [prosOpening, consOpening],
     });
 
     const prosRebuttal1 = new LlmAgent({
       name: 'pros_rebuttal_1',
       model: resolveModel(prosRef),
-      description: 'PRO first rebuttal of CON opening.',
-      instruction: `You are the PRO advocate. Rebut the CON opening. Stay on the PRO side.
-
-Your opening:
+      description: 'PRO first rebuttal (typed handoff).',
+      instruction: turnInstruction({
+        side: 'pro',
+        round: 'rebuttal_1',
+        emitName: 'emit_pros_rebuttal_1',
+        contextBlock: `Your opening handoff:
 {pros_opening?}
 
-Opponent opening (CON):
+Opponent CON opening handoff:
 {cons_opening?}
 
-${toolsHint}
-
-${rebuttalFormat}`,
-      tools: debateTools,
+Rebut CON; stay PRO.`,
+      }),
+      tools: [...debateTools, emitProsR1],
       outputKey: 'pros_rebuttal_1',
     });
 
     const consRebuttal1 = new LlmAgent({
       name: 'cons_rebuttal_1',
       model: resolveModel(consRef),
-      description: 'CON first rebuttal of PRO opening.',
-      instruction: `You are the CON advocate. Rebut the PRO opening. Stay on the CON side.
-
-Your opening:
+      description: 'CON first rebuttal (typed handoff).',
+      instruction: turnInstruction({
+        side: 'con',
+        round: 'rebuttal_1',
+        emitName: 'emit_cons_rebuttal_1',
+        contextBlock: `Your opening handoff:
 {cons_opening?}
 
-Opponent opening (PRO):
+Opponent PRO opening handoff:
 {pros_opening?}
 
-${toolsHint}
-
-${rebuttalFormat}`,
-      tools: debateTools,
+Rebut PRO; stay CON.`,
+      }),
+      tools: [...debateTools, emitConsR1],
       outputKey: 'cons_rebuttal_1',
-    });
-
-    const rebuttal1 = new ParallelAgent({
-      name: 'debate_rebuttal_1',
-      description: 'First parallel rebuttal exchange.',
-      subAgents: [prosRebuttal1, consRebuttal1],
     });
 
     const prosRebuttal2 = new LlmAgent({
       name: 'pros_rebuttal_2',
       model: resolveModel(prosRef),
-      description: 'PRO second rebuttal (final exchange).',
-      instruction: `You are the PRO advocate in the final rebuttal round. Answer CON's latest rebuttal and close your case.
-
-Your opening:
+      description: 'PRO final rebuttal (typed handoff).',
+      instruction: turnInstruction({
+        side: 'pro',
+        round: 'rebuttal_2',
+        emitName: 'emit_pros_rebuttal_2',
+        contextBlock: `Your prior handoffs:
 {pros_opening?}
-
-Your prior rebuttal:
 {pros_rebuttal_1?}
 
-Opponent latest (CON rebuttal 1):
+Opponent latest:
 {cons_rebuttal_1?}
 
-${toolsHint}
-
-${rebuttalFormat}
-End with one crisp closing line for the judge.`,
-      tools: debateTools,
+Final rebuttal; closing must be crisp for the judge.`,
+      }),
+      tools: [...debateTools, emitProsR2],
       outputKey: 'pros_rebuttal_2',
     });
 
     const consRebuttal2 = new LlmAgent({
       name: 'cons_rebuttal_2',
       model: resolveModel(consRef),
-      description: 'CON second rebuttal (final exchange).',
-      instruction: `You are the CON advocate in the final rebuttal round. Answer PRO's latest rebuttal and close your case.
-
-Your opening:
+      description: 'CON final rebuttal (typed handoff).',
+      instruction: turnInstruction({
+        side: 'con',
+        round: 'rebuttal_2',
+        emitName: 'emit_cons_rebuttal_2',
+        contextBlock: `Your prior handoffs:
 {cons_opening?}
-
-Your prior rebuttal:
 {cons_rebuttal_1?}
 
-Opponent latest (PRO rebuttal 1):
+Opponent latest:
 {pros_rebuttal_1?}
 
-${toolsHint}
-
-${rebuttalFormat}
-End with one crisp closing line for the judge.`,
-      tools: debateTools,
+Final rebuttal; closing must be crisp for the judge.`,
+      }),
+      tools: [...debateTools, emitConsR2],
       outputKey: 'cons_rebuttal_2',
-    });
-
-    const rebuttal2 = new ParallelAgent({
-      name: 'debate_rebuttal_2',
-      description: 'Second parallel rebuttal exchange.',
-      subAgents: [prosRebuttal2, consRebuttal2],
     });
 
     const judge = new LlmAgent({
       name: 'debate_judge',
       model: resolveModel(judgeRef),
-      description: `Impartial judge (provider=${judgeRef.provider}).`,
-      instruction: `You are an impartial debate judge. Decide from the transcript only — do not invent new facts outside it. Prefer arguments that were better evidenced and better rebutted.
+      description: `Impartial judge over typed DebateTurn handoffs.`,
+      instruction: `You are an impartial debate judge. Decide from the typed handoff envelopes only
+(## Handoff + JSON DebateTurn payloads). Prefer the JSON payload over prose.
+Do not invent facts outside the payloads / user attachments.
 
-## Transcript
+## Transcript handoffs
 
 ### PRO opening
 {pros_opening?}
@@ -294,47 +347,54 @@ End with one crisp closing line for the judge.`,
 
 ## Required output (markdown)
 
-The report must let a reader who never saw the debate follow how it unfolded,
-so write the round log BEFORE judging and keep it strictly neutral there.
-
 ### Round 1 — Opening
-**PRO:** 2–3 bullets, one line each (≤25 words), each the actual claim + its warrant.
+**PRO:** 2–3 bullets from claims (+ evidence sources).
 **CON:** same.
 
 ### Round 2 — First rebuttal
-**PRO:** 2–3 bullets — what it attacked in CON's opening and with what counter.
-**CON:** same, against PRO's opening.
+**PRO / CON:** what each attacked (targets[]) and counters.
 
 ### Round 3 — Final rebuttal
-**PRO:** 2–3 bullets — final answers plus the closing line.
-**CON:** same.
-
-Round log rules: faithful paraphrase only (no new arguments, no verdict language),
-keep each side's strongest cited source in parentheses when one was used, and mark
-a side "no substantive reply" when it dropped an argument.
+**PRO / CON:** final answers + closing.
 
 ### Clash points
-2–4 decisive clash points and who won each.
+2–4 decisive clashes and who won each.
 
 ### Evidence quality
-Who grounded claims better (citations / specificity).
+Who grounded claims better.
 
 ### Verdict
-One of: **PRO wins** | **CON wins** | **Split decision**
-Include a confidence (low / medium / high).
+**PRO wins** | **CON wins** | **Split decision** + confidence (low/medium/high).
 
 ### Rationale
-5–8 sentences grounded in the transcript. Name the strongest unrebutted point that tipped the scale (or why the split).
+5–8 sentences grounded in payloads.
 
 ### Recommendation
-One sentence practical takeaway for someone deciding the original topic.`,
+One practical takeaway.`,
     });
 
     return new SequentialAgent({
       name: 'parallel_pipeline',
       description:
-        'Opening → two rebuttal rounds (parallel PRO/CON) → judge verdict.',
-      subAgents: [opening, rebuttal1, rebuttal2, judge],
+        'Typed-handoff debate: opening → two rebuttal rounds → judge.',
+      subAgents: [
+        new ParallelAgent({
+          name: 'debate_opening',
+          description: 'PRO/CON opening handoffs in parallel.',
+          subAgents: [prosOpening, consOpening],
+        }),
+        new ParallelAgent({
+          name: 'debate_rebuttal_1',
+          description: 'First rebuttal handoffs.',
+          subAgents: [prosRebuttal1, consRebuttal1],
+        }),
+        new ParallelAgent({
+          name: 'debate_rebuttal_2',
+          description: 'Final rebuttal handoffs.',
+          subAgents: [prosRebuttal2, consRebuttal2],
+        }),
+        judge,
+      ],
     });
   },
 });

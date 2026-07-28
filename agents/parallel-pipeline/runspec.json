@@ -3,16 +3,16 @@
   "kind": "RunSpec",
   "metadata": {
     "tenantId": "local-demo",
-    "idempotencyKey": "parallel-pipeline-debate-v1"
+    "idempotencyKey": "parallel-pipeline-debate-v2"
   },
   "spec": {
     "task": {
       "taskId": "parallel-pipeline-debate",
-      "revision": "2026-07-25-debate",
+      "revision": "2026-07-28-typed-handoff",
       "objective": "Remote work should be the default for small engineering teams"
     },
     "harness": {
-      "policyRef": "harness://parallel-pipeline/debate-v1",
+      "policyRef": "harness://parallel-pipeline/debate-typed-v1",
       "maxSteps": 80,
       "maxRepairs": 0
     },
@@ -50,11 +50,53 @@
           "riskClass": "T0",
           "sideEffect": "none",
           "idempotency": "supported"
+        },
+        {
+          "name": "emit_pros_opening",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_cons_opening",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_pros_rebuttal_1",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_cons_rebuttal_1",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_pros_rebuttal_2",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_cons_rebuttal_2",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
         }
       ]
     },
     "budget": {
-      "maxToolCalls": 80,
+      "maxToolCalls": 100,
       "maxWallSeconds": 1200
     },
     "evaluation": { "ref": "./evaluation.json" }

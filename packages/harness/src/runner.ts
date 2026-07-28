@@ -29,6 +29,7 @@ import { assertApiKey, loadHarnessConfig } from './config.js';
 import { collectLlmAgents } from './runtime/agent-tree.js';
 import { bindLlmProgressAuthor } from './runtime/llm-progress-scope.js';
 import { runWithProgressEmit } from './runtime/progress-context.js';
+import { prepareAttachmentsForProvider } from './attachments/index.js';
 import { buildUserContent } from './user-content.js';
 
 export interface RunAgentOptions {
@@ -193,21 +194,27 @@ function progressMessageForSummary(summary: AgentEventSummary): string | undefin
   return undefined;
 }
 
+/** Provider id the run will bind to (explicit model, else the agent's model). */
+function resolveRunProviderId(
+  agent: BaseAgent,
+  model: ModelRef | undefined,
+): string | undefined {
+  return (
+    model?.provider ??
+    providerIdOfModel(isLlmAgent(agent) ? agent.model : undefined)
+  );
+}
+
 /**
  * Fail before the first LLM call when the bound provider cannot take the
  * attached media, so the error names the offending file instead of surfacing
  * mid-stream from the vendor adapter.
  */
 function assertAttachmentsFitProvider(
-  agent: BaseAgent,
-  model: ModelRef | undefined,
+  providerId: string | undefined,
   attachments: readonly AgentAttachment[],
 ): void {
-  if (attachments.length === 0) return;
-  const providerId =
-    model?.provider ??
-    providerIdOfModel(isLlmAgent(agent) ? agent.model : undefined);
-  if (!providerId) return;
+  if (attachments.length === 0 || !providerId) return;
   assertProviderAcceptsMedia(
     providerId,
     attachments.map((attachment) => ({
@@ -284,11 +291,16 @@ async function runAgentWithBoundModel(
   });
 
   try {
-    assertAttachmentsFitProvider(
-      options.agent,
-      options.model,
-      options.attachments ?? [],
-    );
+    const providerId = resolveRunProviderId(options.agent, options.model);
+    const cwd = options.cwd ?? process.cwd();
+    // Split into native byte attachments vs provider-fallback text transcripts.
+    const prepared = await prepareAttachmentsForProvider({
+      attachments: options.attachments ?? [],
+      providerId,
+      cwd,
+    });
+    // Non-transcribable, unsupported media still fails fast (names the file).
+    assertAttachmentsFitProvider(providerId, prepared.attachments);
 
     if (persistent) {
       await runner.sessionService.createSession({
@@ -300,19 +312,25 @@ async function runAgentWithBoundModel(
 
     const newMessage = buildUserContent(
       options.message,
-      options.attachments ?? [],
-      options.cwd ?? process.cwd(),
+      prepared.attachments,
+      cwd,
+      prepared.textParts,
     );
     if ((options.attachments?.length ?? 0) > 0) {
+      const nativeCount = prepared.attachments.length;
+      const textCount = prepared.transcripts.length;
       progress.emit('agent.event', {
         author: options.agent.name,
-        message: `Attached ${options.attachments!.length} file(s) to user turn`,
+        message:
+          `Attached ${nativeCount} file(s) to user turn` +
+          (textCount > 0 ? `, ${textCount} transcribed as text` : ''),
         payload: {
-          attachments: options.attachments!.map((a) => ({
+          attachments: prepared.attachments.map((a) => ({
             fieldId: a.fieldId,
             path: a.path,
             mimeType: a.mimeType,
           })),
+          transcripts: prepared.transcripts,
         },
       });
     }

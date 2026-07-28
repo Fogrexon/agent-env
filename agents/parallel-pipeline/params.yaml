@@ -19,3 +19,16 @@ fields:
     max: 6
     step: 1
     description: 開弁エージェント指示の参考値（state 経由）。
+  - id: documents
+    type: files
+    label: 参考資料（任意 / PDF・Markdown・テキスト）
+    delivery: content
+    required: false
+    description: PRO / CON / 判定員が証拠として参照します。provider が該当 MIME に非対応ならテキスト抽出して渡します。
+    accept:
+      - .pdf
+      - .md
+      - .txt
+      - .csv
+      - .json
+      - .yaml

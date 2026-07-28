@@ -1,8 +1,8 @@
 import { execFileSync } from 'node:child_process';
 import { LlmAgent, ParallelAgent, SequentialAgent, type BaseAgent } from '@google/adk';
-import type { DataSourceConnector } from '@agent-env/harness';
 import {
   createArxivConnector,
+  createEmitHandoffTool,
   createGithubGhConnector,
   createGrokBuildXSearchConnector,
   createSimpleHttpJsonConnector,
@@ -10,6 +10,7 @@ import {
   defaultCursorModelRef,
   defaultGeminiModelRef,
   defineAgent,
+  EVIDENCE_BUNDLE_SCHEMA_ID,
   getConnector,
   hasConnector,
   registerConnector,
@@ -17,11 +18,13 @@ import {
   resolveModel,
   selectModelRef,
   type AgentBuildContext,
+  type DataSourceConnector,
 } from '@agent-env/harness';
+import { evidenceBundleSchema } from '@agent-env/shared';
 
 /**
  * Data-source collector orchestration sample.
- * Parallel read connectors → single synthesizer.
+ * Parallel read connectors → typed EvidenceBundle handoff → synthesizer.
  * Secrets/config come from AgentBuildContext (host-injected).
  */
 export const agentDefinition = defineAgent({
@@ -122,6 +125,21 @@ export const agentDefinition = defineAgent({
       connector: DataSourceConnector,
       outputKey: string,
     ): LlmAgent {
+      const emitToolName = `emit_${connector.meta.id}_handoff`;
+      const emitHandoff = createEmitHandoffTool({
+        name: emitToolName,
+        fromAgent: `${connector.meta.id}_collector`,
+        toAgent: 'brief_synthesizer',
+        outputSchema: EVIDENCE_BUNDLE_SCHEMA_ID,
+        payloadSchema: evidenceBundleSchema,
+        defaultObjective: `Evidence from ${connector.meta.title}`,
+        doneCriteria: [
+          'payload is a valid EvidenceBundle',
+          'items are grounded in the connector tool result only',
+        ],
+        description: `Emit a typed EvidenceBundle handoff from ${connector.meta.title} to the synthesizer.`,
+      });
+
       return new LlmAgent({
         name: `${connector.meta.id}_collector`,
         model: toolModel,
@@ -129,24 +147,22 @@ export const agentDefinition = defineAgent({
         instruction: `You gather evidence from "${connector.meta.title}" only.
 Call ${connector.meta.contract.name} with a focused query derived from the user topic
 (use a high limit when the topic is broad). You MUST call the tool; do not invent.
-Then output a handoff for the synthesizer (grounded ONLY in the tool result):
 
-## Method
-- tool: ${connector.meta.contract.name}
-- query: <the query you actually passed>
-- items: <count returned>
+Then call ${emitToolName} with:
+- objective: short restatement of what you collected for
+- contextSummary: 1–3 lines (query used, item count, any empty/error note)
+- payloadJson: a JSON EvidenceBundle:
+  {
+    "sourceId": "${connector.meta.id}",
+    "query": "<the query you actually passed>",
+    "items": [ { "sourceId", "title", "snippet", "uri"? } … ]
+  }
+Copy items from the tool result only — do not invent.
 
-## Collected
-For each returned item (or each relevant one): 1–3 lines with title, key snippet facts
-(names / numbers / dates), and uri if any. Do not invent; do not write an essay.
-
-## Links
-- [title](url) — one short sentence of what this item is
-  (include kb:// / status:// style ids when that is all you have)
-
-If nothing relevant: say so under Collected and leave Links empty.
+Your FINAL assistant message MUST be the envelope string returned by ${emitToolName}
+(typed handoff Markdown). If the tool returned status=error, explain briefly and stop.
 No preamble about the harness.`,
-        tools: [connector.createTool()],
+        tools: [connector.createTool(), emitHandoff],
         outputKey,
       });
     }
@@ -204,7 +220,7 @@ No preamble about the harness.`,
     });
 
     const findingsBlock = sources
-      .map((s) => `${s.label} findings:\n{${s.outputKey}?}`)
+      .map((s) => `${s.label} handoff:\n{${s.outputKey}?}`)
       .join('\n\n');
 
     const sourceNames = sources.map((s) => s.label).join(' / ');
@@ -213,10 +229,14 @@ No preamble about the harness.`,
       name: 'brief_synthesizer',
       model: synthModel,
       description:
-        'Merges multi-source collection into a light brief: method, content, conclusion, links.',
+        'Merges multi-source typed handoffs into a light brief: method, content, conclusion, links.',
       instruction: `Write the FINAL briefing. Keep it light but complete — conclusion, how we
 collected, what we actually got, and links. Do NOT write per-source subsections that
 introduce each connector's data one by one; merge the evidence by topic.
+
+Each source below is a typed handoff envelope (## Handoff + JSON payload with
+EvidenceBundle: sourceId, query, items[]). Prefer the JSON payload items over any
+prose. Ignore envelopes that are missing or report empty items.
 
 ${findingsBlock}
 
@@ -229,7 +249,7 @@ briefly. Mention in one clause which of (${sourceNames}) contributed vs were emp
 ## Collection method
 One short table or bullet list only:
 | Source | Tool / query | Items |
-drawn from each finding's ## Method. No prose per source beyond the row.
+drawn from each handoff payload (sourceId / query / items.length). No prose per source beyond the row.
 
 ## Collected content
 The actual evidence, organized by TOPIC / claim — not by source. Merge overlapping
@@ -250,7 +270,7 @@ Use the connector label (${sourceNames}) as the tool/source tag. Omit entries wi
 Missing sources, weak coverage, confidence limits — short.
 
 Rules:
-- Ground everything in the findings above.
+- Ground everything in the handoff payloads above.
 - Conclusion first; details follow. Topic bullets carry their own links; ## Links
   is the full catalog with tool + one-line gloss.
 - No harness / re-run meta commentary.`,
@@ -259,7 +279,7 @@ Rules:
     return new SequentialAgent({
       name: 'collector',
       description:
-        'Gather from multiple data sources in parallel, then synthesize conclusion + method + collected content + links.',
+        'Gather from multiple data sources in parallel (typed handoffs), then synthesize conclusion + method + collected content + links.',
       subAgents: [fanOut, synthesizer],
     });
   },

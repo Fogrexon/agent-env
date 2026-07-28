@@ -2,6 +2,8 @@
 
 参照研究: [docs/research/2026-07-23-llm-agent-execution-harness.md](./research/2026-07-23-llm-agent-execution-harness.md)
 
+**エージェントを追加・改修する人向けのパッケージ規約:** [AGENT_PACKAGE.md](./AGENT_PACKAGE.md)
+
 本リポジトリは「巨大 multi-agent framework」ではなく、研究が推奨する **五つの plane** を薄い TypeScript 契約として段階導入する。
 
 ## 五 plane とパッケージ対応
@@ -13,6 +15,14 @@
 | Execution | model / typed tool gateway | `@agent-env/llm` + `createGuardedTool` + ADK tools |
 | State & evidence | append-only events、artifact | `InMemoryEventStore`（RunSpec evidence）+ **file-backed run history**（`.runs/runs/<agentId>/<stamp>-<runId8>/`：progress.jsonl / result / final.md / workspace） |
 | Evaluation | 独立 verifier | `verifyRunSpec`（agent 発言を成功としない） |
+
+実行基盤の五 plane に加え、作業環境（Loop / Connection / Data）の薄い契約も `packages/harness` に段階導入する。
+
+| Working plane | 責務 | 本リポの置き場 |
+|---------------|------|----------------|
+| Loop | working context 組立・bounded observation | `packages/harness/src/context/`（`createContextBuilder` / `shapeObservation` / `contextBudgetModelParams`） |
+| Connection | 型付き handoff | `packages/shared` の `handoffArtifactSchema` + `packages/harness/src/handoff/` |
+| Data | agent memory（extract→validate→accept） | `packages/harness/src/memory/`（fixture 用 `createMemoryConnector` とは別） |
 
 オーケストレーションの workflow DSL は Google ADK（Sequential / Parallel / Loop）を継続利用する。Cursor SDK 等は LLM provider アダプタであり、control plane ではない。
 
@@ -31,7 +41,7 @@ ADK FunctionTools の実行経路は provider により 2 系統ある:
 - [x] Durable per-run history（CLI / admin 共通: `run.json` / `result.json` / `final.md` / `workspace/`）
 - [x] Hard budget（tool / wall / tokens / cost）
 - [x] Budget をツール gateway で enforce（`maxToolCalls` 超過は呼び出し拒否 → `BUDGET_EXHAUSTED`）
-- [x] Tool risk T0–T3 + fail-closed T2/T3（`createGuardedTool`）
+- [x] Tool risk T0–T3 + fail-closed T2/T3（`createGuardedTool` + 実行単位 `toolApproval`: deny / auto / interactive）
 - [x] RunSpec `tools.allow` enforce（fail-closed。allowlist 外は実行せず denial stub のまま残し、instruction + tool 結果で LLM に理由を通知 — `applyRunSpecToolPolicy`）
 - [x] RunSpec `harness.maxSteps`（非 partial エージェントイベントを step として計数、超過で中断 → `FAILED`）
 - [x] RunSpec `harness.maxRepairs`（verifier 失敗時に failed checks をフィードバックして再実行: `VERIFYING → REPAIRING → RUNNING`）
@@ -39,6 +49,16 @@ ADK FunctionTools の実行経路は provider により 2 系統ある:
 - [x] Independent verifier（`EvaluationSpec` + deterministic / agent / external graders）
 - [x] サンプル: `agents/runspec-demo` + `npm run run -- runspec-demo`
 - [x] サンプル: `agents/code-exec`（固定処理は FunctionTool、生成 TS は `exec/`）
+
+### Phase W（作業環境の骨格）— Loop / Connection / Data
+
+- [x] `createContextBuilder` — instruction/task/plan/memory/observation/information を token 予算内に組む（full trace と分離）
+- [x] `shapeObservation` — `ok | error | empty_success` + 上限超過時 handle
+- [x] `contextBudgetModelParams` — provider 共通の context-window ノブ（現状 OpenAI-compatible tool loop が消費）
+- [x] Typed handoff — digest + schema/宛先検証（`createHandoffArtifact` / `acceptHandoffArtifact` / `createEmitHandoffTool`）
+- [x] 参照実装: `collector`（EvidenceBundle handoff）、`security-audit`（findings → handoff digest）
+- [x] Agent memory store — propose→validate→accept + ADD/UPDATE/DELETE/NOOP（`createAgentMemoryStore` / `createAgentMemoryTools`）
+- [ ] GraphRAG / 外部 vector DB / A2A / 学習型 memory policy（意図的に後回し）
 
 ### 成功判定（`EvaluationSpec`）
 
@@ -195,6 +215,21 @@ RunSpec 実行の intent は **その attempt の有効 RunSpec 1 枚**（テン
 - 変換は各アダプタが担当（Gemini: `inlineData`、OpenAI: `image_url`/`input_audio`/`file`、Anthropic: `image`/`document` ブロック、Cursor: `SDKUserMessage.images`）
 - 非対応 MIME・サイズ超過は `UnsupportedMediaError` で停止する（黙って落とさない）。`runAgent` は実行開始時にも事前チェックし、エラーにファイルパスを含める
 - 一覧は `GET /api/providers`（admin）と `npm run smoke:media` で確認できる
+
+#### テキスト化フォールバック（provider 非対応時）
+
+`delivery: content` の PDF / テキスト系ファイルは、実行する provider がその MIME をネイティブ対応していない場合、`runAgent` が自動でテキスト抽出してユーザー turn のテキストパートに差し込む（バイト添付からは外す）。これで Cursor のような画像のみの provider でも PDF / Markdown / テキストをアップロードして使える。
+
+- 実装: `prepareAttachmentsForProvider`（`packages/harness/src/attachments/`）が `providerSupportsMime` で振り分ける
+  - ネイティブ対応（または未登録 provider）→ 従来どおりバイト添付
+  - 非対応かつ抽出可能（`isTranscribableMime`）→ テキスト抽出してテキストパート化
+  - 非対応かつ抽出不能（画像 / 音声 / 動画）→ バイト添付のまま残し `UnsupportedMediaError` で停止（fail fast）
+- 抽出: PDF は `unpdf`（動的 import）、それ以外は UTF-8 読み。抽出失敗は明示エラー
+- 対象 MIME: `text/*` + `application/json`、`application/pdf`、および `application/xml` / `application/yaml` 等の text 系 application 型
+- 上限: 既定で 1 ファイル 120,000 文字・合計 400,000 文字。超過は末尾に `[truncated: N chars omitted]` を付けて切り詰め
+- テキストパート体裁: `[attachment: <name> (<mime>, field=<id>, <pages> pages, text-extracted[, truncated])]` に続けて本文
+- progress: 添付イベントの `payload.transcripts`（path / mimeType / chars / truncated / pages）に記録され、admin SSE / `progress.jsonl` に乗る
+- 確認: `npm run smoke:attachments`
 
 ### リアルタイム進捗と run 履歴
 

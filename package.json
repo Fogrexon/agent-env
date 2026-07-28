@@ -28,10 +28,12 @@
     "smoke:run-history": "tsc -b && tsx scripts/smoke-run-history.ts",
     "smoke:http-download-pdf": "tsc -b && tsx scripts/smoke-http-download-pdf.ts",
     "smoke:media": "tsc -b && tsx scripts/smoke-media.ts",
+    "smoke:attachments": "tsc -b && tsx scripts/smoke-attachments.ts",
     "smoke:code-exec": "tsc -b && tsx scripts/smoke-code-exec.ts",
     "smoke:spec-policy": "tsc -b && tsx scripts/smoke-spec-policy.ts",
+    "smoke:working-env": "tsc -b && tsx scripts/smoke-working-env.ts",
     "exec:env": "tsc -b && tsx scripts/exec-env.ts",
-    "smoke": "npm run smoke:llm && npm run smoke:runtime && npm run smoke:connectors && npm run smoke:connectors:http && npm run smoke:params && npm run smoke:progress && npm run smoke:run-history && npm run smoke:http-download-pdf && npm run smoke:media && npm run smoke:code-exec && npm run smoke:spec-policy"
+    "smoke": "npm run smoke:llm && npm run smoke:runtime && npm run smoke:connectors && npm run smoke:connectors:http && npm run smoke:params && npm run smoke:progress && npm run smoke:run-history && npm run smoke:http-download-pdf && npm run smoke:media && npm run smoke:attachments && npm run smoke:code-exec && npm run smoke:spec-policy && npm run smoke:working-env"
   },
   "engines": {
     "node": ">=24.13.0",

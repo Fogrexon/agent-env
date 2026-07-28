@@ -1,0 +1,81 @@
+{
+  "apiVersion": "agent.platform/v1",
+  "kind": "RunSpec",
+  "metadata": {
+    "tenantId": "local-demo",
+    "idempotencyKey": "local-report-v1"
+  },
+  "spec": {
+    "task": {
+      "taskId": "local-report",
+      "revision": "2026-07-25-v1",
+      "objective": "Qwen3 系モデルのツール呼び出し（function calling）を実運用で安定させるための実践的なコツ"
+    },
+    "harness": {
+      "policyRef": "harness://local-report/research-then-write-v1",
+      "maxSteps": 60,
+      "maxRepairs": 0
+    },
+    "model": {
+      "primary": {
+        "provider": "openai-compatible",
+        "model": "qwen/qwen3.6-35b-a3b"
+      },
+      "allowed": [
+        { "provider": "openai-compatible", "model": "qwen/qwen3.6-35b-a3b" },
+        { "provider": "lm-studio", "model": "qwen/qwen3.6-35b-a3b" }
+      ]
+    },
+    "environment": {
+      "backend": "none",
+      "networkPolicy": "unrestricted",
+      "egressDomains": []
+    },
+    "tools": {
+      "allow": [
+        {
+          "name": "search_web",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "fetch_pages",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "register_workspace",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "write_file",
+          "version": "1.0",
+          "riskClass": "T2",
+          "sideEffect": "reversible",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_evidence_ledger",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        }
+      ]
+    },
+    "budget": {
+      "maxToolCalls": 50,
+      "maxWallSeconds": 1800
+    },
+    "evaluation": {
+      "ref": "./evaluation.json"
+    }
+  }
+}

@@ -49,7 +49,7 @@ function toContentPart(
   }
 }
 
-function toOpenAiMessages(
+export function toOpenAiMessages(
   systemInstruction: string | undefined,
   messages: ProviderMessage[],
   attachments: readonly ProviderAttachment[],

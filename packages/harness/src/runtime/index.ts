@@ -22,6 +22,15 @@ export {
 } from './state-machine.js';
 export { createGuardedTool, type GuardedToolOptions } from './tool-gateway.js';
 export {
+  getToolApprovalPolicy,
+  resolveToolApproval,
+  runWithToolApproval,
+  type ToolApprovalDecision,
+  type ToolApprovalMode,
+  type ToolApprovalPolicy,
+  type ToolApprovalRequest,
+} from './tool-approval.js';
+export {
   applyRunSpecToolPolicy,
   RUNSPEC_ALLOWLIST_DENIAL,
   type AppliedToolPolicy,
@@ -30,6 +39,7 @@ export {
   type ToolPolicyHooks,
 } from './spec-tool-policy.js';
 export {
+  emitApprovalProgress,
   emitToolProgress,
   getLlmProgressAuthor,
   runWithLlmProgressAuthor,

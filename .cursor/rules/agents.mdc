@@ -65,3 +65,5 @@ export const agentDefinition = defineAgent({
 - [ ] コネクタ向きの能力をエージェント内の自前 HTTP 関数にしていない
 - [ ] `packages/*` / `scripts/` にこのエージェント向けの定数・default・分岐を追加していない
 - [ ] ルート `package.json` に per-agent script を追加していない
+
+詳細: `docs/AGENT_PACKAGE.md`

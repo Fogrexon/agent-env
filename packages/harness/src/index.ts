@@ -12,6 +12,15 @@ export {
   type RunAgentOptions,
 } from './runner.js';
 export { buildUserContent } from './user-content.js';
+export {
+  extractAttachmentText,
+  isTranscribableMime,
+  prepareAttachmentsForProvider,
+  type AttachmentTranscript,
+  type ExtractedText,
+  type PrepareAttachmentsOptions,
+  type PreparedAttachments,
+} from './attachments/index.js';
 export { createTypedTool } from './tools.js';
 export {
   AgentParamsLoadError,
@@ -40,21 +49,25 @@ export {
   createGuardedTool,
   createRunHistoryStore,
   createTsCodeRunnerTool,
+  emitApprovalProgress,
   emitToolProgress,
   ensureExecEnv,
   execEnvManifestHash,
   getLlmProgressAuthor,
+  getToolApprovalPolicy,
   bindLlmProgressAuthor,
   ProgressScopedLlm,
   minimalChildEnv,
   parseRunSpec,
   phaseForState,
   resolveRunSpecModel,
+  resolveToolApproval,
   resolveTsInvoke,
   runFromSpec,
   runGeneratedTsCode,
   runWithLlmProgressAuthor,
   runWithProgressEmit,
+  runWithToolApproval,
   RUN_WORKSPACE_STATE_KEY,
   truncateUtf8,
   verifyRunSpec,
@@ -76,6 +89,10 @@ export {
   type ExecEnvStatus,
   type GraderOutcome,
   type GuardedToolOptions,
+  type ToolApprovalDecision,
+  type ToolApprovalMode,
+  type ToolApprovalPolicy,
+  type ToolApprovalRequest,
   type OpenRunHistoryInput,
   type ProcessRunRequest,
   type ProcessRunResult,
@@ -151,6 +168,48 @@ export {
   type WorkspaceFsTools,
   type WorkspaceRootsSource,
 } from './connectors/index.js';
+export {
+  contextBudgetModelParams,
+  createContextBuilder,
+  estimateTokensApprox,
+  formatObservationBlock,
+  shapeObservation,
+  type BuiltContext,
+  type BuiltSection,
+  type ContextBuilder,
+  type ContextBuilderOptions,
+  type ShapeObservationOptions,
+} from './context/index.js';
+export {
+  acceptHandoffArtifact,
+  AUDIT_FINDINGS_SCHEMA_ID,
+  computeHandoffDigest,
+  createEmitHandoffTool,
+  createHandoffArtifact,
+  EVIDENCE_BUNDLE_SCHEMA_ID,
+  handoffDigestBody,
+  handoffToJson,
+  handoffToMarkdownEnvelope,
+  parseHandoffFromText,
+  sha256Hex,
+  stableStringify,
+  type AcceptHandoffOptions,
+  type CreateEmitHandoffToolOptions,
+  type CreateHandoffInput,
+} from './handoff/index.js';
+export {
+  createAgentMemoryStore,
+  createAgentMemoryTools,
+  defaultHeuristicExtractor,
+  tokenOverlapRetriever,
+  type AgentMemoryStore,
+  type AgentMemoryTools,
+  type CreateAgentMemoryStoreOptions,
+  type CreateAgentMemoryToolsOptions,
+  type MemoryApplyResult,
+  type MemoryExtractor,
+  type MemoryRetriever,
+} from './memory/index.js';
 
 /** Re-export LLM resolution / registration helpers for agent authors. */
 export {

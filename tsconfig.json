@@ -13,6 +13,7 @@
     { "path": "agents/security-audit" },
     { "path": "agents/code-exec" },
     { "path": "agents/super-debate" },
+    { "path": "agents/local-report" },
     { "path": "scripts" }
   ]
 }

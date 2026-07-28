@@ -204,8 +204,19 @@ npm run run -- parallel-pipeline "Remote work should be the default for small en
 # params.yaml と同形の values JSON（admin の { values } と同じ）:
 # npm run run -- security-audit --params ./my-audit.json
 # npm run run -- security-audit --params ./my-audit.json --input maxFindings=3 "上書きメッセージ"
+# T2 ツールをこの実行だけ自動承認（T3 は対象外）:
+# npm run run -- code-exec --auto-approve "ms で 1h をミリ秒にして"
 npm run smoke
 ```
+
+T2/T3 の承認:
+
+| 入口 | 既定 | 自動承認 |
+|------|------|----------|
+| CLI (`npm run run`) | deny（fail-closed） | `--auto-approve`（**T2 のみ**） |
+| admin UI | インタラクティブ（ツールごとに許可/拒否） | 「T2 を自動承認」チェック |
+
+エージェント固有の `approve` / env（例: `AGENT_ENV_CODE_EXEC_ALLOW=1`）は従来どおり事前許可のショートカットとして残ります。
 
 ## モデル指定（ModelRef）
 
@@ -232,8 +243,12 @@ model: resolveModel({ provider: 'lm-studio', model: 'local-model' })
 
 任意: workspace 用に `agents/<id>/package.json` + root `tsconfig.json` references（型チェック用）
 
+詳細手順・CLI `--params`・EvaluationSpec の書き方は [docs/AGENT_PACKAGE.md](./docs/AGENT_PACKAGE.md)。
+
 ## ドキュメント
 
+- **エージェント追加の正本:** [docs/AGENT_PACKAGE.md](./docs/AGENT_PACKAGE.md)
 - ADK TypeScript: https://google.github.io/adk-docs/get-started/typescript/
 - Cursor SDK: https://cursor.com/docs/sdk/typescript
 - [AGENTS.md](./AGENTS.md)
+- [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)

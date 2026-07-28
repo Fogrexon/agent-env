@@ -52,6 +52,13 @@
           "riskClass": "T2",
           "sideEffect": "irreversible",
           "idempotency": "required"
+        },
+        {
+          "name": "emit_result_handoff",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
         }
       ]
     },

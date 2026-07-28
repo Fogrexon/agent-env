@@ -2,6 +2,7 @@ import type { LlmProviderId } from '@agent-env/shared';
 import {
   assertMimeTypesSupported,
   mediaCategories,
+  supportsMedia,
   type MediaCategory,
   type MediaDescriptor,
   type ProviderMediaSupport,
@@ -57,6 +58,19 @@ export function assertProviderAcceptsMedia(
   if (files.length === 0 || !hasProvider(id)) return;
   const provider = getProvider(id);
   assertMimeTypesSupported(provider.id, provider.media, files);
+}
+
+/**
+ * Whether a registered provider can deliver `mimeType` natively to the model.
+ * Returns undefined for unregistered ids so callers can treat unknown providers
+ * as pass-through (adapter-level guard still applies).
+ */
+export function providerSupportsMime(
+  id: LlmProviderId,
+  mimeType: string,
+): boolean | undefined {
+  if (!hasProvider(id)) return undefined;
+  return supportsMedia(getProvider(id).media, mimeType);
 }
 
 /** Provider id behind an ADK model instance, when the adapter exposes one. */

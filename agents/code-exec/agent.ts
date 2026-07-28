@@ -10,6 +10,7 @@ import {
   defineAgent,
   resolveModel,
   selectModelRef,
+  shapeObservation,
   type AgentBuildContext,
 } from '@agent-env/harness';
 import { z } from 'zod';
@@ -19,21 +20,19 @@ const agentDir = fileURLToPath(new URL('.', import.meta.url));
 const execRoot = resolve(agentDir, 'exec');
 
 /**
- * FunctionTools for fixed logic; optional AI-generated TS in a per-agent exec npm env.
+ * CodeAct-oriented demo: fixed FunctionTools + optional generated TS.
+ * Tool results are shaped as bounded observations (Loop plane).
  */
 export const agentDefinition = defineAgent({
   id: 'code-exec',
   name: 'Code Exec',
   description:
-    'FunctionTools for fixed logic; optional AI-generated TS in a per-agent exec npm env.',
+    'Bounded-observation FunctionTools + optional AI-generated TS (CodeAct-style) in a per-agent exec env.',
   createAgent(context: AgentBuildContext) {
     const prepareExecEnv = createExecEnvGuard({ moduleRoot: execRoot });
     const allowGenerated =
       context.config('AGENT_ENV_CODE_EXEC_ALLOW')?.trim() === '1';
 
-    /**
-     * Pre-declared agent logic = normal FunctionTools (LLM calls these).
-     */
     const hello = createGuardedTool({
       contract: {
         name: 'hello',
@@ -42,11 +41,17 @@ export const agentDefinition = defineAgent({
         sideEffect: 'none',
         idempotency: 'supported',
       },
-      description: 'Return a short greeting.',
+      description: 'Return a short greeting as a bounded observation.',
       parameters: z.object({
         name: z.string().optional().describe('Who to greet'),
       }),
-      execute: ({ name }) => ({ message: `hello, ${name ?? 'world'}` }),
+      execute: ({ name }) =>
+        shapeObservation({
+          status: 'ok',
+          content: { message: `hello, ${name ?? 'world'}` },
+          source: 'tool',
+          toolName: 'hello',
+        }),
     });
 
     const sum = createGuardedTool({
@@ -57,20 +62,19 @@ export const agentDefinition = defineAgent({
         sideEffect: 'none',
         idempotency: 'supported',
       },
-      description: 'Sum a list of numbers.',
+      description: 'Sum a list of numbers (bounded observation).',
       parameters: z.object({
         numbers: z.array(z.number()).min(1).describe('Numbers to add'),
       }),
-      execute: ({ numbers }) => ({
-        total: numbers.reduce((a, b) => a + b, 0),
-      }),
+      execute: ({ numbers }) =>
+        shapeObservation({
+          status: 'ok',
+          content: { total: numbers.reduce((a, b) => a + b, 0) },
+          source: 'tool',
+          toolName: 'sum',
+        }),
     });
 
-    /**
-     * AI-generated TypeScript runs inside agents/code-exec/exec.
-     * Dependencies are declared in exec/package.json and installed via ensureExecEnv
-     * (not by the model picking arbitrary packages at runtime).
-     */
     const runTsCode = createTsCodeRunnerTool({
       workRoot: execRoot,
       prepare: prepareExecEnv,
@@ -86,19 +90,19 @@ export const agentDefinition = defineAgent({
       name: 'code-exec',
       model: resolveModel(modelRef),
       description:
-        'FunctionTools for fixed logic; optional AI-generated TS in a per-agent exec npm env.',
-      instruction: `You help the user with small computations and, when allowed, generated TypeScript.
+        'Bounded-observation FunctionTools + optional generated TS in exec/.',
+      instruction: `You help with small computations and, when allowed, generated TypeScript (CodeAct-style).
 
 Tools:
-1. hello / sum — preferred for fixed tasks (normal function calls).
+1. hello / sum — fixed tasks; results arrive as bounded observations (status/content/source).
 2. run_ts_code — AI-generated TypeScript in this agent's exec env.
-   Imports must come from packages already declared in agents/code-exec/exec/package.json
-   (currently: ms). Often policy_denied unless the host set AGENT_ENV_CODE_EXEC_ALLOW=1.
+   Imports must come from packages already in agents/code-exec/exec/package.json (currently: ms).
+   Often policy_denied unless AGENT_ENV_CODE_EXEC_ALLOW=1.
 
 Rules:
 - Prefer hello/sum when they fit.
 - For run_ts_code, write a short self-contained program that console.log's the answer.
-- Report stdout/stderr/exit status clearly. Do not claim success if status is not ok.`,
+- Report observation status / stdout / stderr clearly. Do not claim success if status is not ok.`,
       tools: [hello, sum, runTsCode],
     });
   },

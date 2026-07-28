@@ -16,6 +16,7 @@ import {
   type AgentBuildContext,
   type RunFromSpecResult,
   type RunHistoryWriter,
+  type ToolApprovalPolicy,
 } from '@agent-env/harness';
 import type {
   AgentProgressSink,
@@ -41,7 +42,13 @@ export interface RunDiscoveredAgentOptions {
   onProgress?: AgentProgressSink;
   /** Skip writing run history (tests). */
   history?: boolean;
+  /**
+   * Per-run T2/T3 approval policy.
+   * Default deny (CLI). Admin passes interactive or auto.
+   */
+  toolApproval?: ToolApprovalPolicy;
 }
+
 
 export interface RunDiscoveredAgentResult extends RunFromSpecResult {
   package: ResolvedAgentPackage;
@@ -49,11 +56,15 @@ export interface RunDiscoveredAgentResult extends RunFromSpecResult {
   workspaceDir?: string;
 }
 
-function createBuildContext(repoRoot: string): AgentBuildContext {
+function createBuildContext(
+  repoRoot: string,
+  inputs?: Readonly<Record<string, unknown>>,
+): AgentBuildContext {
   return {
     repoRoot,
     config: (name) => process.env[name]?.trim() || undefined,
     secret: (name) => process.env[name]?.trim() || undefined,
+    ...(inputs ? { inputs } : {}),
   };
 }
 
@@ -120,7 +131,9 @@ export async function runDiscoveredAgent(
     );
   }
 
-  const agent = await definition.createAgent(createBuildContext(discovery.repoRoot ?? cwd));
+  const agent = await definition.createAgent(
+    createBuildContext(discovery.repoRoot ?? cwd, request.inputs),
+  );
 
   const effectiveSpec = applyRunSpecOverrides(pkg.runSpec, {
     objective: request.objective,
@@ -170,6 +183,7 @@ export async function runDiscoveredAgent(
     stateDelta,
     attachments: request.attachments,
     abortSignal: options.abortSignal,
+    toolApproval: options.toolApproval,
     onProgress: options.onProgress
       ? writer
         ? (event) => {

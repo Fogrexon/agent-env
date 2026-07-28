@@ -93,6 +93,62 @@
           "riskClass": "T0",
           "sideEffect": "none",
           "idempotency": "supported"
+        },
+        {
+          "name": "emit_kb_handoff",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_crm_handoff",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_status_handoff",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_github_handoff",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_http_posts_handoff",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_web_handoff",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_arxiv_handoff",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_x_handoff",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
         }
       ]
     },

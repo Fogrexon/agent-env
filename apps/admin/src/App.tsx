@@ -75,6 +75,55 @@ interface RunSnapshot {
   error?: string;
   createdAt?: string;
   updatedAt?: string;
+  pendingApprovals?: Array<{
+    approvalId: string;
+    tool: string;
+    riskClass: string;
+    sideEffect?: string;
+    input: Record<string, unknown>;
+    createdAt: string;
+  }>;
+}
+
+interface PendingApprovalUi {
+  approvalId: string;
+  tool: string;
+  riskClass: string;
+  sideEffect?: string;
+  input: Record<string, unknown>;
+  message?: string;
+}
+
+/** Reconstruct unresolved approvals from the live event stream. */
+function pendingApprovalsFromEvents(
+  events: AgentProgressEvent[],
+): PendingApprovalUi[] {
+  const map = new Map<string, PendingApprovalUi>();
+  for (const event of events) {
+    if (event.kind === 'approval.requested') {
+      const approvalId = String(event.payload?.['approvalId'] ?? '');
+      if (!approvalId) continue;
+      map.set(approvalId, {
+        approvalId,
+        tool: String(event.payload?.['tool'] ?? 'tool'),
+        riskClass: String(event.payload?.['riskClass'] ?? ''),
+        ...(event.payload?.['sideEffect'] !== undefined
+          ? { sideEffect: String(event.payload['sideEffect']) }
+          : {}),
+        input:
+          event.payload?.['input'] &&
+          typeof event.payload['input'] === 'object' &&
+          !Array.isArray(event.payload['input'])
+            ? (event.payload['input'] as Record<string, unknown>)
+            : {},
+        message: event.message,
+      });
+    } else if (event.kind === 'approval.resolved') {
+      const approvalId = String(event.payload?.['approvalId'] ?? '');
+      if (approvalId) map.delete(approvalId);
+    }
+  }
+  return [...map.values()];
 }
 
 interface RunSummary {
@@ -347,12 +396,23 @@ function TimelineEventRow({
   );
 }
 
+type SidebarTab = 'agents' | 'tasks';
+
+function isTerminalRunStatus(status: string): boolean {
+  return (
+    status === 'completed' || status === 'failed' || status === 'cancelled'
+  );
+}
+
 export function App() {
   const initialQuery = useMemo(() => readQuery(), []);
   const [agents, setAgents] = useState<AgentListItem[]>([]);
   const [providers, setProviders] = useState<ProviderMediaInfo[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(
     initialQuery.agent ?? null,
+  );
+  const [sidebarTab, setSidebarTab] = useState<SidebarTab>(
+    initialQuery.run ? 'tasks' : 'agents',
   );
   const [params, setParams] = useState<ParamsResponse | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
@@ -366,6 +426,15 @@ export function App() {
   const [liveEvents, setLiveEvents] = useState<AgentProgressEvent[]>([]);
   const [runSnapshot, setRunSnapshot] = useState<RunSnapshot | null>(null);
   const [taskRuns, setTaskRuns] = useState<RunSummary[]>([]);
+  const [deletingRunId, setDeletingRunId] = useState<string | null>(null);
+  const [clearingTasks, setClearingTasks] = useState(false);
+  const [checkedTaskIds, setCheckedTaskIds] = useState<Set<string>>(
+    () => new Set(),
+  );
+  const [autoApprove, setAutoApprove] = useState(false);
+  const [decidingApprovalId, setDecidingApprovalId] = useState<string | null>(
+    null,
+  );
   const eventSourceRef = useRef<EventSource | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const restoredRunRef = useRef(false);
@@ -380,7 +449,14 @@ export function App() {
       const res = await fetch('/api/runs');
       if (!res.ok) return;
       const data = (await res.json()) as { runs?: RunSummary[] };
-      setTaskRuns(data.runs ?? []);
+      const runs = data.runs ?? [];
+      setTaskRuns(runs);
+      // Drop checks for runs that no longer exist.
+      setCheckedTaskIds((prev) => {
+        const alive = new Set(runs.map((r) => r.runId));
+        const next = new Set([...prev].filter((id) => alive.has(id)));
+        return next.size === prev.size ? prev : next;
+      });
     } catch {
       // task list is best-effort; optimistic entries remain until next success
     }
@@ -475,6 +551,7 @@ export function App() {
     async (id: string, opts?: { selectAgent?: boolean }) => {
       closeStream();
       setError(null);
+      setSidebarTab('tasks');
       setRunId(id);
       const snap = await refreshRun(id);
       if (!snap) {
@@ -606,12 +683,111 @@ export function App() {
   }, []);
 
   const onSelectAgent = (id: string) => {
-    if (id === selectedId) return;
-    // Detach the detail panel from any previous run; tasks stay in the sidebar.
+    if (id === selectedId) {
+      setSidebarTab('agents');
+      return;
+    }
+    // Detach the detail panel from any previous run; tasks stay in the list.
     clearRunView();
     setError(null);
     setSelectedId(id);
+    setSidebarTab('agents');
     writeQuery(id, null);
+  };
+
+  const onDeleteRun = async (id: string) => {
+    const task = taskRuns.find((t) => t.runId === id);
+    if (task && (task.status === 'queued' || task.status === 'running')) {
+      setError('実行中のタスクは削除できません。先にキャンセルしてください。');
+      return;
+    }
+    if (
+      !window.confirm(
+        `この実行ログを削除しますか？\n${task?.agentId ?? id}\n（.runs の履歴も消えます）`,
+      )
+    ) {
+      return;
+    }
+    setDeletingRunId(id);
+    setError(null);
+    try {
+      const res = await fetch(`/api/runs/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      });
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      setTaskRuns((prev) => prev.filter((t) => t.runId !== id));
+      if (runId === id) {
+        clearRunView();
+        writeQuery(selectedId, null);
+      }
+      void refreshTaskList();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDeletingRunId(null);
+    }
+  };
+
+  const bulkDeleteRuns = async (init: RequestInit & { url: string }) => {
+    setClearingTasks(true);
+    setError(null);
+    try {
+      const res = await fetch(init.url, { ...init, method: 'DELETE' });
+      const data = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        deleted?: string[];
+      };
+      if (!res.ok || !data.ok) {
+        setError(data.error ?? `HTTP ${res.status}`);
+        return;
+      }
+      const deleted = new Set(data.deleted ?? []);
+      setTaskRuns((prev) => prev.filter((t) => !deleted.has(t.runId)));
+      setCheckedTaskIds((prev) => {
+        const next = new Set([...prev].filter((id) => !deleted.has(id)));
+        return next.size === prev.size ? prev : next;
+      });
+      if (runId && deleted.has(runId)) {
+        clearRunView();
+        writeQuery(selectedId, null);
+      }
+      void refreshTaskList();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setClearingTasks(false);
+    }
+  };
+
+  const onDeleteChecked = async () => {
+    const ids = [...checkedTaskIds];
+    if (ids.length === 0) return;
+    if (
+      !window.confirm(
+        `選択した ${ids.length} 件の実行ログを削除しますか？\n（.runs の履歴も消えます）`,
+      )
+    ) {
+      return;
+    }
+    await bulkDeleteRuns({
+      url: '/api/runs',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ runIds: ids }),
+    });
+  };
+
+  const toggleChecked = (id: string) => {
+    setCheckedTaskIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const onRun = async () => {
@@ -630,7 +806,11 @@ export function App() {
       const res = await fetch(`/api/agents/${selectedId}/runs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values, ...(model ? { model } : {}) }),
+        body: JSON.stringify({
+          values,
+          ...(model ? { model } : {}),
+          autoApprove,
+        }),
       });
       const data = (await res.json()) as StartRunResponse;
       if (!res.ok || !data.ok || !data.runId) {
@@ -665,6 +845,7 @@ export function App() {
       ]);
       setRunId(data.runId);
       setRunStatus(data.status ?? 'queued');
+      setSidebarTab('tasks');
       writeQuery(selectedId, data.runId);
       void refreshTaskList();
       subscribeRun(data.runId);
@@ -686,6 +867,38 @@ export function App() {
     }
   };
 
+  const onDecideApproval = async (
+    approvalId: string,
+    decision: 'granted' | 'denied',
+  ) => {
+    if (!runId) return;
+    setDecidingApprovalId(approvalId);
+    setError(null);
+    try {
+      const res = await fetch(
+        `/api/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approvalId)}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ decision }),
+        },
+      );
+      const data = (await res.json()) as { ok?: boolean; error?: string };
+      if (!res.ok || data.ok === false) {
+        setError(data.error ?? `HTTP ${res.status}`);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setDecidingApprovalId(null);
+    }
+  };
+
+  const pendingApprovals = useMemo(
+    () => pendingApprovalsFromEvents(liveEvents),
+    [liveEvents],
+  );
+
   const title =
     params?.spec.title ??
     agents.find((a) => a.id === selectedId)?.title ??
@@ -700,90 +913,205 @@ export function App() {
       .find((e) => e.kind === 'run.completed' || e.kind === 'run.failed')
       ?.message;
 
+  const terminalTaskCount = taskRuns.filter((t) =>
+    isTerminalRunStatus(t.status),
+  ).length;
+  const activeTaskCount = taskRuns.length - terminalTaskCount;
+  const allTerminalChecked =
+    terminalTaskCount > 0 &&
+    taskRuns.every(
+      (t) => !isTerminalRunStatus(t.status) || checkedTaskIds.has(t.runId),
+    );
+
+  const toggleAllTerminal = () => {
+    setCheckedTaskIds(
+      allTerminalChecked
+        ? new Set()
+        : new Set(
+            taskRuns
+              .filter((t) => isTerminalRunStatus(t.status))
+              .map((t) => t.runId),
+          ),
+    );
+  };
+
   return (
     <div className="app">
       <aside className="sidebar">
         <p className="brand">agent-env / admin</p>
         <p>
-          エージェントを選び実行します。進捗と LLM 本文は SSE でライブ表示され、実行はタスクリストに残ります。
+          エージェントを選び実行します。進捗は SSE でライブ表示され、実行ログは「実行タスク」タブで確認・削除できます。
         </p>
-        {loadingList ? (
-          <p className="empty">Loading…</p>
-        ) : (
-          <ul className="agent-list">
-            {agents.map((agent) => (
-              <li key={agent.id}>
-                <button
-                  type="button"
-                  className={agent.id === selectedId ? 'active' : undefined}
-                  onClick={() => onSelectAgent(agent.id)}
-                >
-                  <span className="id">{agent.title ?? agent.id}</span>
-                  <span className="desc">
-                    {agent.runMode ? `${agent.runMode} · ` : ''}
-                    {agent.description}
-                  </span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        )}
 
-        <div className="task-list">
-          <p className="brand">実行タスク</p>
-          {taskRuns.length === 0 ? (
-            <p className="empty">まだ実行がありません</p>
-          ) : (
-            <ul className="agent-list">
-              {taskRuns.map((task) => (
-                <li key={task.runId}>
-                  <button
-                    type="button"
-                    className={task.runId === runId ? 'active' : undefined}
-                    onClick={() => void openRun(task.runId)}
-                  >
-                    <span className="id">
-                      {task.agentId}
-                      <span className={`badge badge-${task.status}`}>
-                        {task.status}
-                      </span>
-                    </span>
-                    <span className="desc">
-                      {task.messagePreview || task.finalTextPreview || task.runId.slice(0, 8)}
-                      {' · '}
-                      {new Date(task.createdAt).toLocaleTimeString()}
-                    </span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
+        <div className="sidebar-tabs" role="tablist" aria-label="サイドバー">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sidebarTab === 'agents'}
+            className={sidebarTab === 'agents' ? 'active' : undefined}
+            onClick={() => setSidebarTab('agents')}
+          >
+            エージェント
+            <span className="tab-count">{agents.length}</span>
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={sidebarTab === 'tasks'}
+            className={sidebarTab === 'tasks' ? 'active' : undefined}
+            onClick={() => setSidebarTab('tasks')}
+          >
+            実行タスク
+            <span className="tab-count">{taskRuns.length}</span>
+          </button>
         </div>
 
-        {providers.length > 0 ? (
-          <div className="provider-media">
-            <p className="brand">対応メディア（provider 別）</p>
-            <ul>
-              {providers.map((provider) => (
-                <li key={provider.id} title={provider.mimeTypes.join('\n')}>
-                  <span className="id">
-                    {provider.id}
-                    {provider.configured ? '' : ' (unconfigured)'}
-                  </span>
-                  <span className="desc">
-                    {provider.categories.length > 0
-                      ? provider.categories.join(' / ')
-                      : 'テキストのみ（添付不可）'}
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <p className="hint">
-              delivery: content の添付は、実行する provider が対応する MIME
-              のみ送信されます。非対応ならエラーで停止します。
-            </p>
+        {sidebarTab === 'agents' ? (
+          <div className="sidebar-panel" role="tabpanel">
+            {loadingList ? (
+              <p className="empty">Loading…</p>
+            ) : (
+              <ul className="agent-list">
+                {agents.map((agent) => (
+                  <li key={agent.id}>
+                    <button
+                      type="button"
+                      className={agent.id === selectedId ? 'active' : undefined}
+                      onClick={() => onSelectAgent(agent.id)}
+                    >
+                      <span className="id">{agent.title ?? agent.id}</span>
+                      <span className="desc">
+                        {agent.runMode ? `${agent.runMode} · ` : ''}
+                        {agent.description}
+                      </span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {providers.length > 0 ? (
+              <div className="provider-media">
+                <p className="brand">対応メディア（provider 別）</p>
+                <ul>
+                  {providers.map((provider) => (
+                    <li key={provider.id} title={provider.mimeTypes.join('\n')}>
+                      <span className="id">
+                        {provider.id}
+                        {provider.configured ? '' : ' (unconfigured)'}
+                      </span>
+                      <span className="desc">
+                        {provider.categories.length > 0
+                          ? provider.categories.join(' / ')
+                          : 'テキストのみ（添付不可）'}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="hint">
+                  delivery: content の添付は、実行する provider が対応する MIME
+                  のみバイトで送信されます。PDF / テキスト系は provider
+                  非対応でもテキスト抽出して送信します。抽出できない非対応メディアはエラーで停止します。
+                </p>
+              </div>
+            ) : null}
           </div>
-        ) : null}
+        ) : (
+          <div className="sidebar-panel task-list" role="tabpanel">
+            <div className="task-list-toolbar">
+              <label className="task-select-all" title="完了済みを全選択">
+                <input
+                  type="checkbox"
+                  checked={allTerminalChecked}
+                  disabled={terminalTaskCount === 0}
+                  onChange={toggleAllTerminal}
+                />
+                全選択
+              </label>
+              <span className="task-list-meta">
+                {taskRuns.length === 0
+                  ? '履歴なし'
+                  : activeTaskCount > 0
+                    ? `実行中 ${activeTaskCount}`
+                    : `${terminalTaskCount} 件`}
+              </span>
+              <button
+                type="button"
+                className="task-clear"
+                disabled={clearingTasks || checkedTaskIds.size === 0}
+                onClick={() => void onDeleteChecked()}
+                title="チェックした実行ログを削除"
+              >
+                {clearingTasks
+                  ? '削除中…'
+                  : `選択削除${checkedTaskIds.size > 0 ? ` (${checkedTaskIds.size})` : ''}`}
+              </button>
+            </div>
+            {taskRuns.length === 0 ? (
+              <p className="empty">まだ実行がありません</p>
+            ) : (
+              <ul className="agent-list">
+                {taskRuns.map((task) => {
+                  const canDelete = isTerminalRunStatus(task.status);
+                  return (
+                    <li key={task.runId} className="task-row">
+                      <input
+                        type="checkbox"
+                        className="task-check"
+                        checked={checkedTaskIds.has(task.runId)}
+                        disabled={!canDelete}
+                        title={
+                          canDelete ? '削除対象に選択' : '実行中は選択できません'
+                        }
+                        aria-label={`${task.agentId} を削除対象に選択`}
+                        onChange={() => toggleChecked(task.runId)}
+                      />
+                      <button
+                        type="button"
+                        className={
+                          task.runId === runId ? 'active task-open' : 'task-open'
+                        }
+                        onClick={() => void openRun(task.runId)}
+                      >
+                        <span className="id">
+                          <span className="task-agent">{task.agentId}</span>
+                          <span className={`badge badge-${task.status}`}>
+                            {task.status}
+                          </span>
+                        </span>
+                        <span className="desc">
+                          {task.messagePreview ||
+                            task.finalTextPreview ||
+                            task.runId.slice(0, 8)}
+                        </span>
+                        <span className="task-time">
+                          {new Date(task.createdAt).toLocaleString()}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        className="task-delete"
+                        disabled={!canDelete || deletingRunId === task.runId}
+                        title={
+                          canDelete
+                            ? 'このログを削除'
+                            : '実行中は削除できません'
+                        }
+                        aria-label={`${task.agentId} のログを削除`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          void onDeleteRun(task.runId);
+                        }}
+                      >
+                        {deletingRunId === task.runId ? '…' : '×'}
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        )}
       </aside>
 
       <main className="main">
@@ -834,6 +1162,21 @@ export function App() {
                 onChange={onFieldChange}
                 disabled={running}
               />
+              <label className="field checkbox auto-approve">
+                <input
+                  type="checkbox"
+                  checked={autoApprove}
+                  disabled={running}
+                  onChange={(e) => setAutoApprove(e.target.checked)}
+                />
+                <span>
+                  <strong>T2 を自動承認</strong>
+                  <span className="hint">
+                    オフ時は T2 ツール呼び出しごとに承認待ちになります。T3（例:
+                    create_pr）は対象外です。
+                  </span>
+                </span>
+              </label>
               <div className="actions">
                 <button
                   type="button"
@@ -868,6 +1211,60 @@ export function App() {
           ) : null}
 
           {error ? <p className="error">{error}</p> : null}
+
+          {pendingApprovals.length > 0 ? (
+            <div className="approval-panel" role="region" aria-label="ツール承認">
+              <h2>承認待ち</h2>
+              <p className="lede">
+                T2/T3 ツールの実行には明示承認が必要です。内容を確認して許可または拒否してください。
+              </p>
+              <ul className="approval-list">
+                {pendingApprovals.map((item) => (
+                  <li key={item.approvalId} className="approval-card">
+                    <div className="approval-meta">
+                      <span className="approval-tool">{item.tool}</span>
+                      <span className={`badge badge-risk-${item.riskClass}`}>
+                        {item.riskClass}
+                      </span>
+                      {item.sideEffect ? (
+                        <span className="approval-side">{item.sideEffect}</span>
+                      ) : null}
+                    </div>
+                    {item.message ? (
+                      <p className="approval-message">{item.message}</p>
+                    ) : null}
+                    <pre className="approval-input">
+                      {formatJson(item.input)}
+                    </pre>
+                    <div className="approval-actions">
+                      <button
+                        type="button"
+                        className="primary"
+                        disabled={decidingApprovalId === item.approvalId}
+                        onClick={() =>
+                          void onDecideApproval(item.approvalId, 'granted')
+                        }
+                      >
+                        {decidingApprovalId === item.approvalId
+                          ? '送信中…'
+                          : '許可'}
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={decidingApprovalId === item.approvalId}
+                        onClick={() =>
+                          void onDecideApproval(item.approvalId, 'denied')
+                        }
+                      >
+                        拒否
+                      </button>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
 
           {liveEvents.length > 0 || runSnapshot ? (
             <div className="result">

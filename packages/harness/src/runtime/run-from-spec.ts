@@ -23,6 +23,10 @@ import { loadEvaluationSpec } from './load-evaluation.js';
 import { RUN_WORKSPACE_STATE_KEY } from './run-history.js';
 import { applyRunSpecToolPolicy, RUNSPEC_ALLOWLIST_DENIAL } from './spec-tool-policy.js';
 import { canTransition, RunStateMachine } from './state-machine.js';
+import {
+  runWithToolApproval,
+  type ToolApprovalPolicy,
+} from './tool-approval.js';
 import { verifyRunSpec, type VerifyContext } from './verifier.js';
 
 export {
@@ -72,6 +76,11 @@ export interface RunFromSpecOptions {
   onEvent?: (event: ReturnType<InMemoryEventStore['append']>) => void;
   /** Unified live progress stream (RunSpec + ADK agent events). */
   onProgress?: AgentProgressSink;
+  /**
+   * Per-run T2/T3 approval policy. Default: deny (fail closed).
+   * Admin uses interactive; CLI `--auto-approve` uses auto (T2 only).
+   */
+  toolApproval?: ToolApprovalPolicy;
 }
 
 export interface RunFromSpecResult {
@@ -230,6 +239,7 @@ export async function runFromSpec(
     progress.emit(event.kind, {
       message: event.message,
       author: event.author,
+      parentAuthor: event.parentAuthor,
       phase: event.phase,
       state: event.state,
       agentEvent: event.agentEvent,
@@ -318,6 +328,31 @@ export async function runFromSpec(
     let repairs = 0;
     let message = objective;
 
+    const baseApproval: ToolApprovalPolicy = options.toolApproval ?? {
+      mode: 'deny',
+    };
+    const approvalPolicy: ToolApprovalPolicy = {
+      ...baseApproval,
+      onWaitingChange: (waiting, request) => {
+        baseApproval.onWaitingChange?.(waiting, request);
+        if (waiting) {
+          if (canTransition(sm.state, 'WAITING_APPROVAL')) {
+            changeState(
+              'WAITING_APPROVAL',
+              request
+                ? `approval required: ${request.contract.name}`
+                : 'approval required',
+            );
+          }
+        } else if (sm.state === 'WAITING_APPROVAL') {
+          if (canTransition(sm.state, 'RUNNING')) {
+            changeState('RUNNING', 'approval resolved');
+          }
+        }
+      },
+    };
+
+    await runWithToolApproval(approvalPolicy, async () => {
     for (;;) {
       emit('model.requested', {
         provider: effectiveModel.provider,
@@ -430,6 +465,7 @@ export async function runFromSpec(
       changeState('FAILED', error);
       break;
     }
+    });
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
     if (stopReason) error = stopReason.detail;

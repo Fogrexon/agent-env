@@ -270,6 +270,10 @@ export const auditFindingsListSchema = z.object({
   findings: z.array(auditFindingSchema).min(1).max(15),
 });
 
+/** Logical schema id for typed handoffs carrying auditFindingsListSchema. */
+export const AUDIT_FINDINGS_HANDOFF_SCHEMA_ID =
+  'artifact://schemas/audit-findings-v1';
+
 export const auditPatchesListSchema = z.object({
   patches: z.array(auditFilePatchSchema).min(1).max(20),
 });

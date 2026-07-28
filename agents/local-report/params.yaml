@@ -1,0 +1,12 @@
+apiVersion: agent-env/v1
+kind: AgentParams
+agentId: local-report
+title: Local Report
+description: ローカルLLM（LM Studio, 既定 qwen/qwen3.6-35b-a3b）でネット検索付きの簡易レポートを作成。researcher が Web 検索で圧縮した証拠台帳を作り、writer が report.md を書き出す。ツールループがコンテキストウィンドウ(262144)を切り詰め→要約でガードする。Tavily 検索のため TAVILY_API_KEY と、LM Studio の LM_STUDIO_BASE_URL が必要。
+fields:
+  - id: message
+    type: text
+    label: レポートのトピック / 問い
+    required: true
+    placeholder: 例）2026年のローカルLLM推論高速化テクニックの概観
+    default: "Qwen3 系モデルのツール呼び出し（function calling）を実運用で安定させるための実践的なコツ"

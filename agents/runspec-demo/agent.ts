@@ -1,27 +1,36 @@
 import { LlmAgent } from '@google/adk';
 import {
+  createEmitHandoffTool,
   createGuardedTool,
   defaultCursorModelRef,
   defaultGeminiModelRef,
   defineAgent,
   resolveModel,
   selectModelRef,
+  shapeObservation,
   type AgentBuildContext,
 } from '@agent-env/harness';
 import { z } from 'zod';
 
+const RESULT_SCHEMA_ID = 'artifact://schemas/runspec-demo-result-v1';
+
+const resultPayloadSchema = z.object({
+  status: z.literal('verified'),
+  summary: z.string().min(8).max(600),
+  measured: z.array(z.string().min(1)).min(2),
+});
+
 /**
- * Phase A sample: bounded ACI-style tools with risk classes.
- * echo_note = T0 (auto), propose_publish = T2 (requires approval → denied by default).
- *
- * Demonstrates research-aligned harness usage via RunSpec.
- * Final answer must be JSON matching agents/runspec-demo/schemas/result.schema.json.
+ * Phase A harness demo updated for working-environment contracts:
+ * - echo_note returns a bounded observation shape
+ * - emit_result_handoff mints a typed final payload (digest + schema)
+ * - propose_publish remains T2 (approval / deny)
  */
 export const agentDefinition = defineAgent({
   id: 'runspec-demo',
   name: 'RunSpec Demo',
   description:
-    'Phase A demo agent for RunSpec + independent verification + guarded tools.',
+    'RunSpec + verifier + guarded tools + typed result handoff + bounded observations.',
   createAgent(_context: AgentBuildContext) {
     const echoNote = createGuardedTool({
       contract: {
@@ -31,14 +40,18 @@ export const agentDefinition = defineAgent({
         sideEffect: 'none',
         idempotency: 'supported',
       },
-      description: 'Echo a short note back (read-only / no side effect).',
+      description: 'Echo a short note as a bounded observation (Loop plane).',
       parameters: z.object({
         note: z.string().max(200).describe('Short note to acknowledge'),
       }),
-      execute: ({ note }) => ({
-        status: 'success' as const,
-        echoed: note,
-      }),
+      execute: ({ note }) =>
+        shapeObservation({
+          status: note.trim() ? 'ok' : 'empty_success',
+          content: { echoed: note },
+          source: 'tool',
+          toolName: 'echo_note',
+          maxChars: 400,
+        }),
     });
 
     const proposePublish = createGuardedTool({
@@ -50,16 +63,32 @@ export const agentDefinition = defineAgent({
         idempotency: 'required',
       },
       description:
-        'Propose publishing content externally (T2 — denied without approve hook).',
+        'Propose publishing content externally (T2 — needs run approval or approve hook).',
       parameters: z.object({
         title: z.string(),
         body: z.string(),
       }),
-      execute: ({ title }) => ({
-        status: 'published' as const,
-        title,
-      }),
-      // No approve → policy_denied (fail closed for T2).
+      execute: ({ title }) =>
+        shapeObservation({
+          status: 'ok',
+          content: { status: 'published', title },
+          source: 'tool',
+          toolName: 'propose_publish',
+        }),
+    });
+
+    const emitResult = createEmitHandoffTool({
+      name: 'emit_result_handoff',
+      fromAgent: 'runspec_demo',
+      toAgent: 'verifier',
+      outputSchema: RESULT_SCHEMA_ID,
+      payloadSchema: resultPayloadSchema,
+      defaultObjective: 'Typed final result for EvaluationSpec',
+      doneCriteria: [
+        'status is verified',
+        'summary mentions propose_publish outcome',
+        'measured has ≥2 concrete items',
+      ],
     });
 
     return new LlmAgent({
@@ -68,18 +97,18 @@ export const agentDefinition = defineAgent({
         selectModelRef(defaultCursorModelRef(), defaultGeminiModelRef()),
       ),
       description:
-        'Phase A demo agent for RunSpec + independent verification + guarded tools.',
-      instruction: `You are a concise demo agent for the agent-env Phase A harness.
+        'RunSpec demo with bounded observations and typed result handoff.',
+      instruction: `You are a concise demo agent for agent-env (execution harness + working-environment contracts).
 1. Call echo_note once with a short note about the user's objective.
-2. Do NOT call propose_publish (it is T2 and will be denied).
-3. Finish with ONLY a JSON object (no markdown fence, no prose) matching:
+2. Call propose_publish once (T2). Without host approval it returns policy_denied — expected; report it.
+3. Call emit_result_handoff ONCE with payloadJson:
 {
   "status": "verified",
-  "summary": "one short paragraph about the objective",
-  "measured": ["at least two concrete harness metrics to measure for one run", "..."]
+  "summary": "≤80 words on the objective AND propose_publish outcome",
+  "measured": ["at least two concrete harness metrics from this run", "..."]
 }
-Keep summary under 80 words. measured items should be specific (budget, tool policy, verification, …).`,
-      tools: [echoNote, proposePublish],
+4. FINAL assistant message MUST be the raw JSON of the \`artifact\` object returned by emit_result_handoff (not the markdown envelope, no prose).`,
+      tools: [echoNote, proposePublish, emitResult],
     });
   },
 });

@@ -7,7 +7,7 @@ Web 管理ツール置き場。ランタイムは TypeScript 一択（エージ�
 | 置く場所 | 置いてよいもの |
 |----------|----------------|
 | `packages/*` | 汎用ランタイム・Zod スキーマ・loader・進捗イベント（**具体エージェント名なし**） |
-| `agents/<id>/` | `agent.ts`（`agentDefinition`）+ `params.yaml` + `runspec.json` + `evaluation.json` |
+| `agents/<id>/` | `agent.ts`（`agentDefinition`）+ `params.yaml` + `runspec.json` + `evaluation.json`（詳細は [docs/AGENT_PACKAGE.md](../docs/AGENT_PACKAGE.md)） |
 | `agents/dev-env` (`@agent-env/repo-env`) | このリポの env 配線 + **agents/*/ ディスカバリ** + `runDiscoveredAgent` |
 | `scripts/` | 汎用 CLI のみ（ディスカバリ + argv。**固有 id / params を持たない**） |
 | `apps/admin` | 汎用 UI/API（同上） |
@@ -57,7 +57,10 @@ UI は `POST /runs` → `EventSource(/events)` で進捗をライブ表示しま
   - anthropic: 画像 / PDF
   - cursor: 画像のみ
   - openai-compatible: 既定は画像のみ（ファクトリの `media` で明示可）
-- 非対応 MIME・サイズ超過は `UnsupportedMediaError` で実行が失敗する（無視して送信しない）
+- **テキスト化フォールバック**: `delivery: content` の PDF / Markdown / テキスト系は、provider がその MIME に非対応でもアップロードできる。実行時に自動でテキスト抽出してユーザー turn に差し込む（PDF は `unpdf`、それ以外は UTF-8 読み）。Cursor など画像のみの provider でも PDF / テキストを利用可能
+  - 抽出したファイルは添付イベントの `transcripts`（chars / truncated / pages）として progress に記録される
+  - 1 ファイル 120,000 文字・合計 400,000 文字を超えると切り詰め
+- 抽出できない非対応メディア（画像 / 音声 / 動画）やサイズ超過は `UnsupportedMediaError` で実行が失敗する（無視して送信しない）
 
 ### 進捗イベント
 

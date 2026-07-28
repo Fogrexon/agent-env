@@ -3,17 +3,17 @@
   "kind": "RunSpec",
   "metadata": {
     "tenantId": "local-demo",
-    "idempotencyKey": "super-debate-v1"
+    "idempotencyKey": "super-debate-v2"
   },
   "spec": {
     "task": {
       "taskId": "super-debate",
-      "revision": "2026-07-25",
+      "revision": "2026-07-28-typed-handoff",
       "objective": "Remote work should be the default for small engineering teams"
     },
     "harness": {
-      "policyRef": "harness://super-debate/v1",
-      "maxSteps": 120,
+      "policyRef": "harness://super-debate/typed-v1",
+      "maxSteps": 160,
       "maxRepairs": 0
     },
     "model": {
@@ -23,7 +23,9 @@
         { "provider": "cursor", "model": "gpt-5.6-terra" },
         { "provider": "cursor", "model": "claude-sonnet-5" },
         { "provider": "cursor", "model": "gemini-3.6-flash" },
-        { "provider": "cursor", "model": "gpt-5.6-sol" }
+        { "provider": "cursor", "model": "gpt-5.6-sol" },
+        { "provider": "cursor", "model": "claude-opus-5" },
+        { "provider": "cursor", "model": "gemini-3.1-pro" }
       ]
     },
     "environment": {
@@ -53,12 +55,96 @@
           "riskClass": "T0",
           "sideEffect": "none",
           "idempotency": "supported"
+        },
+        {
+          "name": "emit_grok_opening",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_terra_opening",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_sonnet_opening",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_gemini_opening",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_sol_opening",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_opus_opening",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_grok_rebuttal",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_terra_rebuttal",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_sonnet_rebuttal",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_gemini_rebuttal",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_sol_rebuttal",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "emit_opus_rebuttal",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
         }
       ]
     },
     "budget": {
-      "maxToolCalls": 100,
-      "maxWallSeconds": 1800
+      "maxToolCalls": 200,
+      "maxWallSeconds": 3600
     },
     "evaluation": { "ref": "./evaluation.json" }
   }

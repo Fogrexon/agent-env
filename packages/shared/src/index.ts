@@ -121,3 +121,41 @@ export {
   type EvaluationSpec,
   type GraderSpec,
 } from './evaluation-spec.js';
+export {
+  artifactHandleSchema,
+  boundedObservationSchema,
+  contextBudgetParamsSchema,
+  contextOverflowStrategySchema,
+  contextSectionKindSchema,
+  contextSectionSchema,
+  observationSourceSchema,
+  observationStatusSchema,
+  type ArtifactHandle,
+  type BoundedObservation,
+  type ContextBudgetParams,
+  type ContextOverflowStrategy,
+  type ContextSection,
+  type ContextSectionKind,
+  type ObservationSource,
+  type ObservationStatus,
+} from './working-context.js';
+export {
+  handoffArtifactSchema,
+  handoffContractResultSchema,
+  type HandoffArtifact,
+  type HandoffContractResult,
+} from './handoff.js';
+export {
+  memoryCandidateSchema,
+  memoryEntrySchema,
+  memoryEntryStatusSchema,
+  memoryKindSchema,
+  memoryOperationKindSchema,
+  memoryOperationSchema,
+  type MemoryCandidate,
+  type MemoryEntry,
+  type MemoryEntryStatus,
+  type MemoryKind,
+  type MemoryOperation,
+  type MemoryOperationKind,
+} from './agent-memory.js';

@@ -40,7 +40,7 @@ button {
 
 .app {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  grid-template-columns: minmax(280px, 350px) minmax(0, 1fr);
   min-height: 100vh;
   width: 100%;
   max-width: 100vw;
@@ -109,13 +109,19 @@ button {
 }
 
 .agent-list .id {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  min-width: 0;
   font-family: var(--mono);
   font-size: 0.8rem;
 }
 
 .agent-list .desc {
-  display: block;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
   margin-top: 0.2rem;
   color: var(--muted);
   font-size: 0.75rem;
@@ -280,6 +286,26 @@ button {
   background: #fff;
 }
 
+.file-chips {
+  margin-top: 0.5rem;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.file-chip {
+  padding: 0.15rem 0.5rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  font-size: 0.8rem;
+  color: var(--muted);
+  background: var(--panel, transparent);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .actions .status {
   color: var(--muted);
   font-size: 0.85rem;
@@ -303,10 +329,145 @@ button {
 .badge-running,
 .badge-RUNNING,
 .badge-PROVISIONING,
-.badge-VERIFYING {
+.badge-VERIFYING,
+.badge-WAITING_APPROVAL,
+.badge-WAITING_TOOL {
   border-color: #7aa8a0;
   color: var(--accent);
   background: #eef7f4;
+}
+
+.badge-risk-T2 {
+  border-color: #c9a46a;
+  color: #8a5a12;
+  background: #fbf5ea;
+}
+
+.badge-risk-T3 {
+  border-color: #c98989;
+  color: var(--danger);
+  background: #fbf0f0;
+}
+
+.field.checkbox.auto-approve {
+  margin-top: 0.85rem;
+}
+
+.field.checkbox.auto-approve strong {
+  display: block;
+  font-size: 0.92rem;
+}
+
+.field.checkbox.auto-approve .hint {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.approval-panel {
+  margin-top: 1.25rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid #c9a46a;
+  border-radius: 12px;
+  background: #fffaf2;
+}
+
+.approval-panel h2 {
+  margin: 0 0 0.35rem;
+  font-size: 1.05rem;
+}
+
+.approval-panel > .lede {
+  margin: 0 0 0.85rem;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.approval-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.approval-card {
+  padding: 0.75rem 0.85rem;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.approval-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  align-items: center;
+  margin-bottom: 0.45rem;
+}
+
+.approval-tool {
+  font-family: var(--mono);
+  font-weight: 600;
+  font-size: 0.92rem;
+}
+
+.approval-side {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.approval-message {
+  margin: 0 0 0.5rem;
+  font-size: 0.88rem;
+}
+
+.approval-input {
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.65rem;
+  max-height: 12rem;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #f7f7f5;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.4;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.approval-actions {
+  display: flex;
+  gap: 0.55rem;
+  align-items: center;
+}
+
+.approval-actions button.primary {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border: none;
+  border-radius: 999px;
+  padding: 0.45rem 1rem;
+  font-weight: 600;
+}
+
+.approval-actions button.primary:disabled,
+.approval-actions button.secondary:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.approval-actions button.secondary {
+  background: transparent;
+  color: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.45rem 1rem;
+  font-weight: 600;
 }
 
 .badge-completed,
@@ -685,9 +846,180 @@ button {
 }
 
 .task-list {
-  margin-top: 1.5rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--line);
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.sidebar-tabs {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.35rem;
+  margin: 0 0 0.85rem;
+}
+
+.sidebar-tabs button {
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--panel) 55%, transparent);
+  border-radius: 8px;
+  padding: 0.4rem 0.3rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.3rem;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.sidebar-tabs button:hover {
+  background: var(--panel);
+  color: var(--ink);
+}
+
+.sidebar-tabs button.active {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: var(--panel);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.sidebar-tabs .tab-count {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  min-width: 1.4rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 12%, #fff);
+  color: var(--accent);
+}
+
+.sidebar-panel {
+  min-width: 0;
+}
+
+.task-list-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.65rem;
+}
+
+.task-select-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  font-size: 0.75rem;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+}
+
+.task-list-meta {
+  margin: 0 !important;
+  font-size: 0.72rem !important;
+  color: var(--muted);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-clear {
+  flex-shrink: 0;
+  border: 1px solid var(--line);
+  background: transparent;
+  border-radius: 6px;
+  padding: 0.25rem 0.5rem;
+  font-size: 0.72rem;
+  color: var(--danger);
+  white-space: nowrap;
+}
+
+.task-clear:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 8%, #fff);
+}
+
+.task-clear:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.task-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 0.3rem;
+  align-items: center;
+}
+
+.task-check {
+  margin: 0;
+  cursor: pointer;
+}
+
+.task-check:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.task-row .task-open {
+  min-width: 0;
+  padding: 0.45rem 0.55rem;
+}
+
+.task-row .task-agent {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.task-row .badge {
+  flex-shrink: 0;
+}
+
+.task-row .desc {
+  -webkit-line-clamp: 1;
+}
+
+.task-time {
+  display: block;
+  margin-top: 0.15rem;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.task-delete {
+  align-self: center;
+  flex-shrink: 0;
+  width: 1.6rem;
+  height: 1.6rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: 6px;
+  font-size: 0.85rem;
+  line-height: 1;
+  color: var(--muted);
+}
+
+.task-delete:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--danger) 35%, var(--line));
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 6%, #fff);
+}
+
+.task-delete:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .task-list .badge {

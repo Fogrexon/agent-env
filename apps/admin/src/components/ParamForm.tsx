@@ -16,6 +16,24 @@ function filesToText(value: unknown): string {
   return '';
 }
 
+function valueToPaths(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map(String).filter(Boolean);
+  if (typeof value === 'string') {
+    return value
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+const IMAGE_PATH_RE = /\.(png|jpe?g|gif|webp|bmp|svg)$/i;
+
+function baseName(path: string): string {
+  const parts = path.split(/[\\/]/);
+  return parts[parts.length - 1] || path;
+}
+
 function acceptAttr(field: ParamField): string | undefined {
   if (!('accept' in field) || !field.accept?.length) {
     if (field.type === 'image' || field.type === 'images') {
@@ -94,8 +112,15 @@ function FileFieldInput({
     !multi && typeof value === 'string' && value.trim() ? value.trim() : null;
   const isImagePreview =
     previewPath &&
-    (field.type === 'image' ||
-      /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(previewPath));
+    (field.type === 'image' || IMAGE_PATH_RE.test(previewPath));
+  const nonImagePaths = valueToPaths(value).filter(
+    (p) => field.type !== 'image' && !IMAGE_PATH_RE.test(p),
+  );
+
+  const hintParts = [field.description, `delivery: ${delivery}`];
+  if (delivery === 'content') {
+    hintParts.push('provider 非対応 MIME はテキスト抽出して送信');
+  }
 
   return (
     <div className="field file-field">
@@ -103,9 +128,7 @@ function FileFieldInput({
         {field.label}
         {field.required ? ' *' : ''}
       </label>
-      <div className="hint">
-        {[field.description, `delivery: ${delivery}`].filter(Boolean).join(' · ')}
-      </div>
+      <div className="hint">{hintParts.filter(Boolean).join(' · ')}</div>
       <div className="file-row">
         {multi ? (
           <textarea
@@ -163,6 +186,15 @@ function FileFieldInput({
           src={`/api/uploads/preview?path=${encodeURIComponent(previewPath)}`}
           alt={previewPath}
         />
+      ) : null}
+      {nonImagePaths.length > 0 ? (
+        <div className="file-chips">
+          {nonImagePaths.map((p) => (
+            <span className="file-chip" key={p} title={p}>
+              {baseName(p)}
+            </span>
+          ))}
+        </div>
       ) : null}
     </div>
   );

@@ -6,13 +6,15 @@ import type { AgentAttachment } from '@agent-env/shared';
 /**
  * Build ADK/Gemini user Content from text + optional file attachments.
  * `delivery: content` attachments are inlined as multimodal parts.
+ * `extraTextParts` (e.g. provider-fallback transcriptions) follow the message.
  */
 export function buildUserContent(
   message: string,
   attachments: readonly AgentAttachment[] = [],
   cwd: string = process.cwd(),
+  extraTextParts: readonly string[] = [],
 ): Content {
-  if (attachments.length === 0) {
+  if (attachments.length === 0 && extraTextParts.length === 0) {
     return createUserContent(message);
   }
 
@@ -28,6 +30,9 @@ export function buildUserContent(
         mimeType: attachment.mimeType,
       },
     });
+  }
+  for (const text of extraTextParts) {
+    parts.push({ text });
   }
   return createUserContent(parts);
 }

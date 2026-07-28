@@ -10,3 +10,16 @@ fields:
     required: true
     placeholder: エージェントへの最初のメッセージ
     default: "Hello — briefly introduce what you can do."
+  - id: documents
+    type: files
+    label: 添付ドキュメント（PDF / Markdown / テキスト）
+    delivery: content
+    required: false
+    description: provider が該当 MIME に非対応ならテキスト抽出して渡します。
+    accept:
+      - .pdf
+      - .md
+      - .txt
+      - .csv
+      - .json
+      - .yaml

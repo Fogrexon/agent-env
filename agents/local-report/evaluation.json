@@ -1,0 +1,36 @@
+{
+  "apiVersion": "agent.platform/v1",
+  "kind": "EvaluationSpec",
+  "metadata": { "id": "local-report", "version": "1" },
+  "artifacts": [
+    {
+      "id": "report",
+      "mediaTypes": ["text/markdown"],
+      "required": true,
+      "minBytes": 800
+    }
+  ],
+  "graders": [
+    {
+      "id": "artifacts",
+      "kind": "deterministic",
+      "ref": "grader://artifact-contract/v1",
+      "config": {}
+    },
+    {
+      "id": "structure",
+      "kind": "deterministic",
+      "ref": "grader://document-contract/v1",
+      "config": {
+        "artifact": "report",
+        "sections": ["Sources", "Residual uncertainties"]
+      }
+    }
+  ],
+  "acceptance": {
+    "all": [
+      { "id": "files", "grader": "artifacts", "assertion": "present" },
+      { "id": "sections", "grader": "structure", "assertion": "sections" }
+    ]
+  }
+}

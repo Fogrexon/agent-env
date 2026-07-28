@@ -1,6 +1,18 @@
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { execFileSync } from 'node:child_process';
-import { LlmAgent, ParallelAgent, SequentialAgent, type FunctionTool } from '@google/adk';
 import {
+  BaseAgent,
+  LlmAgent,
+  ParallelAgent,
+  SequentialAgent,
+  createEvent,
+  type FunctionTool,
+  type InvocationContext,
+} from '@google/adk';
+import {
+  RUN_WORKSPACE_STATE_KEY,
+  createEmitHandoffTool,
   createGrokBuildXSearchConnector,
   createTavilyExtractTool,
   createWebSearchConnector,
@@ -10,37 +22,167 @@ import {
   resolveModel,
   type AgentBuildContext,
 } from '@agent-env/harness';
+import { PANEL_TURN_SCHEMA_ID, panelTurnSchema } from './schema.js';
+
+type DebateMode = 'standard' | 'max';
+
+type Debater = {
+  readonly id: string;
+  readonly label: string;
+  readonly model: string;
+};
 
 /** Mid-range Cursor SDK models (no *-fast variants). */
-const DEBATERS = [
+const STANDARD_DEBATERS: readonly Debater[] = [
   { id: 'grok', label: 'Grok 4.5', model: 'cursor-grok-4.5' },
   { id: 'terra', label: 'GPT-5.6 Terra', model: 'gpt-5.6-terra' },
   { id: 'sonnet', label: 'Claude Sonnet 5', model: 'claude-sonnet-5' },
   { id: 'gemini', label: 'Gemini 3.6 Flash', model: 'gemini-3.6-flash' },
 ] as const;
 
-const SYNTH_MODEL = 'gpt-5.6-sol';
+/** Frontier Cursor SDK panel for Max Mode. */
+const MAX_DEBATERS: readonly Debater[] = [
+  { id: 'grok', label: 'Grok 4.5', model: 'cursor-grok-4.5' },
+  { id: 'sol', label: 'GPT-5.6 Sol', model: 'gpt-5.6-sol' },
+  { id: 'opus', label: 'Claude Opus 5', model: 'claude-opus-5' },
+  { id: 'gemini', label: 'Gemini 3.1 Pro', model: 'gemini-3.1-pro' },
+] as const;
+
+const STANDARD_SYNTH = {
+  model: 'gpt-5.6-sol',
+  label: 'GPT-5.6 Sol',
+} as const;
+
+/** Max Mode chair: Opus after the frontier panel. */
+const MAX_SYNTH = {
+  model: 'claude-opus-5',
+  label: 'Claude Opus 5',
+} as const;
+
+function resolveDebateMode(inputs: Readonly<Record<string, unknown>> | undefined): DebateMode {
+  const raw = inputs?.['mode'];
+  return raw === 'max' ? 'max' : 'standard';
+}
+
+function stateText(state: Record<string, unknown>, key: string): string {
+  const value = state[key];
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+/**
+ * Deterministic Max Mode step: dump each panelist's opening + rebuttal into
+ * the run workspace as markdown artifacts (no LLM rewrite).
+ */
+class DebateTranscriptExporter extends BaseAgent {
+  readonly #debaters: readonly Debater[];
+
+  constructor(debaters: readonly Debater[]) {
+    super({
+      name: 'super_debate_export',
+      description:
+        'Writes full per-panelist opening + rebuttal transcripts into the run workspace.',
+    });
+    this.#debaters = debaters;
+  }
+
+  protected async *runAsyncImpl(
+    context: InvocationContext,
+  ): AsyncGenerator<ReturnType<typeof createEvent>, void, void> {
+    const state = context.session.state;
+    const workspaceRaw = state[RUN_WORKSPACE_STATE_KEY];
+    if (typeof workspaceRaw !== 'string' || !workspaceRaw.trim()) {
+      yield createEvent({
+        invocationId: context.invocationId,
+        author: this.name,
+        content: {
+          role: 'model',
+          parts: [
+            {
+              text: 'Debate transcript export skipped: runWorkspaceDir is missing.',
+            },
+          ],
+        },
+      });
+      return;
+    }
+
+    const workspaceDir = resolve(workspaceRaw.trim());
+    const debateDir = join(workspaceDir, 'debate');
+    mkdirSync(debateDir, { recursive: true });
+
+    const written: string[] = [];
+    for (const d of this.#debaters) {
+      const opening = stateText(state, `${d.id}_opening`);
+      const rebuttal = stateText(state, `${d.id}_rebuttal`);
+      const body = [
+        `# ${d.label} — full debate transcript`,
+        '',
+        `Model: \`${d.model}\``,
+        '',
+        '## Opening',
+        '',
+        opening || '_(empty)_',
+        '',
+        '## Rebuttal',
+        '',
+        rebuttal || '_(empty)_',
+        '',
+      ].join('\n');
+      const filename = `debate-${d.id}.md`;
+      writeFileSync(join(debateDir, filename), body, 'utf8');
+      // Flat copies so artifact graders (stem === id) can find them.
+      writeFileSync(join(workspaceDir, filename), body, 'utf8');
+      written.push(filename);
+    }
+
+    yield createEvent({
+      invocationId: context.invocationId,
+      author: this.name,
+      content: {
+        role: 'model',
+        parts: [
+          {
+            text: `Wrote ${written.length} debate transcript artifact(s): ${written.join(', ')}`,
+          },
+        ],
+      },
+    });
+  }
+
+  protected async *runLiveImpl(
+    context: InvocationContext,
+  ): AsyncGenerator<ReturnType<typeof createEvent>, void, void> {
+    yield* this.runAsyncImpl(context);
+  }
+}
 
 /**
  * Super Debate — Cursor-backed multi-model panel:
  *
- *   1. opening  — four mid-range models open in parallel
+ *   1. opening  — four models open in parallel
  *   2. rebuttal — each responds to the others in parallel
- *   3. synth    — GPT-5.6 Sol summarizes positions + final conclusion
+ *   3. (max)    — full per-panelist transcripts written to workspace
+ *   4. synth    — chair model summarizes positions + final conclusion
  *
+ * Mode (`standard` | `max`) comes from AgentParams `mode`.
  * Optional tools: Tavily web search / extract, Grok Build X search.
  */
 export const agentDefinition = defineAgent({
   id: 'super-debate',
   name: 'Super Debate',
   description:
-    'Parallel multi-model debate on Cursor (Grok 4.5, GPT-5.6 Terra, Sonnet 5, Gemini 3.6 Flash) with GPT-5.6 Sol synthesis.',
+    'Typed-handoff multi-model debate on Cursor. Standard: mid-range panel + Sol synth. Max: frontier panel, transcript artifacts, Opus synth.',
   createAgent(context: AgentBuildContext) {
     if (!isProviderConfigured('cursor')) {
       throw new Error(
         'super-debate requires CURSOR_API_KEY (Cursor SDK multi-model debate).',
       );
     }
+
+    const mode = resolveDebateMode(context.inputs);
+    const isMax = mode === 'max';
+    const debaters = isMax ? MAX_DEBATERS : STANDARD_DEBATERS;
+    const synthMeta = isMax ? MAX_SYNTH : STANDARD_SYNTH;
 
     function cliOk(bin: string, args: string[]): boolean {
       try {
@@ -90,146 +232,204 @@ export const agentDefinition = defineAgent({
 
     const toolsHint =
       toolNames.length > 0
-        ? `You MAY call tools (${toolNames.join(', ')}) to find or verify evidence before writing. Prefer 1–3 focused searches; cite URLs when you used a tool. Do not invent citations.`
-        : `No search tools are available this run — argue from general knowledge and label uncertainty clearly. Do not invent URLs.`;
+        ? `You MAY call tools (${toolNames.join(', ')}) before emitting the handoff. Prefer ${isMax ? '2–5' : '1–3'} focused searches; put URLs in evidence[].source. Do not invent citations.`
+        : `No search tools this run — argue from general knowledge and label uncertainty. Do not invent URLs.`;
 
-    const openingFormat = `Output markdown only (no preamble):
+    const docsHint = `If the user attached reference documents ([attachment: ...]), ground claims in them and cite as [attachment: <name>].`;
 
-## Stance
-<one crisp sentence: your position on the topic>
+    const depthHint = isMax
+      ? `Max Mode: prefer depth and explicit trade-offs; no filler.`
+      : `Be crisp and substantive.`;
 
-## Claims
-1. <claim> — <1–2 sentence warrant>
-2. …
-(aim for 3–4 claims)
+    const openingAgents = debaters.map((d) => {
+      const emitName = `emit_${d.id}_opening`;
+      const emit = createEmitHandoffTool({
+        name: emitName,
+        fromAgent: `${d.id}_opening`,
+        toAgent: 'super_debate_synth',
+        outputSchema: PANEL_TURN_SCHEMA_ID,
+        payloadSchema: panelTurnSchema,
+        defaultObjective: `${d.label} opening`,
+        doneCriteria: ['payload is PanelTurn', 'clear stance'],
+      });
+      return new LlmAgent({
+        name: `${d.id}_opening`,
+        model: resolveModel(defaultCursorModelRef(d.model)),
+        description: `${d.label} opening (typed handoff).`,
+        instruction: `You are panelist ${d.label} (Cursor model: ${d.model}). Take a clear stance on the user's topic.
 
-## Evidence
-- <fact or quote> — <source / URL if searched>
-
-## Closing
-<one sentence stake in the ground>`;
-
-    const rebuttalFormat = `Output markdown only (no preamble):
-
-## Updated stance
-<keep or revise your stance in one sentence>
-
-## Engagement
-For each other panelist, 1–2 bullets: what you accept, reject, or refine (quote briefly).
-
-## Reinforced case
-2–4 bullets that still stand after this exchange
-
-## Evidence
-- <fact or quote> — <source / URL if searched>
-
-## Closing
-<one crisp closing line for the synthesizer>`;
-
-    const openingAgents = DEBATERS.map(
-      (d) =>
-        new LlmAgent({
-          name: `${d.id}_opening`,
-          model: resolveModel(defaultCursorModelRef(d.model)),
-          description: `${d.label} opening statement.`,
-          instruction: `You are a debate panelist powered by ${d.label} (Cursor model id: ${d.model}).
-Argue the user's topic / proposition with intellectual honesty. Take a clear stance — do not sit on the fence.
-You are NOT coordinating with other models in this round; write your own best case.
-
+${depthHint}
 ${toolsHint}
+${docsHint}
 
-${openingFormat}`,
-          tools: debateTools,
-          outputKey: `${d.id}_opening`,
-        }),
-    );
+After tools, call ${emitName} ONCE with payloadJson:
+{
+  "panelistId": "${d.id}",
+  "panelistLabel": "${d.label}",
+  "round": "opening",
+  "stance": "…",
+  "claims": [{ "text": "…", "warrant": "…" }],
+  "evidence": [{ "fact": "…", "source": "…" }],
+  "engagement": [],
+  "closing": "…"
+}
+Aim for ${isMax ? '5–8' : '3–4'} claims. FINAL message = emit envelope.`,
+        tools: [...debateTools, emit],
+        outputKey: `${d.id}_opening`,
+      });
+    });
 
     const opening = new ParallelAgent({
       name: 'super_debate_opening',
-      description: 'Four mid-range models open in parallel.',
+      description: isMax
+        ? 'Frontier panel opening handoffs (Max Mode).'
+        : 'Mid-range panel opening handoffs.',
       subAgents: openingAgents,
     });
 
-    const rebuttalAgents = DEBATERS.map((d) => {
-      const othersBlock = DEBATERS.filter((o) => o.id !== d.id)
+    const rebuttalAgents = debaters.map((d) => {
+      const othersBlock = debaters
+        .filter((o) => o.id !== d.id)
         .map((o) => `### ${o.label}\n{${o.id}_opening?}`)
         .join('\n\n');
-
+      const emitName = `emit_${d.id}_rebuttal`;
+      const emit = createEmitHandoffTool({
+        name: emitName,
+        fromAgent: `${d.id}_rebuttal`,
+        toAgent: 'super_debate_synth',
+        outputSchema: PANEL_TURN_SCHEMA_ID,
+        payloadSchema: panelTurnSchema,
+        defaultObjective: `${d.label} rebuttal`,
+        doneCriteria: ['payload is PanelTurn', 'engagement filled'],
+      });
       return new LlmAgent({
         name: `${d.id}_rebuttal`,
         model: resolveModel(defaultCursorModelRef(d.model)),
-        description: `${d.label} rebuttal / engagement.`,
-        instruction: `You are the same panelist (${d.label}). Engage the other openings. Stay rigorous; update your stance only if warranted.
+        description: `${d.label} rebuttal (typed handoff).`,
+        instruction: `You are the same panelist (${d.label}). Engage other openings via typed handoff.
 
-Your opening:
+${depthHint}
+
+Your opening handoff:
 {${d.id}_opening?}
 
-Other panelists' openings:
+Other openings:
 ${othersBlock}
 
 ${toolsHint}
+${docsHint}
 
-${rebuttalFormat}`,
-        tools: debateTools,
+Call ${emitName} with:
+{
+  "panelistId": "${d.id}",
+  "panelistLabel": "${d.label}",
+  "round": "rebuttal",
+  "stance": "…",
+  "claims": [{ "text": "…", "warrant": "…" }],
+  "evidence": [{ "fact": "…", "source": "…" }],
+  "engagement": [{ "panelistId": "<other id>", "accept": "…", "reject": "…", "refine": "…" }],
+  "closing": "…"
+}
+FINAL message = emit envelope.`,
+        tools: [...debateTools, emit],
         outputKey: `${d.id}_rebuttal`,
       });
     });
 
     const rebuttal = new ParallelAgent({
       name: 'super_debate_rebuttal',
-      description: 'Four models respond to each other in parallel.',
+      description: isMax
+        ? 'Frontier panel rebuttal handoffs (Max Mode).'
+        : 'Panel rebuttal handoffs.',
       subAgents: rebuttalAgents,
     });
 
-    const transcriptBlock = DEBATERS.map(
-      (d) => `### ${d.label} — opening
+    const transcriptBlock = debaters
+      .map(
+        (d) => `### ${d.label} — opening handoff
 {${d.id}_opening?}
 
-### ${d.label} — rebuttal
+### ${d.label} — rebuttal handoff
 {${d.id}_rebuttal?}`,
-    ).join('\n\n');
+      )
+      .join('\n\n');
 
-    const synth = new LlmAgent({
-      name: 'super_debate_synth',
-      model: resolveModel(defaultCursorModelRef(SYNTH_MODEL)),
-      description: `Impartial synthesizer (GPT-5.6 Sol / ${SYNTH_MODEL}).`,
-      instruction: `You are an impartial synthesizer (GPT-5.6 Sol). Read the full multi-model debate transcript. Do not invent facts outside it. Prefer better-evidenced and better-rebutted arguments.
+    const synthInstruction = isMax
+      ? `You are an impartial synthesizer (${synthMeta.label}). Read typed PanelTurn handoff envelopes (prefer JSON payloads). Do not invent facts outside them / attachments.
 
-## Transcript
+## Transcript handoffs
 
 ${transcriptBlock}
 
 ## Required output (markdown)
 
-Write for a reader who did not see the debate.
+Match user language; keep English section headers.
 
-### Panel positions (brief)
-For each panelist (${DEBATERS.map((d) => d.label).join(', ')}), 2–4 bullets:
-- Final stance (one line)
-- Strongest unrebutted claim(s)
-- Notable concession or revision (if any)
+### Panel positions
+For each (${debaters.map((d) => d.label).join(', ')}): final stance, strongest unrebutted claims, concessions, residual weakness.
 
 ### Clash points
-2–4 decisive disagreements and who had the stronger case on each.
+4–7 decisive disagreements with who won and why.
 
 ### Evidence quality
-Who grounded claims better (citations / specificity). Mark weak or unsupported claims.
+Who grounded claims better.
+
+### Minority / dissent
+Constraining minority points if any.
 
 ### Final conclusion
-One clear recommendation or verdict on the original topic (not a hedged both-sides paragraph). Include confidence: low / medium / high.
+Clear verdict + confidence (low/medium/high).
 
 ### Rationale
-5–8 sentences grounded in the transcript. Name what tipped the scale.
+10–16 sentences grounded in payloads.
 
 ### Practical takeaway
-One sentence a decision-maker can act on.`,
+2–3 actionable sentences.`
+      : `You are an impartial synthesizer (${synthMeta.label}). Read typed PanelTurn handoff envelopes (prefer JSON payloads). Do not invent facts outside them / attachments.
+
+## Transcript handoffs
+
+${transcriptBlock}
+
+## Required output (markdown)
+
+Match user language; keep English section headers.
+
+### Panel positions (brief)
+For each (${debaters.map((d) => d.label).join(', ')}): stance, strongest claims, concessions.
+
+### Clash points
+2–4 disagreements and who was stronger.
+
+### Evidence quality
+Who grounded claims better.
+
+### Final conclusion
+Clear verdict + confidence (low/medium/high).
+
+### Rationale
+5–8 sentences grounded in payloads.
+
+### Practical takeaway
+One actionable sentence.`;
+
+    const synth = new LlmAgent({
+      name: 'super_debate_synth',
+      model: resolveModel(defaultCursorModelRef(synthMeta.model)),
+      description: `Impartial synthesizer (${synthMeta.label} / ${synthMeta.model}).`,
+      instruction: synthInstruction,
     });
+
+    const subAgents = isMax
+      ? [opening, rebuttal, new DebateTranscriptExporter(debaters), synth]
+      : [opening, rebuttal, synth];
 
     return new SequentialAgent({
       name: 'super_debate',
-      description:
-        'Parallel multi-model opening → parallel rebuttal → Sol synthesis.',
-      subAgents: [opening, rebuttal, synth],
+      description: isMax
+        ? 'Max Mode typed-handoff: frontier opening → rebuttal → transcript export → Opus synthesis.'
+        : 'Typed-handoff multi-model opening → rebuttal → Sol synthesis.',
+      subAgents,
     });
   },
 });

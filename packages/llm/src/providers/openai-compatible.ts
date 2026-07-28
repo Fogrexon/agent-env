@@ -9,6 +9,11 @@ import {
   readNumberParam,
   readStringParam,
 } from '../openai-chat.js';
+import {
+  openAiChatWithTools,
+  type ContextOverflowStrategy,
+  type OpenAiToolContextOptions,
+} from '../openai-tools.js';
 import type {
   LlmProvider,
   ProviderGenerateRequest,
@@ -19,6 +24,36 @@ import type {
 import { resolveSecret } from '../types.js';
 
 export type BaseUrlSource = string | (() => string | undefined | null);
+
+/**
+ * Tool-calling defaults for one OpenAI-compatible backend. Each field is a
+ * default that an agent may override per request via `ModelRef.params`
+ * (`contextWindow`, `reserveOutputTokens`, `maxToolResultChars`,
+ * `maxToolIterations`, `contextOverflow`).
+ */
+export interface OpenaiCompatibleToolOptions {
+  /** Model context window in tokens. Default 32768 (override per model). */
+  contextWindow?: number;
+  reserveOutputTokens?: number;
+  maxToolResultChars?: number;
+  maxIterations?: number;
+  overflow?: ContextOverflowStrategy;
+}
+
+const DEFAULT_TOOL_CONTEXT_WINDOW = 32768;
+
+function parseOverflowStrategy(
+  value: string | undefined,
+): ContextOverflowStrategy | undefined {
+  if (
+    value === 'truncate' ||
+    value === 'summarize' ||
+    value === 'truncate-then-summarize'
+  ) {
+    return value;
+  }
+  return undefined;
+}
 
 /**
  * Only what the Chat Completions wire format guarantees for a generic backend.
@@ -51,6 +86,14 @@ export interface CreateOpenaiCompatibleProviderOptions {
    * Default: images only.
    */
   media?: ProviderMediaSupport | false;
+  /**
+   * Tool-calling (function calling) support. Enabled by default so agents can
+   * use FunctionTools against LM Studio / Ollama / vLLM models that support the
+   * OpenAI `tools` API. Set `false` to disable (the provider then rejects tools
+   * like the base OpenAI-compatible contract). Object values set defaults that
+   * `ModelRef.params` can still override per request.
+   */
+  tools?: OpenaiCompatibleToolOptions | false;
 }
 
 function resolveBaseUrl(source: BaseUrlSource): string | undefined {
@@ -97,6 +140,31 @@ function resolveCompatibleChatOptions(
   };
 }
 
+function resolveToolContext(
+  toolDefaults: OpenaiCompatibleToolOptions,
+  request: ProviderGenerateRequest,
+): OpenAiToolContextOptions {
+  const overflow =
+    parseOverflowStrategy(readStringParam(request.params, 'contextOverflow')) ??
+    toolDefaults.overflow;
+  return {
+    contextWindow:
+      readNumberParam(request.params, 'contextWindow') ??
+      toolDefaults.contextWindow ??
+      DEFAULT_TOOL_CONTEXT_WINDOW,
+    reserveOutputTokens:
+      readNumberParam(request.params, 'reserveOutputTokens') ??
+      toolDefaults.reserveOutputTokens,
+    maxToolResultChars:
+      readNumberParam(request.params, 'maxToolResultChars') ??
+      toolDefaults.maxToolResultChars,
+    maxIterations:
+      readNumberParam(request.params, 'maxToolIterations') ??
+      toolDefaults.maxIterations,
+    ...(overflow ? { overflow } : {}),
+  };
+}
+
 /**
  * Factory for one OpenAI-compatible endpoint (LM Studio, Ollama, vLLM, …).
  * Register multiple instances with different `id`s to use several at once.
@@ -114,9 +182,13 @@ export function createOpenaiCompatibleProvider(
       ? undefined
       : (options.media ?? OPENAI_COMPATIBLE_DEFAULT_MEDIA_SUPPORT);
 
+  const toolsEnabled = options.tools !== false;
+  const toolDefaults: OpenaiCompatibleToolOptions = options.tools || {};
+
   return {
     id,
     kind: 'openai-compatible',
+    supportsTools: toolsEnabled,
     media,
 
     isConfigured(): boolean {
@@ -143,9 +215,29 @@ export function createOpenaiCompatibleProvider(
       ) {
         this.assertConfigured();
       }
-      const result = await openAiChatCompletion(
-        resolveCompatibleChatOptions(id, options, media, request, abortSignal),
+      const chatOptions = resolveCompatibleChatOptions(
+        id,
+        options,
+        media,
+        request,
+        abortSignal,
       );
+
+      if (toolsEnabled && request.tools && request.tools.length > 0) {
+        const result = await openAiChatWithTools({
+          ...chatOptions,
+          tools: request.tools,
+          context: resolveToolContext(toolDefaults, request),
+        });
+        return {
+          text: result.text,
+          modelVersion: result.model ?? request.model,
+          provider: id,
+          model: request.model,
+        };
+      }
+
+      const result = await openAiChatCompletion(chatOptions);
 
       return {
         text: result.text,
@@ -166,6 +258,31 @@ export function createOpenaiCompatibleProvider(
       ) {
         this.assertConfigured();
       }
+
+      // Tool loops need the full request/response round-trip, so we run the
+      // non-streaming loop and emit the final answer as a single chunk.
+      if (toolsEnabled && request.tools && request.tools.length > 0) {
+        const chatOptions = resolveCompatibleChatOptions(
+          id,
+          options,
+          media,
+          request,
+          abortSignal,
+        );
+        const result = await openAiChatWithTools({
+          ...chatOptions,
+          tools: request.tools,
+          context: resolveToolContext(toolDefaults, request),
+        });
+        yield { text: result.text };
+        return {
+          text: result.text,
+          modelVersion: result.model ?? request.model,
+          provider: id,
+          model: request.model,
+        };
+      }
+
       const stream = openAiChatCompletionStream(
         resolveCompatibleChatOptions(id, options, media, request, abortSignal),
       );

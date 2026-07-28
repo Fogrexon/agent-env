@@ -7,6 +7,7 @@ import {
 } from '@agent-env/shared';
 import type { z } from 'zod';
 import { emitToolProgress } from './progress-context.js';
+import { resolveToolApproval } from './tool-approval.js';
 
 type AnyZodObject = z.ZodObject<z.ZodRawShape>;
 
@@ -22,8 +23,9 @@ export interface GuardedToolOptions<TSchema extends AnyZodObject> {
    */
   publicConfig?: Record<string, unknown>;
   /**
-   * Approval hook for T2/T3. Default: deny T2/T3 (fail closed).
-   * Return true to allow exact-argument execution.
+   * Optional agent-level pre-approval for T2/T3.
+   * Return true to allow immediately (env shortcut).
+   * When false/absent, the run-level policy (deny / auto / interactive) decides.
    */
   approve?: (args: {
     contract: ToolContract;
@@ -35,7 +37,8 @@ const AUTO_RISKS: readonly ToolRiskClass[] = ['T0', 'T1'];
 
 /**
  * Typed tool with risk / side-effect contract (research §6.3).
- * T2/T3 require an approve() callback; otherwise policy-denied.
+ * T2/T3 require approval: agent `approve()` OR run-level policy (auto / interactive).
+ * Default without either: policy-denied (fail closed).
  */
 export function createGuardedTool<TSchema extends AnyZodObject>(
   options: GuardedToolOptions<TSchema>,
@@ -63,15 +66,27 @@ export function createGuardedTool<TSchema extends AnyZodObject>(
         },
       });
       if (!AUTO_RISKS.includes(contract.riskClass)) {
-        const ok = options.approve
+        const agentOk = options.approve
           ? await options.approve({ contract, input })
           : false;
-        if (!ok) {
-          return {
-            status: 'policy_denied',
-            riskClass: contract.riskClass,
-            message: `Tool ${contract.name} requires approval (risk ${contract.riskClass})`,
-          };
+        if (!agentOk) {
+          const resolved = await resolveToolApproval({
+            contract,
+            input: input as Record<string, unknown>,
+          });
+          if (!resolved.granted) {
+            return {
+              status: 'policy_denied',
+              riskClass: contract.riskClass,
+              message: `Tool ${contract.name} requires approval (risk ${contract.riskClass})`,
+              ...(resolved.approvalId
+                ? { approvalId: resolved.approvalId }
+                : {}),
+              ...(resolved.decision === 'expired'
+                ? { reason: 'approval_expired' }
+                : {}),
+            };
+          }
         }
       }
       return options.execute(input);

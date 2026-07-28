@@ -1,6 +1,10 @@
 import type { BaseAgent } from '@google/adk';
 
-/** Static construction services. Per-run user input is intentionally absent. */
+/**
+ * Host-injected construction services for `createAgent`.
+ * Structured run inputs (from AgentParams) may be supplied so the agent can
+ * select graph shape / models at build time (e.g. standard vs max mode).
+ */
 export interface AgentBuildContext {
   /** Repo root used by repo-local wiring and connector factories. */
   repoRoot: string;
@@ -8,6 +12,11 @@ export interface AgentBuildContext {
   config(name: string): string | undefined;
   /** Read a secret supplied by the host. Packages never read process.env. */
   secret(name: string): string | undefined;
+  /**
+   * Validated AgentParams values for this run (excludes objective projection).
+   * Same keys land in ADK session state; optional here for graph construction.
+   */
+  inputs?: Readonly<Record<string, unknown>>;
 }
 
 /**

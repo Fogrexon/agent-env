@@ -161,9 +161,12 @@ app.post('/api/agents/:id/runs', (req, res) => {
   const body = req.body as {
     values?: Record<string, unknown>;
     model?: ModelRef;
+    autoApprove?: boolean;
   };
   const values = body.values ?? {};
-  const outcome = startAgentRun(id, values, repoRoot, body.model);
+  const outcome = startAgentRun(id, values, repoRoot, body.model, {
+    autoApprove: body.autoApprove === true,
+  });
   if (!outcome.ok) {
     res.status(400).json(outcome);
     return;
@@ -337,6 +340,144 @@ app.post('/api/runs/:runId/cancel', (req, res) => {
   }
   const ok = adminRunStore.cancel(runId);
   res.json({ ok, runId, status: adminRunStore.get(runId)?.status });
+});
+
+/**
+ * Resolve an interactive T2/T3 tool approval for an in-flight run.
+ * Body: `{ decision: 'granted' | 'denied' }`
+ */
+app.post('/api/runs/:runId/approvals/:approvalId', (req, res) => {
+  const runId = req.params.runId;
+  const approvalId = req.params.approvalId;
+  const run = adminRunStore.get(runId);
+  if (!run) {
+    res.status(404).json({ error: `Unknown run: ${runId}` });
+    return;
+  }
+  const body = req.body as { decision?: string };
+  const decision =
+    body.decision === 'granted' || body.decision === 'denied'
+      ? body.decision
+      : undefined;
+  if (!decision) {
+    res.status(400).json({
+      ok: false,
+      error: `decision must be 'granted' or 'denied'`,
+    });
+    return;
+  }
+  const ok = adminRunStore.resolveApproval(runId, approvalId, decision);
+  if (!ok) {
+    res.status(404).json({
+      ok: false,
+      error: `Unknown or already resolved approval: ${approvalId}`,
+      runId,
+      approvalId,
+    });
+    return;
+  }
+  res.json({ ok: true, runId, approvalId, decision });
+});
+
+/** Delete a finished run from memory + durable history (`.runs/runs/`). */
+app.delete('/api/runs/:runId', (req, res) => {
+  const runId = req.params.runId;
+  const memory = adminRunStore.get(runId);
+  if (memory && (memory.status === 'queued' || memory.status === 'running')) {
+    res.status(409).json({
+      ok: false,
+      error: 'Cannot delete an active run. Cancel it first.',
+      runId,
+      status: memory.status,
+    });
+    return;
+  }
+  const removedMemory = memory ? adminRunStore.remove(runId) : false;
+  let removedDisk = false;
+  try {
+    removedDisk = getAdminRunHistory(repoRoot).deleteRun(runId);
+  } catch (err) {
+    res.status(500).json({
+      ok: false,
+      error: err instanceof Error ? err.message : String(err),
+      runId,
+    });
+    return;
+  }
+  if (!removedMemory && !removedDisk) {
+    res.status(404).json({ ok: false, error: `Unknown run: ${runId}`, runId });
+    return;
+  }
+  res.json({ ok: true, runId, removedMemory, removedDisk });
+});
+
+/**
+ * Bulk-delete finished runs. Either pass a JSON body `{ runIds: [...] }` to
+ * delete specific runs, or query `scope=terminal` (default) to remove all
+ * completed / failed / cancelled runs. Active runs are always skipped.
+ */
+app.delete('/api/runs', (req, res) => {
+  const body = req.body as { runIds?: unknown } | undefined;
+  const requestedIds = Array.isArray(body?.runIds)
+    ? body.runIds.filter((v): v is string => typeof v === 'string')
+    : undefined;
+
+  const scope =
+    typeof req.query['scope'] === 'string' ? req.query['scope'] : 'terminal';
+  if (!requestedIds && scope !== 'terminal' && scope !== 'all') {
+    res.status(400).json({
+      ok: false,
+      error: 'scope must be "terminal" or "all"',
+    });
+    return;
+  }
+
+  const history = getAdminRunHistory(repoRoot);
+  const memory = adminRunStore.list();
+  const memoryIds = new Set(memory.map((r) => r.runId));
+  const fromDisk = history
+    .listRuns()
+    .filter((item) => !memoryIds.has(item.runId))
+    .map((item) => diskItemToSummary(item));
+  const known = new Map(
+    [...memory, ...fromDisk].map((run) => [run.runId, run] as const),
+  );
+
+  const isTerminal = (status: string) =>
+    status === 'completed' || status === 'failed' || status === 'cancelled';
+
+  const deleted: string[] = [];
+  const skipped: Array<{ runId: string; reason: string }> = [];
+
+  const targets = requestedIds
+    ? requestedIds.map((id) => known.get(id) ?? { runId: id, status: 'unknown' })
+    : [...known.values()].filter(
+        (run) => scope === 'all' || isTerminal(run.status),
+      );
+
+  for (const run of targets) {
+    if (run.status === 'queued' || run.status === 'running') {
+      skipped.push({ runId: run.runId, reason: `active:${run.status}` });
+      continue;
+    }
+    const hadMemory = memoryIds.has(run.runId);
+    adminRunStore.remove(run.runId);
+    try {
+      const removedDisk = history.deleteRun(run.runId);
+      if (hadMemory || removedDisk) {
+        deleted.push(run.runId);
+      } else {
+        skipped.push({ runId: run.runId, reason: 'not-found' });
+      }
+    } catch (err) {
+      skipped.push({
+        runId: run.runId,
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  res.json({ ok: true, deleted, skipped, count: deleted.length });
 });
 
 app.get('/api/runs/:runId/files', createRunFilesListHandler(repoRoot));

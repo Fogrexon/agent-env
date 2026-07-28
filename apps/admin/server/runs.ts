@@ -33,9 +33,14 @@ export interface StartRunSuccess {
   runMode: 'runspec';
   status: 'queued' | 'running';
   historyDir?: string;
+  autoApprove: boolean;
 }
 
 export type StartRunResponse = StartRunSuccess | StartRunFailure;
+
+export interface StartRunOptions {
+  autoApprove?: boolean;
+}
 
 function isValidationError(err: unknown): err is AgentParamsValidationError {
   return err instanceof AgentParamsValidationError;
@@ -66,12 +71,16 @@ function parseModelOverride(
 /**
  * Validate params, create a run record, and start execution asynchronously.
  * Returns immediately with runId for SSE subscription.
+ *
+ * Default tool approval is interactive (T2 waits for admin POST).
+ * `autoApprove: true` auto-grants T2 only (T3 still needs agent approve).
  */
 export function startAgentRun(
   agentId: string,
   values: Record<string, unknown>,
   cwd: string = process.cwd(),
   modelOverride?: unknown,
+  options: StartRunOptions = {},
 ): StartRunResponse {
   const discovery = { agentsDir: resolve(cwd, 'agents'), repoRoot: cwd };
   const pkg = getResolvedAgentPackage(discovery, agentId);
@@ -99,6 +108,7 @@ export function startAgentRun(
     };
   }
 
+  const autoApprove = options.autoApprove === true;
   const runId = randomUUID();
   const objectivePreview = String(
     values[pkg.params.objectiveField] ?? pkg.params.fields.find(
@@ -120,6 +130,7 @@ export function startAgentRun(
     cwd,
     values,
     model: modelParsed.model,
+    autoApprove,
     abortSignal: adminRunStore.get(runId)!.abortController.signal,
   });
 
@@ -129,6 +140,7 @@ export function startAgentRun(
     agentId,
     runMode: 'runspec',
     status: 'queued',
+    autoApprove,
   };
 }
 
@@ -138,6 +150,7 @@ async function executeRun(input: {
   cwd: string;
   values: Record<string, unknown>;
   model?: ModelRef;
+  autoApprove: boolean;
   abortSignal: AbortSignal;
 }): Promise<void> {
   const memorySink: AgentProgressSink = (event) => {
@@ -162,6 +175,13 @@ async function executeRun(input: {
       cwd: input.cwd,
       abortSignal: input.abortSignal,
       onProgress: memorySink,
+      toolApproval: input.autoApprove
+        ? { mode: 'auto' }
+        : {
+            mode: 'interactive',
+            requestApproval: (req) =>
+              adminRunStore.waitForApproval(input.runId, req),
+          },
     });
 
     const finishedAt = new Date().toISOString();

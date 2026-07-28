@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { resolve } from 'node:path';
 import { LlmAgent, SequentialAgent } from '@google/adk';
 import {
+  createEmitHandoffTool,
   createGuardedTool,
   createGrokBuildXSearchConnector,
   createHttpDownloadTool,
@@ -17,29 +18,27 @@ import {
   type AgentBuildContext,
 } from '@agent-env/harness';
 import { z } from 'zod';
+import {
+  DRAFT_REPORT_SCHEMA_ID,
+  EVIDENCE_LEDGER_SCHEMA_ID,
+  GAP_FILL_SCHEMA_ID,
+  RESEARCH_PLAN_SCHEMA_ID,
+  RESEARCH_SCOPE_SCHEMA_ID,
+  draftReportSchema,
+  evidenceLedgerSchema,
+  gapFillSchema,
+  researchPlanSchema,
+  researchScopeSchema,
+} from './schema.js';
 
 /**
- * True deep-research pipeline (Cursor SDK by default):
- *
- *   1. scoper     — decompose the ask; define what the final report must
- *                   enable the reader to know / decide
- *   2. planner    — turn those goals into research questions + search tactics
- *   3. hunter     — search hard (web + optional X, extract promising pages)
- *   4. gap_filler — compare evidence vs report goals; fill holes with more
- *                   targeted searches
- *   5. writer     — design a reader-useful structure, then write ONE report
- *   6. publisher  — download figures, write report.md + report.pdf
- *
- * Requires TAVILY_API_KEY (via context.secret). X search uses Grok Build when
- * `grok` is available (opt out with AGENT_ENV_GROK_X=0). Falls back to Gemini
- * when Cursor is unavailable. Search / extract / download / PDF go through
- * harness connectors — no agent-local vendor HTTP.
+ * Deep research with typed stage handoffs (scope → plan → ledger → gaps → draft → publish).
  */
 export const agentDefinition = defineAgent({
   id: 'deep-research',
   name: 'Deep Research',
   description:
-    'True deep research: scope → plan → hunt (web + X) → fill gaps → write → publish MD/PDF with figures.',
+    'Typed-handoff deep research: scope → plan → hunt → gaps → draft → publish MD/PDF.',
   createAgent(context: AgentBuildContext) {
     const model = resolveModel(
       selectModelRef(defaultCursorModelRef(), defaultGeminiModelRef()),
@@ -55,24 +54,18 @@ export const agentDefinition = defineAgent({
     }
 
     const tavilyKey = () => context.secret('TAVILY_API_KEY');
-
-    /** Shared Tavily web search (advanced depth). Tool name: search_web. */
     const webSearch = createWebSearchConnector({
       provider: 'tavily',
       apiKey: tavilyKey,
       searchDepth: 'advanced',
       timeoutMs: 45_000,
     });
-
-    /** Shared Tavily Extract. Tool name: fetch_pages. */
     const fetchPages = createTavilyExtractTool({
       apiKey: tavilyKey,
       timeoutMs: 60_000,
     });
-
     const researchTools = [webSearch.createTool(), fetchPages];
 
-    // X search via Grok Build headless (auth via caller's `grok login`).
     if (
       context.config('AGENT_ENV_GROK_X') !== '0' &&
       (cliOk('grok', ['--version']) || cliOk('grok', ['--help']))
@@ -86,24 +79,17 @@ export const agentDefinition = defineAgent({
       );
     }
 
-    /** Run workspace roots (fresh per createAgent invocation). */
     const workRoots = new Set<string>();
-
     const fs = createWorkspaceFsTools({
       roots: () => [...workRoots],
-      write: {
-        approve: () => true,
-      },
+      write: { approve: () => true },
     });
-
     const downloadUrl = createHttpDownloadTool({
       roots: () => [...workRoots],
     });
-
     const markdownToPdf = createMarkdownPdfTool({
       roots: () => [...workRoots],
     });
-
     const registerWorkspace = createGuardedTool({
       contract: {
         version: '1.0',
@@ -113,11 +99,9 @@ export const agentDefinition = defineAgent({
         idempotency: 'supported',
       },
       description:
-        'Register the run workspace directory so download_url / write_file / markdown_to_pdf can use it.',
+        'Register the run workspace directory for download / write / PDF tools.',
       parameters: z.object({
-        dir: z
-          .string()
-          .describe('Absolute run workspace directory (runWorkspaceDir)'),
+        dir: z.string().describe('Absolute run workspace directory'),
       }),
       execute: ({ dir }) => {
         const abs = resolve(dir);
@@ -126,296 +110,206 @@ export const agentDefinition = defineAgent({
       },
     });
 
-    const publishTools = [
-      registerWorkspace,
-      downloadUrl,
-      fs.writeFile,
-      markdownToPdf,
-    ];
-
     const hasXSearch = researchTools.some((t) => t.name === 'search_x');
     const xHuntHint = hasXSearch
-      ? `
-5. Also use search_x when the ask involves public discourse, practitioner chatter,
-   launch reactions, controversy, or "what people are saying now" on X/Twitter.
-   Run several focused search_x queries (handles, product names, event keywords).
-   Treat X as primary evidence for sentiment / realtime claims; still prefer
-   web + fetch_pages for durable facts.`
+      ? `Also use search_x for discourse / realtime claims when relevant.`
       : '';
     const xGapHint = hasXSearch
-      ? `
-4. If a hole is about public reaction, rumor, or realtime practitioner opinion,
-   run search_x as well as search_web.`
+      ? `Use search_x for reaction/rumor holes when relevant.`
       : '';
     const xPlanHint = hasXSearch
-      ? `
-- When a Qi needs public discourse / realtime reaction, include search_x-oriented
-  query ideas (handles, slogans, product+complaint, launch hashtags).`
+      ? `Include search_x-oriented query ideas when a Qi needs public discourse.`
       : '';
 
-    /** 1. Scope: decompose + define what the report must achieve for the reader. */
+    const emitScope = createEmitHandoffTool({
+      name: 'emit_research_scope',
+      fromAgent: 'research_scoper',
+      toAgent: 'research_planner',
+      outputSchema: RESEARCH_SCOPE_SCHEMA_ID,
+      payloadSchema: researchScopeSchema,
+      defaultObjective: 'Research scope for downstream planning',
+      doneCriteria: ['successCriteria checkable', 'questions mapped'],
+    });
+    const emitPlan = createEmitHandoffTool({
+      name: 'emit_research_plan',
+      fromAgent: 'research_planner',
+      toAgent: 'evidence_hunter',
+      outputSchema: RESEARCH_PLAN_SCHEMA_ID,
+      payloadSchema: researchPlanSchema,
+      defaultObjective: 'Search plan for evidence hunt',
+      doneCriteria: ['every Qi has queries'],
+    });
+    const emitLedger = createEmitHandoffTool({
+      name: 'emit_evidence_ledger',
+      fromAgent: 'evidence_hunter',
+      toAgent: 'gap_filler',
+      outputSchema: EVIDENCE_LEDGER_SCHEMA_ID,
+      payloadSchema: evidenceLedgerSchema,
+      defaultObjective: 'Evidence ledger from hunt',
+      doneCriteria: ['findings grounded in tool output only'],
+    });
+    const emitGaps = createEmitHandoffTool({
+      name: 'emit_gap_fill',
+      fromAgent: 'gap_filler',
+      toAgent: 'report_writer',
+      outputSchema: GAP_FILL_SCHEMA_ID,
+      payloadSchema: gapFillSchema,
+      defaultObjective: 'Gap assessment after fill',
+      doneCriteria: ['every criterion assessed'],
+    });
+    const emitDraft = createEmitHandoffTool({
+      name: 'emit_draft_report',
+      fromAgent: 'report_writer',
+      toAgent: 'report_publisher',
+      outputSchema: DRAFT_REPORT_SCHEMA_ID,
+      payloadSchema: draftReportSchema,
+      defaultObjective: 'Draft report markdown for publish',
+      doneCriteria: ['markdown cites sources', 'no invented URLs'],
+    });
+
     const scoper = new LlmAgent({
       name: 'research_scoper',
       model,
-      description:
-        'Decomposes the user ask and defines what the final report must enable the reader to know.',
-      instruction: `You are the SCOPING step of a deep-research pipeline. No tool calls.
+      description: 'Scope ask → typed ResearchScope handoff.',
+      instruction: `SCOPING step. No search tools.
 
-The user asked a research question. Your job is NOT to answer it yet. Your job is to
-decide what a useful final report must accomplish.
+Optional: audience={audience?} decisionFocus={decisionFocus?}
 
-Optional hints from the caller (may be empty):
-- Intended audience: {audience?}
-- Decision the report should support: {decisionFocus?}
-If those are empty, infer a sensible audience and decision from the ask.
-
-Output these sections exactly (use the headers):
-
-## User intent
-Restate the ask in one crisp paragraph. Who is the likely reader, and what decision
-or understanding are they trying to reach?
-
-## Report success criteria
-List 5–8 concrete statements of the form:
-"By the end of this report, the reader should be able to …"
-These are the success criteria for the FINAL REPORT — not for this step.
-Make them specific, checkable, and non-overlapping. Prefer decisions, comparisons,
-trade-offs, and "what to do next" over vague topic coverage.
-
-## Decomposed questions
-Break the ask into 6–10 research questions that, if answered with evidence, would
-satisfy every success criterion above. Number them Q1, Q2, …
-Map each Qi to the success criterion it serves (e.g. "→ criterion 3").
-
-## Out of scope
-What the report should deliberately NOT try to cover (to stay useful, not encyclopedic).
-
-Be precise. Do not invent facts. Do not search.`,
+Call emit_research_scope with payloadJson:
+{
+  "userIntent": "...",
+  "audience": "...",
+  "decisionFocus": "...",
+  "successCriteria": ["By the end…", … 5–8],
+  "questions": [{ "id": "Q1", "question": "...", "criterionRef": "…" }, … 6–10],
+  "outOfScope": ["…"]
+}
+FINAL message = emit envelope. Do not invent facts.`,
+      tools: [emitScope],
       outputKey: 'research_scope',
     });
 
-    /** 2. Plan: search tactics per research question. */
     const planner = new LlmAgent({
       name: 'research_planner',
       model,
-      description: 'Turns report goals into a concrete multi-query search plan.',
-      instruction: `You are the PLANNING step. No tool calls.
+      description: 'Plan searches → typed ResearchPlan handoff.',
+      instruction: `PLANNING step. No search tools.
 
-Research scope (goals + questions):
+Scope handoff:
 {research_scope}
 
-Produce a search plan that will gather enough primary evidence to satisfy every
-Report success criterion. Output:
-
-## Search plan
-For each Qi from the scope, write:
-- Qi (copy the question)
-- Why it matters (1 sentence → which success criterion)
-- Queries: 3–5 DISTINCT search queries (vary wording, year, source type:
-  academic / vendor docs / standards / postmortem / comparison). Prefer English
-  queries for recall even if the user wrote Japanese.
-- Source preferences: what kinds of sources would be trustworthy here
-- Extract candidates: what you'd want full-text of (papers, RFCs, official guides)${xPlanHint}
-
-## Coverage checklist
-A checklist of success criteria → which Qi's evidence will cover them.
-
-Do not invent findings. Plan only.`,
+Call emit_research_plan with payloadJson:
+{
+  "items": [{
+    "questionId": "Q1",
+    "why": "…",
+    "queries": ["…", "…"],
+    "sourcePreferences": "…"
+  }],
+  "coverageChecklist": ["criterion → Qi …"]
+}
+${xPlanHint}
+Prefer English queries for recall. FINAL = emit envelope.`,
+      tools: [emitPlan],
       outputKey: 'research_plan',
     });
 
-    /** 3. Hunt: search extensively and extract promising pages. */
     const hunter = new LlmAgent({
       name: 'evidence_hunter',
       model,
-      description:
-        'Exhaustive web search (+ X when available) and page extract against the plan.',
-      instruction: `You are the EVIDENCE HUNTER. Your only job is to gather sources — not to write the report.
+      description: 'Hunt evidence → typed EvidenceLedger handoff.',
+      instruction: `EVIDENCE HUNTER. Gather sources; do not write the report.
 
-Research scope:
+Scope:
 {research_scope}
-
-Search plan:
+Plan:
 {research_plan}
 
-Mandatory behavior:
-1. For EVERY Qi in the plan, run MOST of its listed queries via search_web
-   (use a high limit). Do not skip questions. Do not stop after one good hit.
-2. Across the whole hunt, aim for roughly 20–40 search_web calls if the plan
-   warrants it. Breadth first, then depth.
-3. From the hits, pick the most authoritative / primary URLs (prefer standards,
-   papers, official docs, serious postmortems over SEO blog spam) and call
-   fetch_pages in batches of up to 5. Extract at least 8–15 pages total when
-   candidates exist.
-4. If a query returns weak results, invent a better reformulation and search again
-   (synonyms, narrower/wider scope, add year or "survey" / "RFC" / "OWASP" etc.).${xHuntHint}
+Use search_web / fetch_pages extensively (breadth then depth). ${xHuntHint}
+Never invent URLs/facts.
 
-Output format (after tools):
-
-## Evidence ledger
-For each Qi:
-### Qi — <question>
-- Finding bullets grounded ONLY in tool output, each ending with (url) when available.
-  Preserve concrete detail from tool results — do not compress for brevity.
-- Note conflicting claims if any
-- Coverage: strong | partial | weak
-
-## Source pool
-Distinct URLs / posts you actually used, one per line: - title — url
-
-## Still missing
-Which success criteria / Qi still lack evidence (be honest).
-
-Never invent URLs or facts. If a search fails or returns policy_denied, record it and continue.`,
-      tools: researchTools,
+Then call emit_evidence_ledger:
+{
+  "byQuestion": [{ "questionId": "Q1", "findings": ["… (url)"], "coverage": "strong|partial|weak" }],
+  "sources": [{ "title": "…", "url": "https://…" }],
+  "stillMissing": ["…"]
+}
+FINAL = emit envelope.`,
+      tools: [...researchTools, emitLedger],
       outputKey: 'evidence_ledger',
     });
 
-    /** 4. Gap fill: chase holes relative to report success criteria. */
     const gapFiller = new LlmAgent({
       name: 'gap_filler',
       model,
-      description: 'Compares evidence to report goals and fills remaining holes.',
-      instruction: `You are the GAP FILLER. Compare what we have against what the report must achieve.
+      description: 'Fill gaps → typed GapFill handoff.',
+      instruction: `GAP FILLER.
 
-Research scope (esp. Report success criteria):
+Scope:
 {research_scope}
-
-Evidence so far:
+Ledger:
 {evidence_ledger}
 
-Do this:
-1. For each Report success criterion, mark: COVERED / PARTIAL / MISSING, with a
-   one-line reason.
-2. For every PARTIAL or MISSING item, run 2–4 NEW search_web queries that target
-   the hole specifically, then fetch_pages on the best new URLs.
-3. Do not re-search topics that are already strong unless you need a primary source
-   to replace a weak secondary one.${xGapHint}
+Assess each success criterion; search to fill PARTIAL/MISSING. ${xGapHint}
 
-Output:
-
-## Gap assessment
-(criterion → COVERED|PARTIAL|MISSING + reason)
-
-## Additional evidence
-Only new findings from this step, grounded in tool output, with (url). Keep detail.
-
-## Updated coverage
-Status of every success criterion after the fills.
-
-## Ready for writing?
-YES if every criterion is COVERED or an honest PARTIAL with residual uncertainty
-stated; otherwise say what is still missing (writer must disclose it).`,
-      tools: researchTools,
+Call emit_gap_fill:
+{
+  "assessments": [{ "criterion": "…", "status": "COVERED|PARTIAL|MISSING", "reason": "…" }],
+  "additionalFindings": ["… (url)"],
+  "readyForWriting": true,
+  "residualGaps": ["…"]
+}
+FINAL = emit envelope.`,
+      tools: [...researchTools, emitGaps],
       outputKey: 'gap_fill',
     });
 
-    /** 5. Write: reader-useful structure → one report that meets the success criteria. */
     const writer = new LlmAgent({
       name: 'report_writer',
       model,
-      description:
-        'Designs a reader-useful structure and writes one evidence-grounded report.',
-      instruction: `You are the REPORT WRITER. Produce ONE useful report for the reader — not a dump of notes.
+      description: 'Write draft → typed DraftReport handoff.',
+      instruction: `REPORT WRITER. One useful report from typed handoffs.
 
-Original user ask is in the conversation. Also use:
+Scope: {research_scope}
+Plan: {research_plan}
+Ledger: {evidence_ledger}
+Gaps: {gap_fill}
 
-Research scope (intent + success criteria + questions):
-{research_scope}
+Write full markdown (cite URLs inline). Match user language (JP→Japanese).
+Trailing sections required: ## Sources, ## Residual uncertainties, ## Success criteria check.
+Optional ## Suggested figures with direct image URLs.
 
-Search plan:
-{research_plan}
-
-Evidence ledger:
-{evidence_ledger}
-
-Gap fill:
-{gap_fill}
-
-Process (think, then write):
-1. Mentally check that every Report success criterion can be answered from the
-   evidence (or honestly marked uncertain).
-2. Design a section structure that serves the READER's decision/understanding —
-   not a mirror of the Qi list. Prefer: context → answer the ask → deep sections
-   for trade-offs / how-to / risks → practical recommendations → open questions.
-3. Write the full report in that structure.
-
-Hard rules:
-- Every non-trivial claim cites a source URL inline: (https://…).
-- Do not invent facts or URLs. If evidence is weak, say so explicitly.
-- Prefer synthesis and judgment over bullet spam. Use bullets where they help decisions.
-- Length follows the evidence and success criteria — no artificial word-count cap;
-  do not pad, and do not omit useful grounded detail to stay short.
-- Match the user's language when they wrote in Japanese (report in Japanese);
-  otherwise English.
-- Do NOT download images or write files — the publisher step handles artifacts.
-  You may note suggested figure URLs in a trailing "## Suggested figures" section
-  (optional, up to 8 direct image URLs from evidence if clearly useful).
-
-Required trailing sections (exact headers):
-
-## Sources
-Distinct URLs used, one per line.
-
-## Residual uncertainties
-What we still do not know, and why it matters.
-
-## Success criteria check
-For each Report success criterion from the scope: SATISFIED | PARTIAL | UNSATISFIED
-with one sentence of justification.`,
+Call emit_draft_report:
+{ "markdown": "<full md>", "suggestedFigures": ["https://…"] }
+FINAL = emit envelope. Do not write files.`,
+      tools: [emitDraft],
       outputKey: 'draft_report',
     });
 
-    /** 6. Publish: figures + report.md + report.pdf. */
     const publisher = new LlmAgent({
       name: 'report_publisher',
       model,
-      description:
-        'Downloads figures, writes report.md and report.pdf into the run workspace.',
-      instruction: `You are the REPORT PUBLISHER. Turn the draft report into durable artifacts.
+      description: 'Publish draft handoff to report.md + PDF.',
+      instruction: `PUBLISHER. Workspace: {runWorkspaceDir}
 
-Run workspace directory (absolute):
-{runWorkspaceDir}
-
-Draft report:
+Draft handoff (prefer JSON payload.markdown):
 {draft_report}
 
-Evidence ledger (for finding figure URLs):
+Ledger (for figure URLs):
 {evidence_ledger}
 
-Mandatory steps (in order):
-1. Call register_workspace with dir = the run workspace directory above.
-2. From the draft (Suggested figures) and evidence, pick up to 8 useful FIGURE
-   image URLs (diagrams, charts, screenshots of docs — NOT logos, favicons,
-   tracking pixels, or generic stock). Prefer direct image URLs ending in
-   .png/.jpg/.jpeg/.webp/.gif or clear CDN image paths.
-3. For each selected URL, call download_url with:
-   - url: the image URL
-   - destPath: {runWorkspaceDir}/images  (directory)
-   Skip failures and continue.
-4. Produce the FINAL markdown:
-   - Start from the draft report
-   - Insert ![caption](images/<filename>) near the relevant section for each
-     successful download (use the filename returned by download_url)
-   - Remove "## Suggested figures" if present (figures are now embedded)
-   - Keep Sources / Residual uncertainties / Success criteria check
-5. write_file the final markdown to {runWorkspaceDir}/report.md
-6. Call markdown_to_pdf with:
-   - markdownPath: {runWorkspaceDir}/report.md
-   - pdfPath: {runWorkspaceDir}/report.pdf
-7. Your FINAL assistant message MUST be the full contents of report.md.
-   Do not summarize.
-
-If no images download successfully, still write report.md and PDF without figures.
-If PDF generation fails, still return the full markdown (and note the PDF error
-briefly at the very end only if needed — prefer succeeding silently when PDF works).`,
-      tools: publishTools,
+1. register_workspace(dir=runWorkspaceDir)
+2. download up to 8 figure URLs → {runWorkspaceDir}/images
+3. write_file final markdown → {runWorkspaceDir}/report.md (embed images; drop Suggested figures)
+4. markdown_to_pdf → report.pdf
+5. FINAL message = full report.md contents.`,
+      tools: [registerWorkspace, downloadUrl, fs.writeFile, markdownToPdf],
     });
 
     return new SequentialAgent({
       name: 'deep_research',
       description:
-        'True deep research: scope → plan → hunt (web + X) → fill gaps → write → publish MD/PDF with figures.',
+        'Typed-handoff deep research: scope → plan → hunt → gaps → draft → publish.',
       subAgents: [scoper, planner, hunter, gapFiller, writer, publisher],
     });
   },

@@ -3,17 +3,17 @@
   "kind": "RunSpec",
   "metadata": {
     "tenantId": "local-demo",
-    "idempotencyKey": "hello-v1"
+    "idempotencyKey": "hello-v2"
   },
   "spec": {
     "task": {
       "taskId": "hello-greet",
-      "revision": "2026-07-25",
-      "objective": "Hello — briefly introduce what you can do."
+      "revision": "2026-07-28-memory",
+      "objective": "Hello — briefly introduce what you can do and try memory_retrieve once."
     },
     "harness": {
-      "policyRef": "harness://hello/v1",
-      "maxSteps": 8,
+      "policyRef": "harness://hello/memory-v1",
+      "maxSteps": 12,
       "maxRepairs": 0
     },
     "model": {
@@ -27,10 +27,55 @@
       "backend": "none",
       "networkPolicy": "deny"
     },
-    "tools": { "allow": [] },
+    "tools": {
+      "allow": [
+        {
+          "name": "memory_extract",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        },
+        {
+          "name": "memory_propose",
+          "version": "1.0",
+          "riskClass": "T1",
+          "sideEffect": "reversible",
+          "idempotency": "supported"
+        },
+        {
+          "name": "memory_validate",
+          "version": "1.0",
+          "riskClass": "T1",
+          "sideEffect": "reversible",
+          "idempotency": "supported"
+        },
+        {
+          "name": "memory_accept",
+          "version": "1.0",
+          "riskClass": "T1",
+          "sideEffect": "reversible",
+          "idempotency": "supported"
+        },
+        {
+          "name": "memory_apply",
+          "version": "1.0",
+          "riskClass": "T1",
+          "sideEffect": "reversible",
+          "idempotency": "supported"
+        },
+        {
+          "name": "memory_retrieve",
+          "version": "1.0",
+          "riskClass": "T0",
+          "sideEffect": "none",
+          "idempotency": "supported"
+        }
+      ]
+    },
     "budget": {
-      "maxToolCalls": 5,
-      "maxWallSeconds": 120
+      "maxToolCalls": 12,
+      "maxWallSeconds": 180
     },
     "evaluation": { "ref": "./evaluation.json" }
   }
