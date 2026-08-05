@@ -18,6 +18,7 @@
     { "path": "agents/knowledge-assistant" },
     { "path": "agents/investigator" },
     { "path": "agents/research-desk" },
+    { "path": "agents/hypothesis-refine" },
     { "path": "scripts" }
   ]
 }
