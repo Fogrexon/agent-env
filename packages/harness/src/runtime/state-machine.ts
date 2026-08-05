@@ -4,7 +4,7 @@ import {
   type RunState,
 } from '@agent-env/shared';
 
-/** Legal transitions for the Phase A state machine (research §6.2 subset). */
+/** Legal transitions for the run state machine. */
 const TRANSITIONS: Record<RunState, readonly RunState[]> = {
   QUEUED: ['PROVISIONING', 'CANCELLED'],
   PROVISIONING: ['RUNNING', 'FAILED_INFRA', 'CANCELLED'],
@@ -28,9 +28,16 @@ const TRANSITIONS: Record<RunState, readonly RunState[]> = {
   ],
   WAITING_APPROVAL: ['RUNNING', 'APPROVAL_EXPIRED', 'CANCELLED', 'POLICY_DENIED'],
   CHECKPOINTING: ['RUNNING', 'FAILED_INFRA', 'CANCELLED'],
-  VERIFYING: ['SUCCEEDED', 'REPAIRING', 'FAILED_INFRA', 'FAILED'],
+  VERIFYING: [
+    'SUCCEEDED',
+    'COMPLETED',
+    'REPAIRING',
+    'FAILED_INFRA',
+    'FAILED',
+  ],
   REPAIRING: ['RUNNING', 'BUDGET_EXHAUSTED', 'FAILED', 'CANCELLED'],
   SUCCEEDED: [],
+  COMPLETED: [],
   FAILED: [],
   FAILED_INFRA: [],
   BUDGET_EXHAUSTED: [],

@@ -5,12 +5,10 @@ import {
   createExecEnvGuard,
   createGuardedTool,
   createTsCodeRunnerTool,
-  defaultCursorModelRef,
-  defaultGeminiModelRef,
   defineAgent,
-  resolveModel,
-  selectModelRef,
+  isProviderConfigured,
   shapeObservation,
+  verify,
   type AgentBuildContext,
 } from '@agent-env/harness';
 import { z } from 'zod';
@@ -28,6 +26,15 @@ export const agentDefinition = defineAgent({
   name: 'Code Exec',
   description:
     'Bounded-observation FunctionTools + optional AI-generated TS (CodeAct-style) in a per-agent exec env.',
+  limits: {
+    maxSteps: 20,
+    maxToolCalls: 20,
+    maxWallSeconds: 300,
+    maxRepairs: 0,
+  },
+  verification: {
+    checks: [verify.nonEmpty({ severity: 'advisory' })],
+  },
   createAgent(context: AgentBuildContext) {
     const prepareExecEnv = createExecEnvGuard({ moduleRoot: execRoot });
     const allowGenerated =
@@ -81,14 +88,13 @@ export const agentDefinition = defineAgent({
       approve: () => allowGenerated,
     });
 
-    const modelRef = selectModelRef(
-      defaultCursorModelRef(),
-      defaultGeminiModelRef(),
-    );
+    const model = isProviderConfigured('cursor')
+      ? 'cursor:auto'
+      : 'gemini:gemini-3.6-flash';
 
     return new LlmAgent({
       name: 'code-exec',
-      model: resolveModel(modelRef),
+      model,
       description:
         'Bounded-observation FunctionTools + optional generated TS in exec/.',
       instruction: `You help with small computations and, when allowed, generated TypeScript (CodeAct-style).

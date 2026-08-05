@@ -8,6 +8,7 @@ export {
   type OpenaiCompatibleEnvEntry,
 } from './bootstrap.js';
 export {
+  defaultAgentParams,
   discoverAgents,
   getDiscoveredAgent,
   getResolvedAgentPackage,
@@ -16,6 +17,9 @@ export {
   type DiscoverAgentsOptions,
   type ResolvedAgentPackage,
 } from './catalog.js';
+export {
+  DEFAULT_HOST_EXECUTION_LIMITS,
+} from './execution-policy.js';
 export {
   buildRunRequestFromValues,
   defaultValuesFromParams,

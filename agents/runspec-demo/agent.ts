@@ -2,12 +2,10 @@ import { LlmAgent } from '@google/adk';
 import {
   createEmitHandoffTool,
   createGuardedTool,
-  defaultCursorModelRef,
-  defaultGeminiModelRef,
   defineAgent,
-  resolveModel,
-  selectModelRef,
+  isProviderConfigured,
   shapeObservation,
+  verify,
   type AgentBuildContext,
 } from '@agent-env/harness';
 import { z } from 'zod';
@@ -31,6 +29,19 @@ export const agentDefinition = defineAgent({
   name: 'RunSpec Demo',
   description:
     'RunSpec + verifier + guarded tools + typed result handoff + bounded observations.',
+  limits: {
+    maxSteps: 12,
+    maxToolCalls: 20,
+    maxWallSeconds: 180,
+    maxRepairs: 1,
+  },
+  verification: {
+    checks: [
+      verify.jsonSchema({
+        schemaRef: 'agents/runspec-demo/schemas/result.schema.json',
+      }),
+    ],
+  },
   createAgent(_context: AgentBuildContext) {
     const echoNote = createGuardedTool({
       contract: {
@@ -83,7 +94,7 @@ export const agentDefinition = defineAgent({
       toAgent: 'verifier',
       outputSchema: RESULT_SCHEMA_ID,
       payloadSchema: resultPayloadSchema,
-      defaultObjective: 'Typed final result for EvaluationSpec',
+      defaultObjective: 'Typed final result for verification',
       doneCriteria: [
         'status is verified',
         'summary mentions propose_publish outcome',
@@ -91,11 +102,13 @@ export const agentDefinition = defineAgent({
       ],
     });
 
+    const model = isProviderConfigured('cursor')
+      ? 'cursor:auto'
+      : 'gemini:gemini-3.6-flash';
+
     return new LlmAgent({
       name: 'runspec_demo',
-      model: resolveModel(
-        selectModelRef(defaultCursorModelRef(), defaultGeminiModelRef()),
-      ),
+      model,
       description:
         'RunSpec demo with bounded observations and typed result handoff.',
       instruction: `You are a concise demo agent for agent-env (execution harness + working-environment contracts).

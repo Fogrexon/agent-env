@@ -1,13 +1,16 @@
 /**
- * Local admin API for agent discovery + parameterized async runs with SSE.
- * Providers: @agent-env/repo-env. Agents: filesystem scan under agents/.
+ * Local admin API — Control Plane (queue / slots / schedules / webhooks / auth)
+ * + agent discovery + SSE runs. Providers via @agent-env/repo-env.
  */
-import { resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import cors from 'cors';
 import express from 'express';
 import {
+  applyAgentParams,
   defaultValuesFromParams,
+  describeAgentGraph,
   loadAgentParamsFile,
   type RunHistoryListItem,
   type RunHistoryStatus,
@@ -16,34 +19,56 @@ import { listProviderMedia } from '@agent-env/llm';
 import {
   bootstrapProvidersFromEnv,
   discoverAgents,
-  getDiscoveredAgent,
   getResolvedAgentPackage,
+  loadAgentDefinition,
   loadDotEnv,
 } from '@agent-env/repo-env';
-import type { AgentProgressEvent, ModelRef } from '@agent-env/shared';
+import type { AgentProgressEvent } from '@agent-env/shared';
+import {
+  computeNextRunAt,
+  createBasicAuthMiddleware,
+  createControlStore,
+  createWebhookHandler,
+  createWorkerPool,
+  enqueueAgentJob,
+  jobPublic,
+  readBasicAuthConfig,
+  readMaxSlots,
+  startScheduler,
+  validateCron,
+} from './control/index.js';
 import {
   createRunFileServeHandler,
   createRunFilesListHandler,
 } from './files.js';
 import { getAdminRunHistory } from './run-history.js';
-import { startAgentRun } from './runs.js';
 import {
   adminRunStore,
+  deriveStages,
   type AdminRunSummary,
 } from './run-store.js';
 import { createUploadHandler, createUploadPreviewHandler } from './uploads.js';
 
-function loadRunSpecModels(
-  runSpec: { spec: { model: { primary: ModelRef; allowed?: ModelRef[] } } },
-): { primary: ModelRef; allowed: ModelRef[] } {
-  const primary = runSpec.spec.model.primary;
-  const allowed = runSpec.spec.model.allowed?.length
-    ? runSpec.spec.model.allowed
-    : [primary];
-  const keys = new Set(allowed.map((m) => `${m.provider}:${m.model}`));
-  const primaryKey = `${primary.provider}:${primary.model}`;
-  const models = keys.has(primaryKey) ? allowed : [primary, ...allowed];
-  return { primary, allowed: models };
+function readOptionalJson(dir: string, name: string): unknown | undefined {
+  const path = join(dir, name);
+  if (!existsSync(path)) return undefined;
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as unknown;
+  } catch {
+    return undefined;
+  }
+}
+
+function historyExtras(dir: string | undefined): Record<string, unknown> {
+  if (!dir) return {};
+  const effectiveGraph = readOptionalJson(dir, 'effective-graph.json');
+  const observedGraph = readOptionalJson(dir, 'observed-graph.json');
+  const intent = readOptionalJson(dir, 'intent.json');
+  return {
+    ...(effectiveGraph !== undefined ? { effectiveGraph } : {}),
+    ...(observedGraph !== undefined ? { observedGraph } : {}),
+    ...(intent !== undefined ? { intent } : {}),
+  };
 }
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
@@ -76,17 +101,84 @@ function diskItemToSummary(item: RunHistoryListItem): AdminRunSummary {
 loadDotEnv(resolve(repoRoot, '.env'));
 bootstrapProvidersFromEnv();
 
+const authConfig = readBasicAuthConfig();
+const maxSlots = readMaxSlots();
+const controlStore = createControlStore(repoRoot);
+const orphaned = controlStore.reconcileOrphans();
+if (orphaned > 0) {
+  console.log(`  reconciled ${orphaned} orphaned in-flight job(s)`);
+}
+
+const workerPool = createWorkerPool({
+  store: controlStore,
+  cwd: repoRoot,
+  maxSlots,
+});
+const scheduler = startScheduler({
+  store: controlStore,
+  cwd: repoRoot,
+  pool: workerPool,
+});
+
 const app = express();
 const port = Number(process.env['ADMIN_API_PORT'] ?? 8787);
 
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
+app.use(createBasicAuthMiddleware(authConfig));
 
 app.post('/api/uploads', createUploadHandler(repoRoot));
 app.get('/api/uploads/preview', createUploadPreviewHandler(repoRoot));
 
 app.get('/api/health', (_req, res) => {
-  res.json({ ok: true, cwd: repoRoot });
+  res.json({
+    ok: true,
+    cwd: repoRoot,
+    control: {
+      maxSlots,
+      running: workerPool.runningCount(),
+      queueDepth: controlStore.queueDepth(),
+      authEnabled: authConfig.enabled,
+      dbPath: controlStore.dbPath,
+    },
+  });
+});
+
+app.get('/api/control/settings', (_req, res) => {
+  res.json({
+    maxSlots,
+    running: workerPool.runningCount(),
+    queueDepth: controlStore.queueDepth(),
+    authEnabled: authConfig.enabled,
+    dbPath: controlStore.dbPath,
+  });
+});
+
+app.get('/api/control/stats', (_req, res) => {
+  const dayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+  res.json({
+    maxSlots,
+    running: workerPool.runningCount(),
+    queueDepth: controlStore.queueDepth(),
+    pending: controlStore.countByStatus('pending'),
+    claimed: controlStore.countByStatus('claimed'),
+    runningJobs: controlStore.countByStatus('running'),
+    triggers24h: controlStore.countByTrigger(dayAgo),
+    failureRate: controlStore.recentFailureRate(50),
+  });
+});
+
+app.get('/api/control/audit', (req, res) => {
+  const limitRaw = req.query['limit'];
+  const limit =
+    typeof limitRaw === 'string' && limitRaw.trim() !== ''
+      ? Number(limitRaw)
+      : 100;
+  res.json({
+    entries: controlStore.listAudit(
+      Number.isFinite(limit) ? Math.min(Math.max(limit, 1), 500) : 100,
+    ),
+  });
 });
 
 /** Registered providers with the media each one actually forwards to the model. */
@@ -122,7 +214,7 @@ app.get('/api/agents', (_req, res) => {
         paramsFile: m.paramsFile,
         models: m.models,
         title,
-        runMode: 'runspec',
+        runMode: 'agent',
         fieldCount,
       };
     });
@@ -146,7 +238,6 @@ app.get('/api/agents/:id/params', (req, res) => {
       manifest: pkg.manifest,
       spec: pkg.params,
       defaults: defaultValuesFromParams(pkg.params),
-      runspecModels: loadRunSpecModels(pkg.runSpec),
     });
   } catch (err) {
     res.status(400).json({
@@ -155,33 +246,335 @@ app.get('/api/agents/:id/params', (req, res) => {
   }
 });
 
-/** Async start — returns runId immediately for SSE subscription. */
+/** Preview the ADK agent graph for current form values (no run). */
+app.post('/api/agents/:id/graph', async (req, res) => {
+  const id = req.params.id;
+  const pkg = getResolvedAgentPackage(discovery, id);
+  if (!pkg) {
+    res.status(404).json({ error: `Unknown agent: ${id}` });
+    return;
+  }
+  try {
+    const body = req.body as { values?: Record<string, unknown> };
+    const values = body.values ?? {};
+    const applied = applyAgentParams(pkg.params, values, { cwd: repoRoot });
+    const definition = await loadAgentDefinition(pkg.entry, repoRoot);
+    const agent = await definition.createAgent({
+      repoRoot,
+      config: (name) => process.env[name]?.trim() || undefined,
+      secret: (name) => process.env[name]?.trim() || undefined,
+      inputs: applied.inputs,
+      async buildSubagent(subId, subOptions) {
+        const subPkg = getResolvedAgentPackage(discovery, subId);
+        if (!subPkg) throw new Error(`Unknown subagent: ${subId}`);
+        const subDef = await loadAgentDefinition(subPkg.entry, repoRoot);
+        return subDef.createAgent({
+          repoRoot,
+          config: (name) => process.env[name]?.trim() || undefined,
+          secret: (name) => process.env[name]?.trim() || undefined,
+          inputs: subOptions?.inputs ?? applied.inputs,
+        });
+      },
+    });
+    const graph = describeAgentGraph(agent, { agentId: id });
+    res.json({ graph });
+  } catch (err) {
+    res.status(400).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+/** Enqueue a run — worker pool starts when a slot is free. */
 app.post('/api/agents/:id/runs', (req, res) => {
   const id = req.params.id;
   const body = req.body as {
     values?: Record<string, unknown>;
-    model?: ModelRef;
     autoApprove?: boolean;
+    priority?: number;
   };
   const values = body.values ?? {};
-  const outcome = startAgentRun(id, values, repoRoot, body.model, {
+  const outcome = enqueueAgentJob(controlStore, {
+    agentId: id,
+    values,
+    cwd: repoRoot,
     autoApprove: body.autoApprove === true,
+    trigger: 'manual',
+    priority: typeof body.priority === 'number' ? body.priority : 0,
   });
   if (!outcome.ok) {
     res.status(400).json(outcome);
     return;
   }
-  res.status(202).json(outcome);
+  workerPool.kick();
+  res.status(202).json({
+    ok: true,
+    jobId: outcome.jobId,
+    runId: outcome.runId,
+    agentId: outcome.agentId,
+    runMode: 'agent',
+    status: outcome.status,
+    trigger: outcome.trigger,
+    autoApprove: outcome.autoApprove,
+    job: outcome.job,
+  });
 });
 
-/** Backward-compatible sync alias kept as 410-style redirect to async API docs. */
-app.post('/api/agents/:id/run', (req, res) => {
+/** Backward-compatible sync alias. */
+app.post('/api/agents/:id/run', (_req, res) => {
   res.status(409).json({
     ok: false,
     error:
       'Synchronous /run is removed. Use POST /api/agents/:id/runs then GET /api/runs/:runId/events (SSE).',
   });
 });
+
+app.get('/api/queue', (req, res) => {
+  const statusRaw = req.query['status'];
+  const status =
+    typeof statusRaw === 'string' && statusRaw.trim() !== ''
+      ? (statusRaw.split(',').map((s) => s.trim()) as Array<
+          'pending' | 'claimed' | 'running' | 'completed' | 'failed' | 'cancelled'
+        >)
+      : (['pending', 'claimed', 'running'] as const);
+  const jobs = controlStore
+    .listJobs({ status: [...status], limit: 200 })
+    .map(jobPublic);
+  res.json({
+    jobs,
+    maxSlots,
+    running: workerPool.runningCount(),
+    queueDepth: controlStore.queueDepth(),
+  });
+});
+
+app.get('/api/queue/stats', (_req, res) => {
+  res.json({
+    maxSlots,
+    running: workerPool.runningCount(),
+    queueDepth: controlStore.queueDepth(),
+    pending: controlStore.countByStatus('pending'),
+    claimed: controlStore.countByStatus('claimed'),
+    runningJobs: controlStore.countByStatus('running'),
+  });
+});
+
+app.post('/api/queue/:jobId/cancel', (req, res) => {
+  const jobId = req.params.jobId;
+  const job = controlStore.getJob(jobId);
+  if (!job) {
+    res.status(404).json({ ok: false, error: `Unknown job: ${jobId}` });
+    return;
+  }
+  if (job.status === 'pending' || job.status === 'claimed') {
+    controlStore.cancelJob(jobId);
+    res.json({
+      ok: true,
+      jobId,
+      status: 'cancelled',
+      job: jobPublic(controlStore.getJob(jobId)!),
+    });
+    return;
+  }
+  if (job.status === 'running') {
+    const cancelled = adminRunStore.cancel(job.runId);
+    res.json({
+      ok: cancelled,
+      jobId,
+      runId: job.runId,
+      status: adminRunStore.get(job.runId)?.status ?? job.status,
+    });
+    return;
+  }
+  res.status(409).json({
+    ok: false,
+    error: `Job is already terminal: ${job.status}`,
+    jobId,
+    status: job.status,
+  });
+});
+
+/* ── Schedules ─────────────────────────────────────────────── */
+
+app.get('/api/schedules', (_req, res) => {
+  res.json({
+    schedules: controlStore.listSchedules().map((s) => ({
+      ...s,
+      autoApprove: s.autoApprove === 1,
+      enabled: s.enabled === 1,
+      values: JSON.parse(s.valuesJson) as Record<string, unknown>,
+      // Legacy model_json ignored for new UI; keep read for old rows.
+    })),
+  });
+});
+
+app.post('/api/schedules', (req, res) => {
+  const body = req.body as {
+    agentId?: string;
+    cron?: string;
+    values?: Record<string, unknown>;
+    autoApprove?: boolean;
+    enabled?: boolean;
+  };
+  if (!body.agentId || !body.cron) {
+    res.status(400).json({ error: 'agentId and cron are required' });
+    return;
+  }
+  if (!getResolvedAgentPackage(discovery, body.agentId)) {
+    res.status(404).json({ error: `Unknown agent: ${body.agentId}` });
+    return;
+  }
+  const cronOk = validateCron(body.cron);
+  if (!cronOk.ok) {
+    res.status(400).json({ error: `Invalid cron: ${cronOk.error}` });
+    return;
+  }
+  const nextRunAt = computeNextRunAt(body.cron);
+  const schedule = controlStore.createSchedule({
+    agentId: body.agentId,
+    cron: body.cron,
+    values: body.values ?? {},
+    model: null,
+    autoApprove: body.autoApprove === true,
+    enabled: body.enabled !== false,
+    nextRunAt,
+  });
+  res.status(201).json({
+    schedule: {
+      ...schedule,
+      autoApprove: schedule.autoApprove === 1,
+      enabled: schedule.enabled === 1,
+      values: JSON.parse(schedule.valuesJson) as Record<string, unknown>,
+    },
+  });
+});
+
+app.patch('/api/schedules/:id', (req, res) => {
+  const body = req.body as {
+    cron?: string;
+    values?: Record<string, unknown>;
+    autoApprove?: boolean;
+    enabled?: boolean;
+  };
+  if (body.cron) {
+    const cronOk = validateCron(body.cron);
+    if (!cronOk.ok) {
+      res.status(400).json({ error: `Invalid cron: ${cronOk.error}` });
+      return;
+    }
+  }
+  const patch: Parameters<typeof controlStore.updateSchedule>[1] = {
+    ...body,
+  };
+  if (body.cron) {
+    patch.nextRunAt = computeNextRunAt(body.cron);
+  }
+  const updated = controlStore.updateSchedule(req.params.id, patch);
+  if (!updated) {
+    res.status(404).json({ error: `Unknown schedule: ${req.params.id}` });
+    return;
+  }
+  res.json({
+    schedule: {
+      ...updated,
+      autoApprove: updated.autoApprove === 1,
+      enabled: updated.enabled === 1,
+      values: JSON.parse(updated.valuesJson) as Record<string, unknown>,
+    },
+  });
+});
+
+app.delete('/api/schedules/:id', (req, res) => {
+  const ok = controlStore.deleteSchedule(req.params.id);
+  if (!ok) {
+    res.status(404).json({ error: `Unknown schedule: ${req.params.id}` });
+    return;
+  }
+  res.json({ ok: true, id: req.params.id });
+});
+
+/* ── Webhooks ──────────────────────────────────────────────── */
+
+app.get('/api/hooks/tokens', (_req, res) => {
+  res.json({
+    tokens: controlStore.listWebhookTokens().map((t) => ({
+      ...t,
+      autoApprove: t.autoApprove === 1,
+      enabled: t.enabled === 1,
+      values: JSON.parse(t.valuesJson) as Record<string, unknown>,
+    })),
+  });
+});
+
+app.post('/api/hooks/tokens', (req, res) => {
+  const body = req.body as {
+    name?: string;
+    agentId?: string;
+    values?: Record<string, unknown>;
+    autoApprove?: boolean;
+  };
+  if (!body.name || !body.agentId) {
+    res.status(400).json({ error: 'name and agentId are required' });
+    return;
+  }
+  if (!getResolvedAgentPackage(discovery, body.agentId)) {
+    res.status(404).json({ error: `Unknown agent: ${body.agentId}` });
+    return;
+  }
+  const created = controlStore.createWebhookToken({
+    name: body.name,
+    agentId: body.agentId,
+    values: body.values ?? {},
+    model: null,
+    autoApprove: body.autoApprove === true,
+  });
+  const { tokenHash: _h, ...safe } = created.token;
+  res.status(201).json({
+    token: {
+      ...safe,
+      autoApprove: safe.autoApprove === 1,
+      enabled: safe.enabled === 1,
+      values: JSON.parse(safe.valuesJson) as Record<string, unknown>,
+    },
+    /** Shown once — store securely; only hash is persisted. */
+    rawToken: created.rawToken,
+    hookPath: `/api/hooks/${created.rawToken}`,
+  });
+});
+
+app.patch('/api/hooks/tokens/:id', (req, res) => {
+  const body = req.body as { enabled?: boolean };
+  if (typeof body.enabled !== 'boolean') {
+    res.status(400).json({ error: 'enabled boolean required' });
+    return;
+  }
+  const ok = controlStore.setWebhookEnabled(req.params.id, body.enabled);
+  if (!ok) {
+    res.status(404).json({ error: `Unknown token: ${req.params.id}` });
+    return;
+  }
+  res.json({ ok: true, id: req.params.id, enabled: body.enabled });
+});
+
+app.delete('/api/hooks/tokens/:id', (req, res) => {
+  const ok = controlStore.deleteWebhookToken(req.params.id);
+  if (!ok) {
+    res.status(404).json({ error: `Unknown token: ${req.params.id}` });
+    return;
+  }
+  res.json({ ok: true, id: req.params.id });
+});
+
+app.post(
+  '/api/hooks/:token',
+  createWebhookHandler({
+    store: controlStore,
+    cwd: repoRoot,
+    pool: workerPool,
+  }),
+);
+
+/* ── Runs ──────────────────────────────────────────────────── */
 
 app.get('/api/runs', (_req, res) => {
   try {
@@ -192,7 +585,43 @@ app.get('/api/runs', (_req, res) => {
       .listRuns()
       .filter((item) => !memoryIds.has(item.runId))
       .map((item) => diskItemToSummary(item));
-    const runs = [...memory, ...fromDisk].sort(
+
+    const jobsByRun = new Map(
+      controlStore.listJobs({ limit: 500 }).map((j) => [j.runId, j] as const),
+    );
+
+    const enrich = (run: AdminRunSummary) => {
+      const job = jobsByRun.get(run.runId);
+      return {
+        ...run,
+        ...(job
+          ? {
+              jobId: job.jobId,
+              trigger: job.trigger,
+              jobStatus: job.status,
+            }
+          : {}),
+      };
+    };
+
+    // Pending queue jobs not yet in memory live store
+    const pendingOnly = controlStore
+      .listJobs({ status: ['pending', 'claimed'], limit: 200 })
+      .filter((j) => !memoryIds.has(j.runId))
+      .map((j) => ({
+        runId: j.runId,
+        agentId: j.agentId,
+        runMode: 'agent' as const,
+        status: 'queued' as const,
+        createdAt: j.createdAt,
+        updatedAt: j.updatedAt,
+        messagePreview: j.messagePreview ?? undefined,
+        jobId: j.jobId,
+        trigger: j.trigger,
+        jobStatus: j.status,
+      }));
+
+    const runs = [...memory.map(enrich), ...pendingOnly, ...fromDisk.map(enrich)].sort(
       (a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt),
     );
     res.json({ runs });
@@ -205,15 +634,48 @@ app.get('/api/runs', (_req, res) => {
 
 app.get('/api/runs/:runId', (req, res) => {
   const run = adminRunStore.get(req.params.runId);
+  const job = controlStore.getJobByRunId(req.params.runId);
   if (run) {
-    res.json(adminRunStore.toPublic(run));
+    res.json({
+      ...adminRunStore.toPublic(run),
+      ...historyExtras(run.historyDir),
+      ...(job
+        ? { jobId: job.jobId, trigger: job.trigger, jobStatus: job.status }
+        : {}),
+    });
     return;
   }
+
+  // Pending job not started yet
+  if (job && (job.status === 'pending' || job.status === 'claimed')) {
+    res.json({
+      runId: job.runId,
+      agentId: job.agentId,
+      runMode: 'agent',
+      status: 'queued',
+      createdAt: job.createdAt,
+      updatedAt: job.updatedAt,
+      messagePreview: job.messagePreview,
+      events: [],
+      jobId: job.jobId,
+      trigger: job.trigger,
+      jobStatus: job.status,
+      stages: [],
+      pendingApprovals: [],
+    });
+    return;
+  }
+
   const disk = getAdminRunHistory(repoRoot).readRun(req.params.runId);
   if (!disk) {
     res.status(404).json({ error: `Unknown run: ${req.params.runId}` });
     return;
   }
+  const recordState =
+    disk.result && typeof disk.result === 'object'
+      ? (disk.result as { state?: string; record?: { state?: string } }).state ??
+        (disk.result as { record?: { state?: string } }).record?.state
+      : undefined;
   res.json({
     runId: disk.meta.runId,
     agentId: disk.meta.agentId,
@@ -225,17 +687,22 @@ app.get('/api/runs/:runId', (req, res) => {
     events: disk.events,
     result: disk.result
       ? {
-          status:
-            disk.meta.status === 'completed' ? 'finished' : 'error',
+          status: disk.meta.status === 'completed' ? 'finished' : 'error',
           finalText: disk.finalText,
           startedAt: disk.meta.startedAt,
           finishedAt: disk.meta.finishedAt ?? disk.meta.startedAt,
           error: disk.meta.error,
+          recordState,
         }
       : undefined,
     error: disk.meta.error,
     historyDir: disk.meta.dir,
     fromDisk: true,
+    stages: deriveStages(disk.events, recordState),
+    ...historyExtras(disk.meta.dir),
+    ...(job
+      ? { jobId: job.jobId, trigger: job.trigger, jobStatus: job.status }
+      : {}),
   });
 });
 
@@ -243,6 +710,16 @@ app.get('/api/runs/:runId/events', (req, res) => {
   const runId = req.params.runId;
   const run = adminRunStore.get(runId);
   if (!run) {
+    // Pending queue: no SSE yet — client should poll snapshot
+    const job = controlStore.getJobByRunId(runId);
+    if (job && (job.status === 'pending' || job.status === 'claimed')) {
+      res.status(409).json({
+        error: 'Run is still queued; SSE starts when execution begins',
+        runId,
+        jobStatus: job.status,
+      });
+      return;
+    }
     res.status(404).json({ error: `Unknown run: ${runId}` });
     return;
   }
@@ -305,7 +782,6 @@ app.get('/api/runs/:runId/events', (req, res) => {
     Number.isFinite(afterSequence) ? afterSequence : -1,
   );
 
-  // Already terminal before subscribe (race): end after replay.
   if (
     !closed &&
     (run.status === 'completed' ||
@@ -333,6 +809,12 @@ app.get('/api/runs/:runId/events', (req, res) => {
 
 app.post('/api/runs/:runId/cancel', (req, res) => {
   const runId = req.params.runId;
+  const job = controlStore.getJobByRunId(runId);
+  if (job && (job.status === 'pending' || job.status === 'claimed')) {
+    controlStore.cancelJob(job.jobId);
+    res.json({ ok: true, runId, jobId: job.jobId, status: 'cancelled' });
+    return;
+  }
   const run = adminRunStore.get(runId);
   if (!run) {
     res.status(404).json({ error: `Unknown run: ${runId}` });
@@ -342,10 +824,6 @@ app.post('/api/runs/:runId/cancel', (req, res) => {
   res.json({ ok, runId, status: adminRunStore.get(runId)?.status });
 });
 
-/**
- * Resolve an interactive T2/T3 tool approval for an in-flight run.
- * Body: `{ decision: 'granted' | 'denied' }`
- */
 app.post('/api/runs/:runId/approvals/:approvalId', (req, res) => {
   const runId = req.params.runId;
   const approvalId = req.params.approvalId;
@@ -379,7 +857,6 @@ app.post('/api/runs/:runId/approvals/:approvalId', (req, res) => {
   res.json({ ok: true, runId, approvalId, decision });
 });
 
-/** Delete a finished run from memory + durable history (`.runs/runs/`). */
 app.delete('/api/runs/:runId', (req, res) => {
   const runId = req.params.runId;
   const memory = adminRunStore.get(runId);
@@ -389,6 +866,16 @@ app.delete('/api/runs/:runId', (req, res) => {
       error: 'Cannot delete an active run. Cancel it first.',
       runId,
       status: memory.status,
+    });
+    return;
+  }
+  const job = controlStore.getJobByRunId(runId);
+  if (job && (job.status === 'pending' || job.status === 'claimed' || job.status === 'running')) {
+    res.status(409).json({
+      ok: false,
+      error: 'Cannot delete an active queued job. Cancel it first.',
+      runId,
+      jobStatus: job.status,
     });
     return;
   }
@@ -404,18 +891,13 @@ app.delete('/api/runs/:runId', (req, res) => {
     });
     return;
   }
-  if (!removedMemory && !removedDisk) {
+  if (!removedMemory && !removedDisk && !job) {
     res.status(404).json({ ok: false, error: `Unknown run: ${runId}`, runId });
     return;
   }
   res.json({ ok: true, runId, removedMemory, removedDisk });
 });
 
-/**
- * Bulk-delete finished runs. Either pass a JSON body `{ runIds: [...] }` to
- * delete specific runs, or query `scope=terminal` (default) to remove all
- * completed / failed / cancelled runs. Active runs are always skipped.
- */
 app.delete('/api/runs', (req, res) => {
   const body = req.body as { runIds?: unknown } | undefined;
   const requestedIds = Array.isArray(body?.runIds)
@@ -481,7 +963,6 @@ app.delete('/api/runs', (req, res) => {
 });
 
 app.get('/api/runs/:runId/files', createRunFilesListHandler(repoRoot));
-/** Wildcard file serve — path relative to the run history directory. */
 app.get(
   '/api/runs/:runId/files/*rel',
   createRunFileServeHandler(repoRoot),
@@ -492,4 +973,14 @@ app.listen(port, () => {
   console.log(`agent-env admin API on http://127.0.0.1:${port}`);
   console.log(`  repo root: ${repoRoot}`);
   console.log(`  agents: ${ids.join(', ') || '(none)'}`);
+  console.log(`  maxSlots: ${maxSlots}`);
+  console.log(`  auth: ${authConfig.enabled ? 'basic' : 'disabled'}`);
+  console.log(`  control db: ${controlStore.dbPath}`);
+});
+
+process.on('SIGINT', () => {
+  scheduler.stop();
+  workerPool.stop();
+  controlStore.close();
+  process.exit(0);
 });

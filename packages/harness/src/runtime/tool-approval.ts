@@ -34,7 +34,7 @@ export interface ToolApprovalPolicy {
   timeoutMs?: number;
   /**
    * Optional hook when entering / leaving WAITING_APPROVAL.
-   * Used by runFromSpec to drive the run state machine.
+   * Used by executeAgentRun to drive the run state machine.
    */
   onWaitingChange?: (waiting: boolean, request?: ToolApprovalRequest) => void;
 }

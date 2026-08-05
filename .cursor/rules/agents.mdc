@@ -6,32 +6,41 @@ alwaysApply: false
 
 # Agent definitions
 
-エージェント固有のすべて（コード・入力・実行ポリシー・評価）は **`agents/<id>/` に閉じる**。
+エージェント固有のすべて（コード・入力・実行ポリシー・検証）は **`agents/<id>/` に閉じる**。必須ファイルは `agent.ts` のみ。`params.yaml` は任意。
 
 ```typescript
-import { defineAgent, resolveModel, defaultCursorModelRef } from '@agent-env/harness';
+import { defineAgent, verify } from '@agent-env/harness';
 import { LlmAgent } from '@google/adk';
 
 export const agentDefinition = defineAgent({
   id: 'my-agent',
   name: 'My Agent',
   description: '…',
+  limits: {
+    maxSteps: 20,
+    maxToolCalls: 20,
+    maxWallSeconds: 300,
+    maxRepairs: 1,
+  },
+  verification: {
+    checks: [verify.nonEmpty({ severity: 'advisory' })],
+  },
   createAgent() {
     return new LlmAgent({
       name: 'my_agent',
-      model: resolveModel(defaultCursorModelRef()),
+      model: 'cursor:auto', // provider:model 文字列（ADK LLMRegistry ルーティング）
       instruction: '...',
     });
   },
 });
 ```
 
-必須ファイル:
+ファイル:
 
-- `agents/<id>/agent.ts` — `export const agentDefinition`
-- `agents/<id>/params.yaml` — `agentId` はディレクトリ名と一致（呼出し入力のみ）
-- `agents/<id>/runspec.json` — 実行ポリシー
-- `agents/<id>/evaluation.json` — EvaluationSpec（成功判定）
+- `agents/<id>/agent.ts` — **必須**。`export const agentDefinition`
+- `agents/<id>/params.yaml` — **任意**。あれば `agentId` はディレクトリ名と一致（呼出し入力のみ）。無ければ discovery が既定の単一 `message` フィールドを合成する
+
+`runspec.json` / `evaluation.json` を著者が置く仕組みは廃止（互換レイヤなし）。実行ポリシーは `agentDefinition.limits`、成功判定は `agentDefinition.verification` に持つ。
 
 ファイル / 画像フィールド:
 
@@ -48,9 +57,16 @@ export const agentDefinition = defineAgent({
 
 ## モデル / 秘密情報
 
-- `provider` は registry 上の id（カスタム可）
+- モデルは `provider:model` 文字列（例 `cursor:auto` / `gemini:gemini-3.1-pro`）を `LlmAgent.model` に直接渡すのが標準。`provider` は registry 上の id（カスタム可）。明示的な `BaseLlm` が要るときだけ `resolveModel({ provider, model })`
+- run 単位のモデル上書きはない — モデルは `agent.ts` が決める
 - 秘密情報・コネクタ設定は `createAgent` 内で用意し、ファクトリ引数に渡す（モジュール先頭で env bootstrap しない — `runDiscoveredAgent` / admin が行う）
 - `@agent-env/llm` / `@agent-env/harness` に `*FromEnv` や固定 env 名前提を置かない
+
+## 実行制限・検証
+
+- `limits`（省略可）は `AgentExecutionLimits` の部分集合。host 既定（`agents/dev-env/execution-policy.ts`）とフィールドごとに **min** マージされる（緩められない）
+- `verification`（省略可）は `{ checks: [...] }` または `(context) => {...}`。`@agent-env/harness` の `verify.*`（`nonEmpty` / `contains` / `artifact` / `document` / `jsonSchema` / `command` / `custom` / `agent`）で組み立てる
+- 終了状態: required check が全合格なら `SUCCEEDED`、required check が 0 件なら `COMPLETED`（advisory only / ゲートなし成功）、それ以外は `FAILED`
 
 ## コネクタ / ツール
 
@@ -60,8 +76,8 @@ export const agentDefinition = defineAgent({
 
 ## チェック
 
-- [ ] `export const agentDefinition`
-- [ ] 同ディレクトリに `params.yaml` / `runspec.json` / `evaluation.json`
+- [ ] `export const agentDefinition`（`agent.ts` は必須。`params.yaml` は任意）
+- [ ] `limits` / `verification` は `agentDefinition` に持たせた（別ファイルの `runspec.json` / `evaluation.json` は作らない）
 - [ ] コネクタ向きの能力をエージェント内の自前 HTTP 関数にしていない
 - [ ] `packages/*` / `scripts/` にこのエージェント向けの定数・default・分岐を追加していない
 - [ ] ルート `package.json` に per-agent script を追加していない

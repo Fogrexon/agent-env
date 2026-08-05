@@ -1,21 +1,18 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { LlmAgent, ParallelAgent, SequentialAgent } from '@google/adk';
-import type { ModelRef } from '@agent-env/shared';
 import {
   createGitCloneTool,
   createGithubTools,
   createGuardedTool,
   createHandoffArtifact,
+  createReviewLoopAgent,
   createWorkspaceFsTools,
-  defaultCursorModelRef,
-  defaultGeminiModelRef,
   defineAgent,
-  emitToolProgress,
+  formatModelRef,
+  isProviderConfigured,
   parseModelRef,
-  resolveModel,
-  runAgent,
-  selectModelRef,
+  verify,
   type AgentBuildContext,
 } from '@agent-env/harness';
 import { z } from 'zod';
@@ -42,22 +39,34 @@ import {
  *   1. cloner              — clone_repo → workdir
  *   2. Parallel scouts     — injection / auth-secrets / supply-config
  *   3. consolidator        — merge → record_findings (Zod)
- *   4. fix_author          — exact before/after patches → record_patches
- *   5. gatekeeper          — evaluate_audit (2nd model; REVISE → patch revise →
- *                            re-evaluate up to maxRevisions) → publish_security_pr
+ *   4. review_loop         — createReviewLoopAgent: fix_author (producer) →
+ *                            audit_fix_evaluator (2nd-model reviewer) →
+ *                            audit_patch_reviser on REVISE, up to maxIterations
+ *   5. gatekeeper          — publish_security_pr → structured GitHub PR report
  *
- * Structured artifact: AuditPackage (see schema.ts) → GitHub PR title/body.
+ * Independent evaluate/revise runs in-session via createReviewLoopAgent (shares the
+ * outer invocation's budget/abort/tool-approval instead of nesting runAgent()).
+ * Structured artifact: AuditPackage → GitHub PR.
  */
 export const agentDefinition = defineAgent({
   id: 'security-audit',
   name: 'Security Audit',
   description:
     'Clone → parallel security scouts → consolidate findings → author patches → evaluate → publish structured GitHub PR.',
+  limits: {
+    maxSteps: 100,
+    maxToolCalls: 140,
+    maxWallSeconds: 3600,
+    maxRepairs: 0,
+  },
+  verification: {
+    checks: [verify.nonEmpty({ severity: 'advisory' })],
+  },
   createAgent(context: AgentBuildContext) {
     const RUNS_DIR = resolve(context.repoRoot, '.runs', 'security-audit');
-    const model = resolveModel(
-      selectModelRef(defaultCursorModelRef(), defaultGeminiModelRef()),
-    );
+    const model = isProviderConfigured('cursor')
+      ? 'cursor:auto'
+      : 'gemini:gemini-3.6-flash';
 
     const workRoots = new Set<string>();
 
@@ -108,17 +117,19 @@ export const agentDefinition = defineAgent({
       },
     });
 
-    function evaluatorModelRef(override?: string): ModelRef {
-      if (override?.trim()) return parseModelRef(override);
+    function evaluatorModel(): string {
       const fromConfig = context
         .config('AGENT_ENV_AUDIT_EVALUATOR_MODEL')
         ?.trim();
-      if (fromConfig) return parseModelRef(fromConfig);
-      return selectModelRef(
-        defaultGeminiModelRef(),
-        defaultCursorModelRef('gpt-5.6-sol'),
-      );
+      if (fromConfig) {
+        return formatModelRef(parseModelRef(fromConfig));
+      }
+      return isProviderConfigured('gemini')
+        ? 'gemini:gemini-3.6-flash'
+        : 'cursor:gpt-5.6-sol';
     }
+    const evalModel = evaluatorModel();
+    const MAX_REVISIONS = 2;
 
     function absInWorkdir(relPath: string): string {
       const workdir = auditState.pkg.workdir;
@@ -251,31 +262,81 @@ export const agentDefinition = defineAgent({
       },
     });
 
-    /**
-     * Nested independent evaluation via runAgent + Zod.
-     * TODO: grader SPI will replace this nested evaluation run.
-     */
-    async function runIndependentEvaluation(modelOverride?: string): Promise<{
-      evaluation: AuditEvaluation;
-      runState: string;
-      verificationPassed: boolean;
-    }> {
-      const evalRef = evaluatorModelRef(modelOverride);
-      const payload = {
+    /** Read-only snapshot of the recorded audit state (for reviewer/reviser/gatekeeper). */
+    const getRecordedState = createGuardedTool({
+      contract: {
+        name: 'get_recorded_state',
+        version: '1.0',
+        riskClass: 'T0',
+        sideEffect: 'none',
+        idempotency: 'supported',
+      },
+      description:
+        'Read the currently recorded findings, patches, evaluation (if any), and revise history for this audit run.',
+      parameters: z.object({}),
+      execute: () => ({
+        status: 'success' as const,
         findings: auditState.pkg.findings,
         patches: auditState.pkg.patches,
-      };
+        evaluation: auditState.pkg.evaluation ?? null,
+        reviseHistory: auditState.reviseHistory,
+      }),
+    });
 
-      const evaluator = new LlmAgent({
-        name: 'audit_fix_evaluator',
-        model: resolveModel(evalRef),
-        description: 'Independent reviewer for structured security patches.',
-        instruction: `You are a strict independent security reviewer. You did NOT write these fixes.
-Review the JSON findings + patches. For each patch check:
-- Does \`before\` → \`after\` correctly and safely fix the linked finding?
-- Could it introduce regressions or incomplete fixes?
+    /** Persist the independent reviewer's verdict JSON (Zod-validated). */
+    const recordEvaluation = createGuardedTool({
+      contract: {
+        name: 'record_evaluation',
+        version: '1.0',
+        riskClass: 'T0',
+        sideEffect: 'none',
+        idempotency: 'supported',
+      },
+      description:
+        'Validate and store the independent evaluator verdict JSON (schema: AuditEvaluation minus evaluatorModel). Call once per review iteration.',
+      parameters: z.object({
+        evaluationJson: z
+          .string()
+          .min(20)
+          .describe(
+            'JSON object matching AuditEvaluation (verdict/summary/perFix/residualRisks; no evaluatorModel)',
+          ),
+      }),
+      execute: ({ evaluationJson }) => {
+        const parsed = parseJsonPayload(
+          evaluationJson,
+          auditEvaluationSchema.omit({ evaluatorModel: true }),
+        );
+        const evaluation = auditEvaluationSchema.parse({
+          ...parsed,
+          evaluatorModel: evalModel,
+        });
+        auditState.pkg.evaluation = evaluation;
+        auditState.reviseHistory.push({
+          attempt: auditState.reviseHistory.length,
+          verdict: evaluation.verdict,
+          summary: evaluation.summary,
+        });
+        auditState.pkg.reviseHistory = auditState.reviseHistory;
+        return {
+          status: 'success' as const,
+          verdict: evaluation.verdict,
+          attempt: auditState.reviseHistory.length - 1,
+        };
+      },
+    });
 
-Respond with ONLY a JSON object (no markdown fence) matching:
+    /** Independent second-model reviewer: reads recorded state, emits AuditEvaluation JSON. */
+    const evaluator = new LlmAgent({
+      name: 'audit_fix_evaluator',
+      model: evalModel,
+      description: 'Independent reviewer for structured security patches.',
+      instruction: `You are a strict independent security reviewer. You did NOT write these fixes.
+
+1. Call get_recorded_state to read the current findings and patches.
+2. Review the patches: does \`before\` → \`after\` correctly and safely fix the linked finding?
+   Could it introduce regressions or incomplete fixes?
+3. Call record_evaluation ONCE with a JSON object (no markdown fence) matching:
 {
   "verdict": "APPROVE" | "REVISE" | "REJECT",
   "summary": "one short paragraph",
@@ -284,257 +345,32 @@ Respond with ONLY a JSON object (no markdown fence) matching:
 }
 Use APPROVE only if every submitted patch is acceptable.
 Use REVISE if patches need changes but the approach is salvageable.
-Use REJECT if the patches are wrong or dangerous.`,
-      });
+Use REJECT if the patches are wrong or dangerous.
+4. After the tool call, output ONLY that same JSON object as your final response
+   (no prose, no markdown fence).`,
+      tools: [getRecordedState, recordEvaluation],
+      outputKey: 'auditEvaluationJson',
+    });
 
-      const result = await runAgent({
-        agent: evaluator,
-        message: JSON.stringify(payload, null, 2),
-        persistent: false,
-      });
+    /** Revises recorded patches after an independent REVISE verdict. */
+    const patchReviser = new LlmAgent({
+      name: 'audit_patch_reviser',
+      model,
+      description:
+        'Revises recorded patches after an independent REVISE verdict.',
+      instruction: `You revise security patches after an independent reviewer said REVISE.
 
-      const raw = result.finalText ?? '';
-      let evaluation: AuditEvaluation;
-      let verificationPassed = false;
-      try {
-        const parsed = parseJsonPayload(
-          raw,
-          auditEvaluationSchema.omit({ evaluatorModel: true }),
-        );
-        evaluation = auditEvaluationSchema.parse({
-          ...parsed,
-          evaluatorModel: `${evalRef.provider}:${evalRef.model}`,
-        });
-        verificationPassed = true;
-      } catch (err) {
-        evaluation = {
-          verdict: 'REVISE',
-          evaluatorModel: `${evalRef.provider}:${evalRef.model}`,
-          summary: `Evaluator output was not valid JSON (${err instanceof Error ? err.message : String(err)}). Treat as REVISE.`,
-          perFix: [],
-          residualRisks: ['Unparseable evaluator response'],
-        };
-      }
-
-      return {
-        evaluation,
-        runState: result.status === 'finished' ? 'SUCCEEDED' : 'FAILED',
-        verificationPassed,
-      };
-    }
-
-    /** Nested agent: rewrite patches using the latest REVISE feedback. */
-    async function revisePatchesFromEvaluation(
-      evaluation: AuditEvaluation,
-    ): Promise<{
-      status: 'success' | 'error';
-      message: string;
-      patchCount: number;
-    }> {
-      const rejected = evaluation.perFix.filter((r) => !r.accepted);
-      const reviser = new LlmAgent({
-        name: 'audit_patch_reviser',
-        model,
-        description:
-          'Revises recorded patches after an independent REVISE verdict.',
-        instruction: `You revise security patches after an independent reviewer said REVISE.
-
-Findings (JSON):
-${JSON.stringify(auditState.pkg.findings, null, 2)}
-
-Current patches (JSON):
-${JSON.stringify(auditState.pkg.patches, null, 2)}
-
-Evaluation summary: ${evaluation.summary}
-Per-fix feedback:
-${
-  evaluation.perFix.length
-    ? evaluation.perFix
-        .map(
-          (r) =>
-            `- ${r.findingId}: ${r.accepted ? 'accepted' : 'NEEDS REVISION'} — ${r.notes}`,
-        )
-        .join('\n')
-    : '- (no per-fix notes; improve patches that look weak given the summary)'
-}
-Residual risks:
-${
-  evaluation.residualRisks.length
-    ? evaluation.residualRisks.map((r) => `- ${r}`).join('\n')
-    : '- (none listed)'
-}
-
-Focus first on findings that need revision${
-          rejected.length
-            ? ` (${rejected.map((r) => r.findingId).join(', ')})`
-            : ''
-        }.
-
-1. Re-read target files with read_file as needed.
-2. Craft improved exact before→after patches (before must be an exact contiguous substring).
-3. Call record_patches ONCE with the FULL updated patches array (include still-good patches you keep).
-4. End with a one-line note of which findingIds you changed.
+1. Call get_recorded_state to see the current findings, patches, and the latest evaluation feedback
+   (evaluation.summary, evaluation.perFix, evaluation.residualRisks).
+2. Focus first on findings flagged not-accepted in evaluation.perFix (or all patches if perFix is empty).
+3. Re-read target files with read_file as needed.
+4. Craft improved exact before→after patches (before must be an exact contiguous substring).
+5. Call record_patches ONCE with the FULL updated patches array (include still-good patches you keep).
+6. End with a one-line note of which findingIds you changed.
 
 Do not apply patches to disk. Do not open a PR.`,
-        tools: [fs.readFile, recordPatches],
-      });
-
-      const before = auditState.pkg.patches.map((p) => p.findingId).join(',');
-      const result = await runAgent({
-        agent: reviser,
-        message:
-          'Revise the recorded patches to address the REVISE evaluation. Call record_patches with the full updated set.',
-        persistent: false,
-      });
-
-      if (result.status === 'error') {
-        return {
-          status: 'error',
-          message: result.error ?? 'patch reviser failed',
-          patchCount: auditState.pkg.patches.length,
-        };
-      }
-
-      const after = auditState.pkg.patches.map((p) => p.findingId).join(',');
-      return {
-        status: auditState.pkg.patches.length > 0 ? 'success' : 'error',
-        message:
-          auditState.pkg.patches.length === 0
-            ? 'Reviser left no accepted patches'
-            : `Patches updated (${before || 'none'} → ${after || 'none'})`,
-        patchCount: auditState.pkg.patches.length,
-      };
-    }
-
-    /**
-     * Second-model evaluation via nested runAgent + Zod.
-     * On REVISE: run a patch reviser and re-evaluate up to maxRevisions times.
-     */
-    const evaluateAudit = createGuardedTool({
-      contract: {
-        name: 'evaluate_audit',
-        version: '1.0',
-        riskClass: 'T1',
-        sideEffect: 'none',
-        idempotency: 'supported',
-        timeoutMs: 900_000,
-      },
-      description:
-        'Independent second-model evaluation of findings+patches. On REVISE, automatically revises patches and re-evaluates up to maxRevisions times. Returns the final AuditEvaluation plus reviseHistory.',
-      parameters: z.object({
-        model: z
-          .string()
-          .optional()
-          .describe('Override evaluator as provider:model'),
-        maxRevisions: z
-          .number()
-          .int()
-          .min(0)
-          .max(5)
-          .optional()
-          .describe(
-            'Max REVISE→patch-revise→re-evaluate cycles after the first evaluation (default 2)',
-          ),
-      }),
-      execute: async ({ model: modelOverride, maxRevisions: maxRevisionsArg }) => {
-        if (auditState.pkg.findings.length === 0) {
-          return { status: 'error' as const, message: 'No findings recorded yet.' };
-        }
-        if (auditState.pkg.patches.length === 0) {
-          return { status: 'error' as const, message: 'No patches recorded yet.' };
-        }
-
-        const maxRevisions = maxRevisionsArg ?? 2;
-        auditState.reviseHistory = [];
-
-        let evaluation: AuditEvaluation | undefined;
-        let runState = 'UNKNOWN';
-        let verificationPassed = false;
-        let reviseCycles = 0;
-
-        for (let attempt = 0; attempt <= maxRevisions; attempt += 1) {
-          emitToolProgress({
-            author: 'evaluate_audit',
-            message:
-              attempt === 0
-                ? 'Running independent evaluation'
-                : `Re-evaluating after revise cycle ${attempt}/${maxRevisions}`,
-            payload: { attempt, maxRevisions },
-          });
-
-          const round = await runIndependentEvaluation(modelOverride);
-          evaluation = round.evaluation;
-          runState = round.runState;
-          verificationPassed = round.verificationPassed;
-          auditState.pkg.evaluation = evaluation;
-          auditState.reviseHistory.push({
-            attempt,
-            verdict: evaluation.verdict,
-            summary: evaluation.summary,
-          });
-
-          if (
-            evaluation.verdict === 'APPROVE' ||
-            evaluation.verdict === 'REJECT'
-          ) {
-            break;
-          }
-
-          // REVISE
-          if (attempt >= maxRevisions) {
-            emitToolProgress({
-              author: 'evaluate_audit',
-              message: `REVISE exhausted after ${maxRevisions} revise cycle(s)`,
-              payload: { maxRevisions },
-            });
-            break;
-          }
-
-          emitToolProgress({
-            author: 'evaluate_audit',
-            message: `Verdict REVISE — revising patches (cycle ${attempt + 1}/${maxRevisions})`,
-            payload: {
-              summary: evaluation.summary,
-              needsRevision: evaluation.perFix
-                .filter((r) => !r.accepted)
-                .map((r) => r.findingId),
-            },
-          });
-
-          const revised = await revisePatchesFromEvaluation(evaluation);
-          reviseCycles += 1;
-          if (revised.status !== 'success') {
-            evaluation = {
-              ...evaluation,
-              summary: `${evaluation.summary} Patch revision failed: ${revised.message}`,
-              residualRisks: [
-                ...evaluation.residualRisks,
-                `patch_revision_failed: ${revised.message}`,
-              ],
-            };
-            auditState.pkg.evaluation = evaluation;
-            auditState.reviseHistory.push({
-              attempt,
-              verdict: 'REVISE',
-              summary: `revision_failed: ${revised.message}`,
-            });
-            break;
-          }
-        }
-
-        auditState.pkg.reviseHistory = auditState.reviseHistory;
-
-        return {
-          status: 'success' as const,
-          runState,
-          verificationPassed,
-          evaluation,
-          reviseCycles,
-          maxRevisions,
-          reviseHistory: auditState.reviseHistory,
-          exhausted: evaluation?.verdict === 'REVISE',
-        };
-      },
+      tools: [getRecordedState, fs.readFile, recordPatches],
+      outputKey: 'patches_summary',
     });
 
     /**
@@ -785,6 +621,7 @@ Do not invent new evidence.`,
       outputKey: 'findings_summary',
     });
 
+    /** Producer for the review loop: authors the initial patches. */
     const fixAuthor = new LlmAgent({
       name: 'fix_author',
       model,
@@ -822,27 +659,32 @@ Never claim a patch was applied to disk — record_patches only validates/stores
       outputKey: 'patches_summary',
     });
 
+    /**
+     * In-session producer → reviewer → reviser loop (shares this invocation's
+     * budget/abort/tool-approval instead of nesting runAgent()).
+     */
+    const reviewLoop = createReviewLoopAgent({
+      name: 'audit_review_loop',
+      description:
+        'Author patches, then independent second-model evaluation → revise until approved/rejected or exhausted.',
+      producer: fixAuthor,
+      reviewer: evaluator,
+      reviser: patchReviser,
+      reviewKey: 'auditEvaluationJson',
+      reviewSchema: auditEvaluationSchema.omit({ evaluatorModel: true }),
+      isApproved: (review) => review.verdict !== 'REVISE',
+      maxIterations: MAX_REVISIONS + 1,
+    });
+
     const gatekeeper = new LlmAgent({
       name: 'audit_gatekeeper',
       model,
-      description:
-        'Runs second-model evaluation with REVISE→repair loop, then structured PR publish.',
+      description: 'Publishes the structured GitHub PR and final report.',
       instruction: `You are the gatekeeper for the security audit.
 
-Findings summary:
-{findings_summary}
-
-Patches summary:
-{patches_summary}
-
-Optional state hint (may be empty): maxRevisions={maxRevisions?}
-
-1. Call evaluate_audit ONCE.
-   - Pass maxRevisions from state when present (number); otherwise omit (default 2).
-   - The tool itself loops: evaluate → on REVISE revise patches → re-evaluate.
-   - Do NOT manually re-author patches or call evaluate_audit more than once.
+1. Call get_recorded_state to read the final findings, patches, evaluation, and reviseHistory.
 2. Call publish_security_pr once (optional branch security/audit-fixes).
-   - If final verdict != APPROVE, publish will skip — that is expected.
+   - If the final verdict != APPROVE, publish will skip — that is expected.
    - If tools return policy_denied, report the gate; do not retry.
 3. Write the FINAL user-facing report with EXACT section headers:
 
@@ -858,19 +700,19 @@ For each patch: findingId, path, and a unified-diff style before/after block
 
 ## Evaluation
 evaluatorModel, final verdict, summary, residual risks.
-Also list reviseHistory from evaluate_audit (attempt → verdict) when present.
+Also list reviseHistory (attempt → verdict) when present.
 
 ## PR
 status, title, branch, url (or skip/deny reason). Include a short preview of the
 PR body headings that would be posted to GitHub.`,
-      tools: [evaluateAudit, publishSecurityPr],
+      tools: [getRecordedState, publishSecurityPr],
     });
 
     return new SequentialAgent({
       name: 'security_audit',
       description:
-        'Clone → parallel security scouts → consolidate findings → author patches → evaluate → publish structured GitHub PR.',
-      subAgents: [cloner, scouts, consolidator, fixAuthor, gatekeeper],
+        'Clone → parallel security scouts → consolidate findings → author/evaluate/revise patches → publish structured GitHub PR.',
+      subAgents: [cloner, scouts, consolidator, reviewLoop, gatekeeper],
     });
   },
 });

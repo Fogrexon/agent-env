@@ -67,8 +67,18 @@ export function createTavilyExtractTool(
     parameters: tavilyExtractParamsSchema,
     publicConfig: {
       provider: 'tavily',
+      connectorId: 'tavily_extract',
+      kind: 'web',
+      title: 'Tavily Extract',
       timeoutMs,
       defaultMaxCharsPerUrl: defaultMaxChars,
+    },
+    source: {
+      connectorId: 'tavily_extract',
+      title: 'Tavily Extract',
+      kind: 'web',
+      tags: ['tavily', 'extract'],
+      description: 'Readable page extraction via Tavily Extract API.',
     },
     execute: async ({ urls, maxCharsPerUrl }) => {
       const apiKey = resolveSecret(options.apiKey);

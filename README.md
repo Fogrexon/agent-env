@@ -7,15 +7,13 @@
 ```
 agents/                  # エージェントパッケージ（agentDefinition）
   <id>/
-    agent.ts             # export agentDefinition
-    params.yaml          # 呼出し入力スキーマ
-    runspec.json         # 実行ポリシー
-    evaluation.json      # 成功判定（EvaluationSpec）
-  dev-env/               # このリポ専用の env 配線（@agent-env/repo-env）
+    agent.ts             # export agentDefinition（必須。limits / verification を内包）
+    params.yaml          # 呼出し入力スキーマ（任意。無ければ既定の単一 message フィールド）
+  dev-env/               # このリポ専用の env 配線 + host execution policy（@agent-env/repo-env）
 packages/
-  shared/                # Zod（ModelRef / RunSpec / EvaluationSpec / Connector meta）
+  shared/                # Zod（ModelRef / AgentExecutionLimits / VerificationPlan / Connector meta）
   llm/                   # provider ファクトリ・registry（env を読まない）
-  harness/               # defineAgent / runFromSpec / connectors（env を読まない）
+  harness/               # defineAgent / executeAgentRun / verify.* / connectors（env を読まない）
 docs/                    # ARCHITECTURE + 研究レポート
 apps/                    # admin UI
 scripts/                 # run / smoke
@@ -77,14 +75,14 @@ registerProvider(
 resolveModel({ provider: 'lm-studio', model: 'local-model' });
 ```
 
-## RunSpec + EvaluationSpec
+## エージェント定義と検証
 
 ```bash
 npm run smoke:runtime
 npm run run -- runspec-demo "短いデモを実行して"
 ```
 
-実行は常に `agents/<id>/runspec.json` と `evaluation.json` を discovery 経由で読みます（別パス指定の `run:spec` は廃止）。
+実行は常に discovery 経由で `agents/<id>/agent.ts` の `agentDefinition` を読み、`runDiscoveredAgent` → `executeAgentRun` で走らせます。実行制限（`limits`: maxSteps / maxToolCalls / maxWallSeconds / maxRepairs / maxSubagentDepth）と成功判定（`verification`: `verify.*` check 配列）は `agentDefinition` 自身が持ち、host 側の既定ポリシー（`agents/dev-env/execution-policy.ts`）と自動的にマージされます（各フィールドは agent 値と host 値の小さい方 / 両方の verification checks を連結）。ランタイムはこれを唯一の真として実行し、run 単位のモデル上書きはありません。
 
 ## TypeScript 実行（code-exec）
 
@@ -117,6 +115,41 @@ const runTsCode = createTsCodeRunnerTool({
   approve: () => allowGeneratedCode, // T2: fail-closed without this
 });
 ```
+
+## Python スクリプト（YOLO 等の事前宣言パイプライン）
+
+YOLO / OpenCV のような固定処理は **`agents/<id>/python/`** に置き、`createPythonScriptTool` で typed tool 化する（モデルに任意コードを書かせない）。
+
+```
+agents/<id>/python/
+  requirements.txt
+  scripts/detect.py
+  .venv/                 # uv が生成（gitignore）
+```
+
+```bash
+npm run smoke:python-env
+npm run run -- python-vision "scene-person.jpg を triage して"
+```
+
+実 YOLO に差し替えるときは `requirements.txt` に `ultralytics` 等を足し、`scripts/detect.py` を本物の推論に置き換える。stdout の JSON 契約（`detections[]` 等）を維持すればエージェント側はほぼそのまま。
+
+依存管理は **uv**（`ensurePythonEnv` → `uv venv` + `uv pip install`）。`python -m venv` / 生 pip は使わない。
+
+AI 生成 Pythonが必要な場合のみ `createPythonCodeRunnerTool`（T2）。
+
+## Knowledge / RAG
+
+ローカル Markdown・コード・PDF を差分インデックスし、BM25 + optional embeddings のハイブリッド検索で根拠付き回答します。
+
+```bash
+npm run smoke:knowledge
+npm run run -- knowledge-assistant "検証（verification）の成功判定は何を見ますか？"
+```
+
+- Index: `.agent-env/knowledge/<collection>.sqlite`
+- Tools: `knowledge_sync` / `knowledge_search` / live `glob_files`・`search_text`
+- Embedder は呼び出し側注入（既定デモは決定論的。本番は OpenAI-compatible / Gemini）
 
 ## データソース収集（collector）
 
@@ -179,14 +212,19 @@ registerConnector(
 |----|------|----------|
 | `hello` | 最小の単一エージェント | — |
 | `parallel-pipeline` | PRO/CON 開弁→反論×2（並列）→判定（web/X 検索可） | `TAVILY_API_KEY`（任意・推奨） |
-| `runspec-demo` | RunSpec + guarded tools + 独立 verifier | — |
+| `runspec-demo` | `limits` + guarded tools + 独立 verification（`verify.*`） | — |
 | `collector` | 複数コネクタ並列収集 → brief | 任意: `gh` / `TAVILY_API_KEY` |
 | `deep-research` | **Tavily** + optional **X (Grok Build)** deep research（問い分解 → 探索 → ギャップ埋め → 一枚レポート） | `TAVILY_API_KEY`（X は `grok login`） |
-| `security-audit` | GitHub clone → **並列 scout** → Finding/Patch → RunSpec 別モデル評価（**REVISE 時はパッチ修正→再評価**）→ 構造化 PR | `git` / PR には `gh` |
+| `security-audit` | GitHub clone → **並列 scout** → Finding/Patch → 別モデル評価（**REVISE 時はパッチ修正→再評価**）→ 構造化 PR | `git` / PR には `gh` |
+| `python-vision` | 局所 Python（uv）で mock YOLO → 判断 | `uv` |
+| `knowledge-assistant` | local hybrid RAG（BM25+embeddings）+ citations | —（本番 embedder は任意注入） |
+| `investigator` | 再利用可能な Web 調査（単体でも親からも） | `TAVILY_API_KEY` または `BRAVE_API_KEY` |
+| `research-desk` | `createSubagentTool` で `investigator` 定義を呼んで統合 | 同上 |
 
 ```bash
 npm run run -- deep-research "…"
 npm run run -- security-audit "Audit https://github.com/Fogrexon/CGEngine ..."
+npm run run -- knowledge-assistant "検証（verification）の成功判定は何を見ますか？"
 ```
 
 security-audit の書き込み系ツールは fail-closed の権限境界デモです:
@@ -220,11 +258,22 @@ T2/T3 の承認:
 
 ## モデル指定（ModelRef）
 
+エージェント内では通常 `provider:model` 文字列を ADK の `LlmAgent.model` に直接渡すだけでよい（ADK LLMRegistry が registry 経由で解決する）:
+
+```typescript
+model: 'cursor:auto'
+model: 'gemini:gemini-3.6-flash'
+```
+
+明示的に `BaseLlm` インスタンスが要る場合（provider を跨いだ切替・カスタムルーティング等）は `resolveModel` を使う:
+
 ```typescript
 model: resolveModel({ provider: 'cursor', model: 'auto' })
 model: resolveModel({ provider: 'gemini', model: 'gemini-3.6-flash' })
 model: resolveModel({ provider: 'lm-studio', model: 'local-model' })
 ```
+
+どちらの経路でも run 単位のモデル上書きはありません（モデルは `agentDefinition` が決める）。
 
 | kind / 典型 id | 用途 |
 |----------------|------|
@@ -236,14 +285,15 @@ model: resolveModel({ provider: 'lm-studio', model: 'local-model' })
 
 ## 新しいエージェント
 
-1. `agents/<id>/agent.ts`（`export const agentDefinition = defineAgent({…})`、必要なら connector 配線）
-2. `agents/<id>/params.yaml`（呼出し入力フォーム定義）
-3. `agents/<id>/runspec.json` + `evaluation.json`
-4. 完了 — `packages/*`・ルート `package.json` は触らない（`scripts/` / admin が `agents/*/` を自動発見）
+1. `agents/<id>/agent.ts`（`export const agentDefinition = defineAgent({ id, name, description, limits, verification, createAgent })`、必要なら connector 配線）
+2. 完了 — `packages/*`・ルート `package.json` は触らない（`scripts/` / admin が `agents/*/` を自動発見）
 
-任意: workspace 用に `agents/<id>/package.json` + root `tsconfig.json` references（型チェック用）
+任意:
 
-詳細手順・CLI `--params`・EvaluationSpec の書き方は [docs/AGENT_PACKAGE.md](./docs/AGENT_PACKAGE.md)。
+- `agents/<id>/params.yaml`（呼出し入力フォーム定義。無ければ既定の単一 `message` フィールド）
+- workspace 用に `agents/<id>/package.json` + root `tsconfig.json` references（型チェック用）
+
+詳細手順・CLI `--params`・`verify.*` の書き方は [docs/AGENT_PACKAGE.md](./docs/AGENT_PACKAGE.md)。
 
 ## ドキュメント
 

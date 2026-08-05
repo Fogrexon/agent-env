@@ -10,11 +10,9 @@ import {
   createTavilyExtractTool,
   createWebSearchConnector,
   createWorkspaceFsTools,
-  defaultCursorModelRef,
-  defaultGeminiModelRef,
   defineAgent,
-  resolveModel,
-  selectModelRef,
+  isProviderConfigured,
+  verify,
   type AgentBuildContext,
 } from '@agent-env/harness';
 import { z } from 'zod';
@@ -39,10 +37,38 @@ export const agentDefinition = defineAgent({
   name: 'Deep Research',
   description:
     'Typed-handoff deep research: scope → plan → hunt → gaps → draft → publish MD/PDF.',
+  limits: {
+    maxSteps: 100,
+    maxToolCalls: 140,
+    maxWallSeconds: 3600,
+    maxRepairs: 0,
+  },
+  verification: {
+    checks: [
+      verify.artifact({
+        artifactId: 'report',
+        mediaTypes: ['text/markdown'],
+        minBytes: 2000,
+      }),
+      verify.artifact({
+        artifactId: 'report',
+        mediaTypes: ['application/pdf'],
+        minBytes: 500,
+      }),
+      verify.document({
+        artifactId: 'report',
+        sections: [
+          'Success criteria check',
+          'Sources',
+          'Residual uncertainties',
+        ],
+      }),
+    ],
+  },
   createAgent(context: AgentBuildContext) {
-    const model = resolveModel(
-      selectModelRef(defaultCursorModelRef(), defaultGeminiModelRef()),
-    );
+    const model = isProviderConfigured('cursor')
+      ? 'cursor:auto'
+      : 'gemini:gemini-3.6-flash';
 
     function cliOk(bin: string, args: string[]): boolean {
       try {

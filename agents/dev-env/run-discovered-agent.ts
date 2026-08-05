@@ -1,29 +1,37 @@
 /**
  * Single invocation path for CLI / admin / API.
- * Resolves canonical agent package files, builds a per-run agent tree,
- * merges RunRequest into an effective RunSpec, then runs + verifies.
+ * Resolves a discovered agent package, builds the ADK graph, merges host
+ * execution policy + agent verification, then runs via executeAgentRun.
  */
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import {
   applyAgentParams,
-  applyRunSpecOverrides,
+  assertGraphModelsResolvable,
+  buildObservedGraph,
   createRunHistoryStore,
   defaultValuesFromParams,
+  describeAgentGraph,
+  executeAgentRun,
+  mergeExecutionLimits,
   RUN_WORKSPACE_STATE_KEY,
-  runFromSpec,
   type AgentBuildContext,
-  type RunFromSpecResult,
+  type AgentDefinition,
+  type ExecuteAgentRunResult,
   type RunHistoryWriter,
   type ToolApprovalPolicy,
 } from '@agent-env/harness';
 import type {
+  AgentProgressEvent,
   AgentProgressSink,
   AgentRunRequest,
-  ModelRef,
+  VerificationPlan,
 } from '@agent-env/shared';
-import { agentRunRequestSchema } from '@agent-env/shared';
+import {
+  agentRunRequestSchema,
+  verificationPlanSchema,
+} from '@agent-env/shared';
 import { bootstrapProvidersFromEnv, loadDotEnv } from './bootstrap.js';
 import {
   getResolvedAgentPackage,
@@ -31,6 +39,7 @@ import {
   type DiscoverAgentsOptions,
   type ResolvedAgentPackage,
 } from './catalog.js';
+import { DEFAULT_HOST_EXECUTION_LIMITS } from './execution-policy.js';
 
 export interface RunDiscoveredAgentOptions {
   request: AgentRunRequest;
@@ -47,25 +56,14 @@ export interface RunDiscoveredAgentOptions {
    * Default deny (CLI). Admin passes interactive or auto.
    */
   toolApproval?: ToolApprovalPolicy;
+  /** Optional host verification appended after the agent's plan. */
+  hostVerification?: VerificationPlan;
 }
 
-
-export interface RunDiscoveredAgentResult extends RunFromSpecResult {
+export interface RunDiscoveredAgentResult extends ExecuteAgentRunResult {
   package: ResolvedAgentPackage;
   historyDir?: string;
   workspaceDir?: string;
-}
-
-function createBuildContext(
-  repoRoot: string,
-  inputs?: Readonly<Record<string, unknown>>,
-): AgentBuildContext {
-  return {
-    repoRoot,
-    config: (name) => process.env[name]?.trim() || undefined,
-    secret: (name) => process.env[name]?.trim() || undefined,
-    ...(inputs ? { inputs } : {}),
-  };
 }
 
 function discoveryFromCwd(cwd: string): DiscoverAgentsOptions {
@@ -75,13 +73,89 @@ function discoveryFromCwd(cwd: string): DiscoverAgentsOptions {
   };
 }
 
+function createBuildContext(options: {
+  repoRoot: string;
+  discovery: DiscoverAgentsOptions;
+  inputs?: Readonly<Record<string, unknown>>;
+  depth?: number;
+  stack?: readonly string[];
+  maxSubagentDepth?: number;
+}): AgentBuildContext {
+  const depth = options.depth ?? 0;
+  const stack = options.stack ?? [];
+  const maxSubagentDepth =
+    options.maxSubagentDepth ?? DEFAULT_HOST_EXECUTION_LIMITS.maxSubagentDepth;
+  const cwd = options.repoRoot;
+
+  return {
+    repoRoot: options.repoRoot,
+    config: (name) => process.env[name]?.trim() || undefined,
+    secret: (name) => process.env[name]?.trim() || undefined,
+    ...(options.inputs ? { inputs: options.inputs } : {}),
+    async buildSubagent(id, subOptions) {
+      if (depth >= maxSubagentDepth) {
+        throw new Error(
+          `Subagent depth exceeds maxSubagentDepth (${maxSubagentDepth})`,
+        );
+      }
+      if (stack.includes(id)) {
+        throw new Error(
+          `Circular subagent dependency: ${[...stack, id].join(' -> ')}`,
+        );
+      }
+      const pkg = getResolvedAgentPackage(options.discovery, id);
+      if (!pkg) {
+        throw new Error(`Unknown subagent: ${id}`);
+      }
+      const definition = await loadAgentDefinition(pkg.entry, cwd);
+      if (definition.id !== pkg.id) {
+        throw new Error(
+          `agentDefinition.id "${definition.id}" must match directory "${pkg.id}"`,
+        );
+      }
+      const childInputs = subOptions?.inputs ?? options.inputs;
+      return definition.createAgent(
+        createBuildContext({
+          repoRoot: options.repoRoot,
+          discovery: options.discovery,
+          ...(childInputs ? { inputs: childInputs } : {}),
+          depth: depth + 1,
+          stack: [...stack, id],
+          maxSubagentDepth,
+        }),
+      );
+    },
+  };
+}
+
+async function resolveVerificationPlan(
+  definition: AgentDefinition,
+  context: AgentBuildContext,
+  hostVerification?: VerificationPlan,
+): Promise<VerificationPlan> {
+  let agentRaw: unknown = { checks: [] };
+  if (definition.verification !== undefined) {
+    agentRaw =
+      typeof definition.verification === 'function'
+        ? await definition.verification(context)
+        : definition.verification;
+  }
+  const agentPlan = verificationPlanSchema.parse(agentRaw);
+  const hostPlan = verificationPlanSchema.parse(
+    hostVerification ?? { checks: [] },
+  );
+  return verificationPlanSchema.parse({
+    checks: [...agentPlan.checks, ...hostPlan.checks],
+  });
+}
+
 /**
- * Validate values against params.yaml and produce a typed AgentRunRequest.
+ * Validate values against params (file or in-memory default) and produce a typed AgentRunRequest.
  */
 export function buildRunRequestFromValues(
   pkg: ResolvedAgentPackage,
   values: Record<string, unknown>,
-  options: { cwd?: string; model?: ModelRef; runId?: string } = {},
+  options: { cwd?: string; runId?: string } = {},
 ): AgentRunRequest {
   const applied = applyAgentParams(pkg.params, values, {
     cwd: options.cwd ?? process.cwd(),
@@ -92,7 +166,6 @@ export function buildRunRequestFromValues(
     inputs: applied.inputs,
     attachments: applied.attachments,
     metadata: applied.metadata,
-    ...(options.model ? { model: options.model } : {}),
     ...(options.runId ? { runId: options.runId } : {}),
   });
 }
@@ -113,7 +186,6 @@ export async function runDiscoveredAgent(
   const request = options.values
     ? buildRunRequestFromValues(pkg, options.values, {
         cwd,
-        model: options.request.model,
         runId: options.request.runId,
       })
     : agentRunRequestSchema.parse(options.request);
@@ -131,15 +203,29 @@ export async function runDiscoveredAgent(
     );
   }
 
-  const agent = await definition.createAgent(
-    createBuildContext(discovery.repoRoot ?? cwd, request.inputs),
-  );
-
-  const effectiveSpec = applyRunSpecOverrides(pkg.runSpec, {
-    objective: request.objective,
-    model: request.model,
-    inputs: request.inputs,
+  const repoRoot = discovery.repoRoot ?? cwd;
+  const context = createBuildContext({
+    repoRoot,
+    discovery,
+    ...(request.inputs ? { inputs: request.inputs } : {}),
+    depth: 0,
+    stack: [pkg.id],
+    maxSubagentDepth: DEFAULT_HOST_EXECUTION_LIMITS.maxSubagentDepth,
   });
+
+  const agent = await definition.createAgent(context);
+  const effectiveGraph = describeAgentGraph(agent, { agentId: pkg.id });
+  assertGraphModelsResolvable(effectiveGraph);
+
+  const verification = await resolveVerificationPlan(
+    definition,
+    context,
+    options.hostVerification,
+  );
+  const limits = mergeExecutionLimits(
+    DEFAULT_HOST_EXECUTION_LIMITS,
+    definition.limits,
+  );
 
   const runId = request.runId ?? randomUUID();
   let writer: RunHistoryWriter | undefined;
@@ -150,18 +236,17 @@ export async function runDiscoveredAgent(
     writer = history.open({
       runId,
       agentId: pkg.id,
-      runMode: 'runspec',
+      runMode: 'agent',
       message: request.objective,
-      ...(request.model ? { model: request.model } : {}),
     });
     writeFileSync(
-      join(writer.dir, 'runspec.json'),
-      `${JSON.stringify(effectiveSpec, null, 2)}\n`,
+      join(writer.dir, 'verification-plan.json'),
+      `${JSON.stringify(verification, null, 2)}\n`,
       'utf8',
     );
     writeFileSync(
-      join(writer.dir, 'evaluation.json'),
-      `${JSON.stringify(pkg.evaluation, null, 2)}\n`,
+      join(writer.dir, 'effective-graph.json'),
+      `${JSON.stringify(effectiveGraph, null, 2)}\n`,
       'utf8',
     );
   }
@@ -173,20 +258,22 @@ export async function runDiscoveredAgent(
       : {}),
   };
 
-  const result = await runFromSpec({
-    spec: effectiveSpec,
-    evaluation: pkg.evaluation,
-    evaluationBaseDir: pkg.dir,
+  const result = await executeAgentRun({
     agent,
-    runId,
-    cwd,
+    agentId: pkg.id,
+    objective: request.objective,
+    inputs: request.inputs,
+    limits,
+    verification,
     stateDelta,
     attachments: request.attachments,
+    cwd,
+    runId,
     abortSignal: options.abortSignal,
     toolApproval: options.toolApproval,
     onProgress: options.onProgress
       ? writer
-        ? (event) => {
+        ? (event: AgentProgressEvent) => {
             writer.progressSink(event);
             options.onProgress?.(event);
           }
@@ -196,13 +283,26 @@ export async function runDiscoveredAgent(
 
   if (writer) {
     writeFileSync(
-      join(writer.dir, 'runspec.json'),
-      `${JSON.stringify(result.effectiveSpec, null, 2)}\n`,
+      join(writer.dir, 'intent.json'),
+      `${JSON.stringify(result.intent, null, 2)}\n`,
       'utf8',
     );
     writeFileSync(
-      join(writer.dir, 'evaluation.json'),
-      `${JSON.stringify(result.effectiveEvaluation, null, 2)}\n`,
+      join(writer.dir, 'verification-plan.json'),
+      `${JSON.stringify(result.effectiveVerification, null, 2)}\n`,
+      'utf8',
+    );
+    const observed = buildObservedGraph(
+      effectiveGraph,
+      // progress events are on disk; synthesize minimal from record models
+      [],
+    );
+    if (result.record.modelsUsed?.length) {
+      observed.modelsUsed = [...result.record.modelsUsed];
+    }
+    writeFileSync(
+      join(writer.dir, 'observed-graph.json'),
+      `${JSON.stringify(observed, null, 2)}\n`,
       'utf8',
     );
     writer.writeRunRecord(

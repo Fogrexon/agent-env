@@ -7,15 +7,17 @@
  *   npm run run -- <agent-id> --input key=value --input key2=value2
  *   npm run run -- <agent-id> --auto-approve "..."
  *
- * Merge order (later wins): params.yaml defaults → --params file → --input → positional message.
+ * Merge order (later wins): params defaults → --params file → --input → positional message.
  */
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import {
   defaultValuesFromParams,
+  getResolvedAgentPackage,
   runDiscoveredAgent,
 } from '@agent-env/repo-env';
-import { findAgent, listAgents } from './agent-catalog.js';
+import { isSuccessfulRunState } from '@agent-env/shared';
+import { discoveryOptions, listAgents } from './agent-catalog.js';
 
 function printUsage(): never {
   const ids = listAgents()
@@ -26,10 +28,10 @@ function printUsage(): never {
        npm run run -- <agent-id> --input key=value
        npm run run -- <agent-id> --auto-approve [message...]
 
-Merge (later wins): params.yaml defaults > --params > --input > message.
+Merge (later wins): params defaults > --params > --input > message.
 --auto-approve: auto-grant T2 tools for this run (T3 still requires agent approve).
 
-Agents (discovered; prefer \`npm run admin\` for params.yaml forms):
+Agents (discovered; prefer \`npm run admin\` for params forms):
 ${ids || '  (none found)'}
 `);
   process.exit(1);
@@ -113,15 +115,14 @@ async function main(): Promise<void> {
     printUsage();
   }
 
-  const manifest = findAgent(parsed.agentId);
-  if (!manifest) {
+  const pkg = getResolvedAgentPackage(discoveryOptions(), parsed.agentId);
+  if (!pkg) {
     console.error(`Unknown agent: ${parsed.agentId}`);
     printUsage();
   }
 
   // defaults → --params → --input → positional message
-  const { loadAgentParamsFile } = await import('@agent-env/harness');
-  const params = loadAgentParamsFile(manifest.paramsFile!);
+  const params = pkg.params;
   const values: Record<string, unknown> = {
     ...defaultValuesFromParams(params),
   };
@@ -136,9 +137,12 @@ async function main(): Promise<void> {
     values[params.objectiveField] = message;
   }
 
-  console.log(`▶ ${manifest.id}`);
+  console.log(`▶ ${pkg.id}`);
   if (parsed.paramsPath) {
     console.log(`  params: ${parsed.paramsPath}`);
+  }
+  if (!pkg.paramsFile) {
+    console.log('  params: (in-memory default)');
   }
   if (parsed.autoApprove) {
     console.log('  tool approval: auto (T2)');
@@ -148,7 +152,7 @@ async function main(): Promise<void> {
 
   const result = await runDiscoveredAgent({
     request: {
-      agentId: manifest.id,
+      agentId: pkg.id,
       objective: 'pending',
       inputs: {},
       attachments: [],
@@ -181,7 +185,7 @@ async function main(): Promise<void> {
     console.log('\n=== finalText ===\n' + result.agentFinalText);
   }
 
-  if (result.record.state !== 'SUCCEEDED') {
+  if (!isSuccessfulRunState(result.record.state)) {
     process.exit(2);
   }
 }

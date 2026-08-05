@@ -4,20 +4,24 @@
 import {
   writeFileSync,
   mkdirSync,
-  readFileSync,
   rmSync,
-  globSync,
 } from 'node:fs';
 import { join } from 'node:path';
+import { LlmAgent, SequentialAgent } from '@google/adk';
 import {
   BudgetManager,
   InMemoryEventStore,
   RunStateMachine,
+  assertGraphModelsResolvable,
   canTransition,
-  parseEvaluationSpec,
-  parseRunSpec,
-  verifyRunSpec,
+  createGuardedTool,
+  describeAgentGraph,
+  executeVerificationPlan,
+  verify,
 } from '@agent-env/harness';
+import { agentExecutionLimitsSchema } from '@agent-env/shared';
+import { z } from 'zod';
+import { listAgents } from './agent-catalog.js';
 
 function assert(cond: unknown, msg: string): asserts cond {
   if (!cond) throw new Error(msg);
@@ -32,6 +36,14 @@ sm.transition('SUCCEEDED');
 assert(sm.terminal, 'terminal');
 assert(!canTransition('SUCCEEDED', 'RUNNING'), 'no revive');
 
+const completed = new RunStateMachine();
+completed.transition('PROVISIONING');
+completed.transition('RUNNING');
+completed.transition('VERIFYING');
+completed.transition('COMPLETED');
+assert(completed.terminal, 'COMPLETED is terminal');
+assert(!canTransition('COMPLETED', 'RUNNING'), 'no revive from COMPLETED');
+
 const store = new InMemoryEventStore();
 store.append({
   eventType: 'run.created',
@@ -42,35 +54,38 @@ store.append({
 });
 assert(store.size === 1, 'event');
 
-const budget = new BudgetManager({ maxToolCalls: 1, maxWallSeconds: 60 });
+const limits = agentExecutionLimitsSchema.parse({
+  maxToolCalls: 1,
+  maxWallSeconds: 60,
+  maxSteps: 10,
+  maxRepairs: 0,
+});
+const budget = BudgetManager.fromLimits(limits);
 budget.consumeToolCall(2);
 assert(budget.exhaustionReason() === 'maxToolCalls', 'budget');
 
-const emptySpec = parseRunSpec({
-  spec: {
-    task: { taskId: 't', objective: 'demo' },
-    model: { primary: { provider: 'gemini', model: 'gemini-3.6-flash' } },
-  },
-});
-
-// --- non-empty grader --------------------------------------------------------
+// --- nonEmpty check ----------------------------------------------------------
 {
-  const evaluation = parseEvaluationSpec({
-    metadata: { id: 'non-empty', version: '1' },
-    graders: [
-      { id: 'output', kind: 'deterministic', ref: 'grader://non-empty/v1' },
-    ],
-    acceptance: {
-      all: [{ id: 'a', grader: 'output', assertion: 'non-empty' }],
-    },
+  const plan = { checks: [verify.nonEmpty()] };
+  const pass = await executeVerificationPlan(plan, { finalText: 'hello' });
+  assert(pass.passed && pass.outcome === 'passed', 'nonEmpty pass');
+  const fail = await executeVerificationPlan(plan, { finalText: '  ' });
+  assert(!fail.passed, 'nonEmpty fail');
+  console.log('✓ nonEmpty check');
+}
+
+// --- empty / advisory-only → not-gated ---------------------------------------
+{
+  const empty = await executeVerificationPlan({ checks: [] }, {
+    finalText: 'anything',
   });
-  const pass = await verifyRunSpec(emptySpec, evaluation, {
-    finalText: 'hello',
-  });
-  assert(pass.passed, 'non-empty pass');
-  const fail = await verifyRunSpec(emptySpec, evaluation, { finalText: '  ' });
-  assert(!fail.passed, 'non-empty fail');
-  console.log('✓ non-empty grader');
+  assert(empty.outcome === 'not-gated', 'empty plan not-gated');
+  const advisory = await executeVerificationPlan(
+    { checks: [verify.nonEmpty({ severity: 'advisory' })] },
+    { finalText: '' },
+  );
+  assert(advisory.outcome === 'not-gated', 'advisory-only not-gated');
+  console.log('✓ not-gated / COMPLETED mapping inputs');
 }
 
 // --- artifact + document contract --------------------------------------------
@@ -83,92 +98,51 @@ const emptySpec = parseRunSpec({
     '## Sources\n\nok\n\n## Residual uncertainties\n\nok\n',
     'utf8',
   );
-  const evaluation = parseEvaluationSpec({
-    metadata: { id: 'doc', version: '1' },
-    artifacts: [
-      {
-        id: 'report',
+  const plan = {
+    checks: [
+      verify.artifact({
+        artifactId: 'report',
         mediaTypes: ['text/markdown'],
-        required: true,
         minBytes: 10,
-      },
+      }),
+      verify.document({
+        artifactId: 'report',
+        sections: ['Sources', 'Residual uncertainties'],
+      }),
     ],
-    graders: [
-      {
-        id: 'artifacts',
-        kind: 'deterministic',
-        ref: 'grader://artifact-contract/v1',
-      },
-      {
-        id: 'structure',
-        kind: 'deterministic',
-        ref: 'grader://document-contract/v1',
-        config: {
-          artifact: 'report',
-          sections: ['Sources', 'Residual uncertainties'],
-        },
-      },
-    ],
-    acceptance: {
-      all: [
-        { id: 'a', grader: 'artifacts', assertion: 'present' },
-        { id: 'b', grader: 'structure', assertion: 'sections' },
-      ],
-    },
-  });
-  const missing = await verifyRunSpec(emptySpec, evaluation, {
+  };
+  const missing = await executeVerificationPlan(plan, {
     finalText: 'claimed',
     workspaceDir: join(dir, 'missing'),
   });
   assert(!missing.passed, 'artifact fail when missing');
-  const pass = await verifyRunSpec(emptySpec, evaluation, {
+  const pass = await executeVerificationPlan(plan, {
     finalText: 'claimed',
     workspaceDir: workspace,
   });
   assert(pass.passed, 'artifact + document pass');
 
-  // Same artifact id, multiple media contracts (deep-research style).
   writeFileSync(join(workspace, 'report.pdf'), Buffer.alloc(600, 1));
-  const multi = parseEvaluationSpec({
-    metadata: { id: 'doc-multi', version: '1' },
-    artifacts: [
-      {
-        id: 'report',
+  const multi = {
+    checks: [
+      verify.artifact({
+        artifactId: 'report',
         mediaTypes: ['text/markdown'],
-        required: true,
         minBytes: 10,
-      },
-      {
-        id: 'report',
+      }),
+      verify.artifact({
+        id: 'artifact:report:pdf',
+        artifactId: 'report',
         mediaTypes: ['application/pdf'],
-        required: true,
         minBytes: 500,
-      },
+      }),
+      verify.document({
+        artifactId: 'report',
+        sections: ['Sources', 'Residual uncertainties'],
+      }),
     ],
-    graders: [
-      {
-        id: 'artifacts',
-        kind: 'deterministic',
-        ref: 'grader://artifact-contract/v1',
-      },
-      {
-        id: 'structure',
-        kind: 'deterministic',
-        ref: 'grader://document-contract/v1',
-        config: {
-          artifact: 'report',
-          sections: ['Sources', 'Residual uncertainties'],
-        },
-      },
-    ],
-    acceptance: {
-      all: [
-        { id: 'a', grader: 'artifacts', assertion: 'present' },
-        { id: 'b', grader: 'structure', assertion: 'sections' },
-      ],
-    },
-  });
-  const multiPass = await verifyRunSpec(emptySpec, multi, {
+  };
+  const multiPass = await executeVerificationPlan(multi, {
     finalText: 'claimed',
     workspaceDir: workspace,
   });
@@ -180,17 +154,17 @@ const emptySpec = parseRunSpec({
     '## Sources\n\nok\n\n## Residual uncertainties\n\nok\n',
     'utf8',
   );
-  const multiFail = await verifyRunSpec(emptySpec, multi, {
+  const multiFail = await executeVerificationPlan(multi, {
     finalText: 'claimed',
     workspaceDir: pdfMissingDir,
   });
   assert(!multiFail.passed, 'pdf contract fails when only md present');
 
   rmSync(dir, { recursive: true, force: true });
-  console.log('✓ artifact / document graders');
+  console.log('✓ artifact / document checks');
 }
 
-// --- json_schema grader ------------------------------------------------------
+// --- jsonSchema check --------------------------------------------------------
 {
   const dir = join(process.cwd(), '.tmp-smoke-runtime-schema');
   mkdirSync(dir, { recursive: true });
@@ -205,85 +179,91 @@ const emptySpec = parseRunSpec({
     }),
     'utf8',
   );
-  const evaluation = parseEvaluationSpec({
-    metadata: { id: 'json', version: '1' },
-    graders: [
-      {
-        id: 'schema',
-        kind: 'deterministic',
-        ref: 'grader://json-schema/v1',
-        config: { schemaRef: schemaPath },
-      },
-    ],
-    acceptance: {
-      all: [{ id: 'a', grader: 'schema', assertion: 'schema' }],
-    },
-  });
-  const pass = await verifyRunSpec(emptySpec, evaluation, {
+  const plan = {
+    checks: [verify.jsonSchema({ schemaRef: schemaPath, baseDir: 'repo' })],
+  };
+  const pass = await executeVerificationPlan(plan, {
     finalText: '{"status":"verified"}',
     cwd: process.cwd(),
   });
-  assert(pass.passed, 'json_schema pass');
-  const fail = await verifyRunSpec(emptySpec, evaluation, {
+  assert(pass.passed, 'jsonSchema pass');
+  const fail = await executeVerificationPlan(plan, {
     finalText: '{"status":"nope"}',
     cwd: process.cwd(),
   });
-  assert(!fail.passed, 'json_schema fail');
+  assert(!fail.passed, 'jsonSchema fail');
   rmSync(dir, { recursive: true, force: true });
-  console.log('✓ json_schema grader');
+  console.log('✓ jsonSchema check');
 }
 
-// --- command grader ----------------------------------------------------------
+// --- command check -----------------------------------------------------------
 {
-  const evaluation = parseEvaluationSpec({
-    metadata: { id: 'cmd', version: '1' },
-    graders: [
-      {
-        id: 'cmd',
-        kind: 'deterministic',
-        ref: 'grader://command/v1',
-        config: {
-          bin: process.execPath,
-          args: ['-e', 'console.log("ok")'],
-          baseDir: 'repo',
-          outputContains: 'ok',
-          timeoutMs: 30_000,
-        },
-      },
+  const plan = {
+    checks: [
+      verify.command({
+        bin: process.execPath,
+        args: ['-e', 'console.log("ok")'],
+        baseDir: 'repo',
+        outputContains: 'ok',
+        timeoutMs: 30_000,
+      }),
     ],
-    acceptance: {
-      all: [{ id: 'a', grader: 'cmd', assertion: 'exit-0' }],
-    },
-  });
-  const pass = await verifyRunSpec(emptySpec, evaluation, {
+  };
+  const pass = await executeVerificationPlan(plan, {
     cwd: process.cwd(),
   });
   assert(pass.passed, 'command pass');
-  console.log('✓ command grader');
+  console.log('✓ command check');
 }
 
-// --- every checked-in RunSpec + EvaluationSpec parse -------------------------
+// --- agent graph + model resolvability ---------------------------------------
 {
-  const runspecs = globSync('agents/*/runspec.json').sort();
-  const evaluations = globSync('agents/*/evaluation.json').sort();
-  assert(runspecs.length > 0, 'expected runspec.json files');
+  const note = createGuardedTool({
+    contract: { name: 'note', riskClass: 'T0' },
+    description: 'note',
+    parameters: z.object({ text: z.string() }),
+    execute: ({ text }) => ({ text }),
+  });
+  const leaf = new LlmAgent({
+    name: 'leaf',
+    model: 'gemini:gemini-3.6-flash',
+    tools: [note],
+  });
+  const root = new SequentialAgent({
+    name: 'root',
+    subAgents: [leaf],
+  });
+  const graph = describeAgentGraph(root, { agentId: 'smoke' });
+  assert(graph.root === 'root', 'graph root');
+  assert(graph.nodes.some((n) => n.id === 'leaf' && n.kind === 'llm'), 'llm node');
   assert(
-    runspecs.length === evaluations.length,
-    'each agent needs evaluation.json',
+    graph.nodes.some((n) => n.id === 'leaf' && n.model === 'gemini:gemini-3.6-flash'),
+    'provider-qualified model',
   );
-  for (const file of runspecs) {
-    const spec = parseRunSpec(JSON.parse(readFileSync(file, 'utf8')));
-    assert(
-      spec.spec.evaluation.ref === './evaluation.json',
-      `${file} evaluation.ref`,
-    );
-    console.log(`  ${file}: ok`);
+  assertGraphModelsResolvable(graph);
+
+  const bare = describeAgentGraph(
+    new LlmAgent({ name: 'bare', model: 'gemini-3.6-flash' }),
+  );
+  let rejected = false;
+  try {
+    assertGraphModelsResolvable(bare);
+  } catch {
+    rejected = true;
   }
-  for (const file of evaluations) {
-    parseEvaluationSpec(JSON.parse(readFileSync(file, 'utf8')));
-    console.log(`  ${file}: ok`);
+  assert(rejected, 'bare model ids rejected');
+  console.log('✓ describeAgentGraph / assertGraphModelsResolvable');
+}
+
+// --- discovered agent packages still exist -----------------------------------
+{
+  const agents = listAgents();
+  assert(agents.length > 0, 'expected discovered agents');
+  for (const agent of agents) {
+    assert(agent.id.length > 0, 'agent id');
+    console.log(`  ${agent.id}: ok`);
   }
-  console.log(`✓ ${runspecs.length} agent package(s) parse`);
+  console.log(`✓ ${agents.length} agent package(s) discovered`);
 }
 
 console.log('✓ smoke-runtime passed');

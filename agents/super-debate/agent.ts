@@ -16,10 +16,9 @@ import {
   createGrokBuildXSearchConnector,
   createTavilyExtractTool,
   createWebSearchConnector,
-  defaultCursorModelRef,
   defineAgent,
   isProviderConfigured,
-  resolveModel,
+  verify,
   type AgentBuildContext,
 } from '@agent-env/harness';
 import { PANEL_TURN_SCHEMA_ID, panelTurnSchema } from './schema.js';
@@ -172,6 +171,18 @@ export const agentDefinition = defineAgent({
   name: 'Super Debate',
   description:
     'Typed-handoff multi-model debate on Cursor. Standard: mid-range panel + Sol synth. Max: frontier panel, transcript artifacts, Opus synth.',
+  limits: {
+    maxSteps: 160,
+    maxToolCalls: 200,
+    maxWallSeconds: 3600,
+    maxRepairs: 0,
+  },
+  verification: {
+    checks: [
+      verify.nonEmpty({ severity: 'advisory' }),
+      verify.contains({ text: 'Final conclusion', severity: 'advisory' }),
+    ],
+  },
   createAgent(context: AgentBuildContext) {
     if (!isProviderConfigured('cursor')) {
       throw new Error(
@@ -254,7 +265,7 @@ export const agentDefinition = defineAgent({
       });
       return new LlmAgent({
         name: `${d.id}_opening`,
-        model: resolveModel(defaultCursorModelRef(d.model)),
+        model: `cursor:${d.model}`,
         description: `${d.label} opening (typed handoff).`,
         instruction: `You are panelist ${d.label} (Cursor model: ${d.model}). Take a clear stance on the user's topic.
 
@@ -304,7 +315,7 @@ Aim for ${isMax ? '5–8' : '3–4'} claims. FINAL message = emit envelope.`,
       });
       return new LlmAgent({
         name: `${d.id}_rebuttal`,
-        model: resolveModel(defaultCursorModelRef(d.model)),
+        model: `cursor:${d.model}`,
         description: `${d.label} rebuttal (typed handoff).`,
         instruction: `You are the same panelist (${d.label}). Engage other openings via typed handoff.
 
@@ -415,7 +426,7 @@ One actionable sentence.`;
 
     const synth = new LlmAgent({
       name: 'super_debate_synth',
-      model: resolveModel(defaultCursorModelRef(synthMeta.model)),
+      model: `cursor:${synthMeta.model}`,
       description: `Impartial synthesizer (${synthMeta.label} / ${synthMeta.model}).`,
       instruction: synthInstruction,
     });

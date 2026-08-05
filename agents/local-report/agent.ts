@@ -10,6 +10,7 @@ import {
   defineAgent,
   isProviderConfigured,
   resolveModel,
+  verify,
   type AgentBuildContext,
 } from '@agent-env/harness';
 import { z } from 'zod';
@@ -20,7 +21,7 @@ import {
 
 /**
  * Local-LLM report: research → typed evidence handoff → write report.md.
- * Context window guarded via contextBudgetModelParams.
+ * Context window guarded via contextBudgetModelParams (needs ModelRef.params).
  */
 const MODEL = 'qwen/qwen3.6-35b-a3b';
 const CONTEXT_WINDOW = 262144;
@@ -38,8 +39,28 @@ export const agentDefinition = defineAgent({
   name: 'Local Report',
   description:
     'Local-LLM report: web research → typed evidence handoff → report.md (context-budgeted tool loop).',
+  limits: {
+    maxSteps: 60,
+    maxToolCalls: 50,
+    maxWallSeconds: 1800,
+    maxRepairs: 0,
+  },
+  verification: {
+    checks: [
+      verify.artifact({
+        artifactId: 'report',
+        mediaTypes: ['text/markdown'],
+        minBytes: 800,
+      }),
+      verify.document({
+        artifactId: 'report',
+        sections: ['Sources', 'Residual uncertainties'],
+      }),
+    ],
+  },
   createAgent(context: AgentBuildContext) {
-    const modelRef = {
+    // resolveModel kept for ModelRef.params (context budget knobs).
+    const model = resolveModel({
       provider: pickLocalProviderId(context),
       model: MODEL,
       params: {
@@ -53,8 +74,7 @@ export const agentDefinition = defineAgent({
         temperature: 0.3,
         maxTokens: 8000,
       },
-    };
-    const model = resolveModel(modelRef);
+    });
     const tavilyKey = () => context.secret('TAVILY_API_KEY');
 
     const webSearch = createWebSearchConnector({

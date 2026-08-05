@@ -1,4 +1,12 @@
-import type { BaseTool } from '@google/adk';
+import { randomUUID } from 'node:crypto';
+import {
+  Context,
+  InvocationContext,
+  LlmAgent,
+  PluginManager,
+  createSession,
+  type BaseTool,
+} from '@google/adk';
 import type { Schema } from '@google/genai';
 import type { ProviderToolDefinition } from './types.js';
 
@@ -41,21 +49,56 @@ export function genaiSchemaToJsonSchema(
   return out;
 }
 
+/** Placeholder agent only for InvocationContext construction (never run). */
+const BRIDGE_PLACEHOLDER_AGENT = new LlmAgent({
+  name: 'provider_tool_bridge',
+  model: 'cursor:auto',
+  description: 'Placeholder agent for provider-bridged tool Context',
+});
+
+/**
+ * Minimal ADK Context for tools executed outside an ADK Runner
+ * (e.g. Cursor SDK customTools via ProviderBackedLlm).
+ *
+ * FunctionTools ignore the context. AgentTool needs invocationContext,
+ * session id/userId, and state.toRecord() — an empty `{}` stub throws
+ * when reading `toolContext.invocationContext.sessionService`.
+ */
+export function createProviderBridgeToolContext(options?: {
+  abortSignal?: AbortSignal;
+}): Context {
+  const session = createSession({
+    id: randomUUID(),
+    appName: 'provider-tool-bridge',
+    userId: 'provider-tool-bridge',
+    state: {},
+  });
+  const invocationContext = new InvocationContext({
+    invocationId: randomUUID(),
+    agent: BRIDGE_PLACEHOLDER_AGENT,
+    session,
+    pluginManager: new PluginManager(),
+    ...(options?.abortSignal ? { abortSignal: options.abortSignal } : {}),
+  });
+  return new Context({ invocationContext });
+}
+
 /**
  * Bridge an ADK tool to a vendor-neutral ProviderToolDefinition.
- * `FunctionTool.runAsync` validates args itself and does not dereference
- * the tool context, so a stub context is safe for function-style tools.
+ * Uses a real Context so AgentTool (sub-agents) can run under Cursor /
+ * other in-loop tool providers, not only FunctionTool.
  */
 export function adkToolToProviderTool(tool: BaseTool): ProviderToolDefinition {
   const declaration = tool._getDeclaration();
-  const stubToolContext = {} as Parameters<
-    BaseTool['runAsync']
-  >[0]['toolContext'];
 
   return {
     name: tool.name,
     description: tool.description,
     inputSchema: genaiSchemaToJsonSchema(declaration?.parameters),
-    execute: (args) => tool.runAsync({ args, toolContext: stubToolContext }),
+    execute: (args) =>
+      tool.runAsync({
+        args,
+        toolContext: createProviderBridgeToolContext(),
+      }),
   };
 }

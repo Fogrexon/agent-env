@@ -17,10 +17,12 @@ import type {
   AgentProgressEvent,
   AgentProgressSink,
   AgentRunResult,
-  ModelRef,
   RunRecord,
 } from '@agent-env/shared';
-import { agentProgressEventSchema } from '@agent-env/shared';
+import {
+  agentProgressEventSchema,
+  isSuccessfulRunState,
+} from '@agent-env/shared';
 
 export type RunHistoryStatus =
   | 'running'
@@ -36,7 +38,6 @@ export interface RunHistoryMeta {
   runMode: RunHistoryMode;
   status: RunHistoryStatus;
   message?: string;
-  model?: ModelRef;
   startedAt: string;
   finishedAt?: string;
   dir: string;
@@ -69,7 +70,6 @@ export interface OpenRunHistoryInput {
   agentId: string;
   runMode: RunHistoryMode;
   message?: string;
-  model?: ModelRef;
 }
 
 export interface CreateRunHistoryStoreOptions {
@@ -212,7 +212,6 @@ function createWriter(
     dir,
     workspaceDir,
     ...(input.message ? { message: input.message } : {}),
-    ...(input.model ? { model: input.model } : {}),
   };
   writeJson(metaPath, meta);
   // Touch empty progress file so readers know the run started.
@@ -248,12 +247,11 @@ function createWriter(
     const text = finalText ?? record.finalText;
     writeJson(resultPath, { record, events, agentFinalText: text });
     writeFinal(text);
-    const status: RunHistoryStatus =
-      record.state === 'SUCCEEDED'
-        ? 'completed'
-        : record.state === 'CANCELLED'
-          ? 'cancelled'
-          : 'failed';
+    const status: RunHistoryStatus = isSuccessfulRunState(record.state)
+      ? 'completed'
+      : record.state === 'CANCELLED'
+        ? 'cancelled'
+        : 'failed';
     persistMeta({
       status,
       finishedAt: record.finishedAt ?? new Date().toISOString(),

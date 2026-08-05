@@ -6,20 +6,15 @@ import {
   type FunctionTool,
 } from '@google/adk';
 import {
-  DEFAULT_CURSOR_MODEL,
-  DEFAULT_GEMINI_MODEL,
-  type ModelRef,
-} from '@agent-env/shared';
-import {
   createEmitHandoffTool,
   createGrokBuildXSearchConnector,
   createTavilyExtractTool,
   createWebSearchConnector,
-  defaultCursorModelRef,
   defineAgent,
+  formatModelRef,
+  isProviderConfigured,
   parseModelRef,
-  resolveModel,
-  selectModelRef,
+  verify,
   type AgentBuildContext,
 } from '@agent-env/harness';
 import {
@@ -39,9 +34,20 @@ export const agentDefinition = defineAgent({
   name: 'Parallel Pipeline',
   description:
     'Multi-round PRO/CON debate with typed DebateTurn handoffs, then a judge verdict.',
+  limits: {
+    maxSteps: 80,
+    maxToolCalls: 100,
+    maxWallSeconds: 1200,
+    maxRepairs: 0,
+  },
+  verification: {
+    checks: [verify.nonEmpty({ severity: 'advisory' })],
+  },
   createAgent(context: AgentBuildContext) {
-    function refFromConfig(key: string, fallback: ModelRef): ModelRef {
-      return parseModelRef(context.config(key), fallback);
+    function modelFromConfig(key: string, fallback: string): string {
+      const raw = context.config(key)?.trim();
+      if (!raw) return fallback;
+      return formatModelRef(parseModelRef(raw, parseModelRef(fallback)));
     }
 
     function cliOk(bin: string, args: string[]): boolean {
@@ -53,20 +59,17 @@ export const agentDefinition = defineAgent({
       }
     }
 
-    const cursorPreferred = defaultCursorModelRef(
-      context.config('AGENT_ENV_CURSOR_MODEL')?.trim() || DEFAULT_CURSOR_MODEL,
-    );
-    const geminiFallback: ModelRef = {
-      provider: 'gemini',
-      model: DEFAULT_GEMINI_MODEL,
-    };
-    const cursorOrGemini = selectModelRef(cursorPreferred, geminiFallback);
+    const cursorModel =
+      context.config('AGENT_ENV_CURSOR_MODEL')?.trim() || 'auto';
+    const cursorOrGemini = isProviderConfigured('cursor')
+      ? `cursor:${cursorModel}`
+      : 'gemini:gemini-3.6-flash';
 
-    const prosRef = refFromConfig('AGENT_ENV_PROS_MODEL', cursorOrGemini);
-    const consRef = refFromConfig('AGENT_ENV_CONS_MODEL', cursorOrGemini);
-    const judgeRef = refFromConfig(
+    const prosModel = modelFromConfig('AGENT_ENV_PROS_MODEL', cursorOrGemini);
+    const consModel = modelFromConfig('AGENT_ENV_CONS_MODEL', cursorOrGemini);
+    const judgeModel = modelFromConfig(
       'AGENT_ENV_JUDGE_MODEL',
-      refFromConfig('AGENT_ENV_SYNTH_MODEL', cursorOrGemini),
+      modelFromConfig('AGENT_ENV_SYNTH_MODEL', cursorOrGemini),
     );
 
     const debateTools: FunctionTool[] = [];
@@ -208,7 +211,7 @@ Your FINAL message MUST be the envelope string returned by ${opts.emitName}.`;
 
     const prosOpening = new LlmAgent({
       name: 'pros_opening',
-      model: resolveModel(prosRef),
+      model: prosModel,
       description: `PRO opening (typed handoff).`,
       instruction: turnInstruction({
         side: 'pro',
@@ -222,7 +225,7 @@ Your FINAL message MUST be the envelope string returned by ${opts.emitName}.`;
 
     const consOpening = new LlmAgent({
       name: 'cons_opening',
-      model: resolveModel(consRef),
+      model: consModel,
       description: `CON opening (typed handoff).`,
       instruction: turnInstruction({
         side: 'con',
@@ -237,7 +240,7 @@ Your FINAL message MUST be the envelope string returned by ${opts.emitName}.`;
 
     const prosRebuttal1 = new LlmAgent({
       name: 'pros_rebuttal_1',
-      model: resolveModel(prosRef),
+      model: prosModel,
       description: 'PRO first rebuttal (typed handoff).',
       instruction: turnInstruction({
         side: 'pro',
@@ -257,7 +260,7 @@ Rebut CON; stay PRO.`,
 
     const consRebuttal1 = new LlmAgent({
       name: 'cons_rebuttal_1',
-      model: resolveModel(consRef),
+      model: consModel,
       description: 'CON first rebuttal (typed handoff).',
       instruction: turnInstruction({
         side: 'con',
@@ -277,7 +280,7 @@ Rebut PRO; stay CON.`,
 
     const prosRebuttal2 = new LlmAgent({
       name: 'pros_rebuttal_2',
-      model: resolveModel(prosRef),
+      model: prosModel,
       description: 'PRO final rebuttal (typed handoff).',
       instruction: turnInstruction({
         side: 'pro',
@@ -298,7 +301,7 @@ Final rebuttal; closing must be crisp for the judge.`,
 
     const consRebuttal2 = new LlmAgent({
       name: 'cons_rebuttal_2',
-      model: resolveModel(consRef),
+      model: consModel,
       description: 'CON final rebuttal (typed handoff).',
       instruction: turnInstruction({
         side: 'con',
@@ -319,7 +322,7 @@ Final rebuttal; closing must be crisp for the judge.`,
 
     const judge = new LlmAgent({
       name: 'debate_judge',
-      model: resolveModel(judgeRef),
+      model: judgeModel,
       description: `Impartial judge over typed DebateTurn handoffs.`,
       instruction: `You are an impartial debate judge. Decide from the typed handoff envelopes only
 (## Handoff + JSON DebateTurn payloads). Prefer the JSON payload over prose.

@@ -1,0 +1,52 @@
+apiVersion: agent-env/v1
+kind: AgentParams
+agentId: knowledge-assistant
+title: Knowledge Assistant
+description: Local hybrid RAG over agents/knowledge-assistant/knowledge with citations.
+objectiveField: message
+fields:
+  - id: message
+    type: text
+    label: 質問
+    required: true
+    default: "RunSpec の成功判定は何を見ますか？ knowledge_search で根拠を示してください。"
+  - id: collection
+    type: string
+    label: Collection ID
+    default: demo
+  - id: knowledgeRoot
+    type: string
+    label: Knowledge root (agent-relative)
+    default: knowledge
+  - id: topK
+    type: number
+    label: topK
+    default: 8
+    min: 1
+    max: 30
+  - id: autoSync
+    type: boolean
+    label: Auto-sync on start
+    default: true
+  - id: useAgenticSearch
+    type: boolean
+    label: Enable agentic search tool
+    default: true
+  - id: namespace
+    type: string
+    label: ACL namespace
+    default: default
+  - id: embedder
+    type: string
+    label: Embedder (deterministic | openai-compatible | gemini)
+    default: deterministic
+  - id: embeddingModel
+    type: string
+    label: Embedding model id
+    required: false
+  - id: embeddingDimension
+    type: number
+    label: Embedding dimension
+    default: 64
+    min: 8
+    max: 4096

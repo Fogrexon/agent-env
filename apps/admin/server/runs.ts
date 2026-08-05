@@ -1,5 +1,6 @@
 /**
- * Admin run start — thin wrapper over runDiscoveredAgent.
+ * Admin run execution — validate + execute (worker pool calls execute).
+ * Enqueue lives in control/worker-pool.ts.
  */
 import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
@@ -10,37 +11,31 @@ import {
   runDiscoveredAgent,
 } from '@agent-env/repo-env';
 import {
-  modelRefSchema,
+  isSuccessfulRunState,
   type AgentProgressEvent,
   type AgentProgressSink,
-  type ModelRef,
+  type RunState,
 } from '@agent-env/shared';
 import {
   adminRunStore,
   type AdminRunResultSummary,
+  type AdminRunStatus,
 } from './run-store.js';
 
-export interface StartRunFailure {
+export interface EnqueueRunFailure {
   ok: false;
   error: string;
   issues?: string[];
 }
 
-export interface StartRunSuccess {
+export interface ValidateRunSuccess {
   ok: true;
   runId: string;
   agentId: string;
-  runMode: 'runspec';
-  status: 'queued' | 'running';
-  historyDir?: string;
-  autoApprove: boolean;
+  messagePreview: string;
 }
 
-export type StartRunResponse = StartRunSuccess | StartRunFailure;
-
-export interface StartRunOptions {
-  autoApprove?: boolean;
-}
+export type ValidateRunResult = ValidateRunSuccess | EnqueueRunFailure;
 
 function isValidationError(err: unknown): err is AgentParamsValidationError {
   return err instanceof AgentParamsValidationError;
@@ -50,54 +45,23 @@ function isTerminalKind(kind: AgentProgressEvent['kind']): boolean {
   return kind === 'run.completed' || kind === 'run.failed';
 }
 
-function parseModelOverride(
-  raw: unknown,
-): { ok: true; model?: ModelRef } | { ok: false; error: string } {
-  if (raw === undefined || raw === null || raw === '') {
-    return { ok: true, model: undefined };
-  }
-  const parsed = modelRefSchema.safeParse(raw);
-  if (!parsed.success) {
-    return {
-      ok: false,
-      error: `Invalid model override: ${parsed.error.issues
-        .map((i) => i.message)
-        .join('; ')}`,
-    };
-  }
-  return { ok: true, model: parsed.data };
-}
-
 /**
- * Validate params, create a run record, and start execution asynchronously.
- * Returns immediately with runId for SSE subscription.
- *
- * Default tool approval is interactive (T2 waits for admin POST).
- * `autoApprove: true` auto-grants T2 only (T3 still needs agent approve).
+ * Validate agent + params without starting execution.
+ * Allocates a runId for the durable queue row.
  */
-export function startAgentRun(
+export function validateRunRequest(
   agentId: string,
   values: Record<string, unknown>,
   cwd: string = process.cwd(),
-  modelOverride?: unknown,
-  options: StartRunOptions = {},
-): StartRunResponse {
+): ValidateRunResult {
   const discovery = { agentsDir: resolve(cwd, 'agents'), repoRoot: cwd };
   const pkg = getResolvedAgentPackage(discovery, agentId);
   if (!pkg) {
     return { ok: false, error: `Unknown agent: ${agentId}` };
   }
 
-  const modelParsed = parseModelOverride(modelOverride);
-  if (!modelParsed.ok) {
-    return { ok: false, error: modelParsed.error };
-  }
-
   try {
-    buildRunRequestFromValues(pkg, values, {
-      cwd,
-      model: modelParsed.model,
-    });
+    buildRunRequestFromValues(pkg, values, { cwd });
   } catch (err) {
     if (isValidationError(err)) {
       return { ok: false, error: err.message, issues: err.issues };
@@ -108,51 +72,40 @@ export function startAgentRun(
     };
   }
 
-  const autoApprove = options.autoApprove === true;
-  const runId = randomUUID();
   const objectivePreview = String(
-    values[pkg.params.objectiveField] ?? pkg.params.fields.find(
-      (f) => f.id === pkg.params.objectiveField,
-    )?.default ??
+    values[pkg.params.objectiveField] ??
+      pkg.params.fields.find((f) => f.id === pkg.params.objectiveField)
+        ?.default ??
       '',
   );
 
-  adminRunStore.create({
-    runId,
-    agentId,
-    runMode: 'runspec',
-    messagePreview: objectivePreview,
-  });
-
-  void executeRun({
-    runId,
-    agentId,
-    cwd,
-    values,
-    model: modelParsed.model,
-    autoApprove,
-    abortSignal: adminRunStore.get(runId)!.abortController.signal,
-  });
-
   return {
     ok: true,
-    runId,
+    runId: randomUUID(),
     agentId,
-    runMode: 'runspec',
-    status: 'queued',
-    autoApprove,
+    messagePreview: objectivePreview,
   };
 }
 
-async function executeRun(input: {
+export interface ExecuteOutcome {
+  status: Extract<AdminRunStatus, 'completed' | 'failed' | 'cancelled'>;
+  error?: string;
+  historyDir?: string;
+  recordState?: string;
+  verificationPassed?: boolean;
+}
+
+/**
+ * Run a claimed queue job. Caller creates the AdminRunStore record first.
+ */
+export async function executeQueuedRun(input: {
   runId: string;
   agentId: string;
   cwd: string;
   values: Record<string, unknown>;
-  model?: ModelRef;
   autoApprove: boolean;
   abortSignal: AbortSignal;
-}): Promise<void> {
+}): Promise<ExecuteOutcome> {
   const memorySink: AgentProgressSink = (event) => {
     adminRunStore.append(input.runId, event);
   };
@@ -169,7 +122,6 @@ async function executeRun(input: {
         attachments: [],
         metadata: {},
         runId: input.runId,
-        ...(input.model ? { model: input.model } : {}),
       },
       values: input.values,
       cwd: input.cwd,
@@ -185,18 +137,33 @@ async function executeRun(input: {
     });
 
     const finishedAt = new Date().toISOString();
-    const failed = fromSpec.record.state !== 'SUCCEEDED';
-    const cancelled = fromSpec.record.state === 'CANCELLED';
+    const state = fromSpec.record.state as RunState;
+    const success = isSuccessfulRunState(state);
+    const cancelled = state === 'CANCELLED';
+    const verification = fromSpec.record.verification;
     const summary: AdminRunResultSummary = {
-      status: failed ? 'error' : 'finished',
+      status: success ? 'finished' : 'error',
       finalText: fromSpec.agentFinalText ?? fromSpec.record.finalText,
       sessionId: fromSpec.record.runId,
       agentName: input.agentId,
       error: fromSpec.record.error,
       startedAt,
       finishedAt,
-      recordState: fromSpec.record.state,
-      verificationPassed: fromSpec.record.verification?.passed,
+      recordState: state,
+      verificationPassed: verification?.passed,
+      budgetConsumed: fromSpec.record.budgetConsumed,
+      verification: verification
+        ? {
+            passed: verification.passed,
+            graderVersion: verification.planId,
+            checks: verification.checks.map((c) => ({
+              criterion: c.id,
+              passed: c.passed,
+              ...(c.detail ? { detail: c.detail } : {}),
+            })),
+            evidenceRefs: verification.evidenceRefs,
+          }
+        : undefined,
     };
 
     const live = adminRunStore.get(input.runId);
@@ -210,29 +177,41 @@ async function executeRun(input: {
         runId: input.runId,
         sequence: (last?.sequence ?? 0) + 1,
         timestamp: finishedAt,
-        kind: failed ? 'run.failed' : 'run.completed',
-        message: failed ? fromSpec.record.error ?? 'failed' : 'finished',
-        state: fromSpec.record.state,
+        kind: success ? 'run.completed' : 'run.failed',
+        message: success
+          ? 'finished'
+          : (fromSpec.record.error ?? 'failed'),
+        state,
         phase: fromSpec.record.phase,
       });
     }
 
-    adminRunStore.complete(
-      input.runId,
-      summary,
-      cancelled ? 'cancelled' : failed ? 'failed' : 'completed',
-    );
+    const status: ExecuteOutcome['status'] = cancelled
+      ? 'cancelled'
+      : success
+        ? 'completed'
+        : 'failed';
+    adminRunStore.complete(input.runId, summary, status);
+    return {
+      status,
+      error: fromSpec.record.error,
+      historyDir: fromSpec.historyDir,
+      recordState: state,
+      verificationPassed: verification?.passed,
+    };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const cancelled = input.abortSignal.aborted || /aborted/i.test(message);
     const finishedAt = new Date().toISOString();
     memorySink({
       runId: input.runId,
-      sequence: (adminRunStore.get(input.runId)?.events.at(-1)?.sequence ?? 0) + 1,
+      sequence:
+        (adminRunStore.get(input.runId)?.events.at(-1)?.sequence ?? 0) + 1,
       timestamp: finishedAt,
       kind: 'run.failed',
       message,
     });
+    const status: ExecuteOutcome['status'] = cancelled ? 'cancelled' : 'failed';
     adminRunStore.complete(
       input.runId,
       {
@@ -243,7 +222,8 @@ async function executeRun(input: {
         sessionId: input.runId,
         agentName: input.agentId,
       },
-      cancelled ? 'cancelled' : 'failed',
+      status,
     );
+    return { status, error: message };
   }
 }

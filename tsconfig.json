@@ -14,6 +14,10 @@
     { "path": "agents/code-exec" },
     { "path": "agents/super-debate" },
     { "path": "agents/local-report" },
+    { "path": "agents/python-vision" },
+    { "path": "agents/knowledge-assistant" },
+    { "path": "agents/investigator" },
+    { "path": "agents/research-desk" },
     { "path": "scripts" }
   ]
 }

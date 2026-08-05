@@ -1,4 +1,10 @@
 export {
+  attachConnectorToolMeta,
+  datasourceNodeId,
+  getConnectorToolMeta,
+  type ConnectorToolMeta,
+} from './tool-meta.js';
+export {
   createMemoryConnector,
   createSearchConnector,
   searchParamsSchema,
@@ -68,6 +74,11 @@ export {
   type WorkspaceFsTools,
   type WorkspaceRootsSource,
 } from './workspace-fs.js';
+export {
+  createWorkspaceSearchTools,
+  type CreateWorkspaceSearchToolsOptions,
+  type WorkspaceSearchTools,
+} from './workspace-search.js';
 export {
   createGitCloneTool,
   type CreateGitCloneToolOptions,

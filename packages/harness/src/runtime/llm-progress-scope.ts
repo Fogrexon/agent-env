@@ -4,6 +4,7 @@ import {
   type LlmRequest,
   type LlmResponse,
 } from '@google/adk';
+import { materializeAgentModel } from '@agent-env/llm';
 import { runWithLlmProgressAuthor } from './progress-context.js';
 
 /**
@@ -14,11 +15,15 @@ import { runWithLlmProgressAuthor } from './progress-context.js';
 export class ProgressScopedLlm extends BaseLlm {
   private readonly inner: BaseLlm;
   private readonly author: string;
+  /** Forwarded from inner when present (ProviderBackedLlm / RegistryRoutedLlm). */
+  readonly providerId?: string;
 
   constructor(inner: BaseLlm, author: string) {
     super({ model: inner.model });
     this.inner = inner;
     this.author = author;
+    const id = (inner as { providerId?: unknown }).providerId;
+    if (typeof id === 'string') this.providerId = id;
   }
 
   override async *generateContentAsync(
@@ -47,12 +52,16 @@ export class ProgressScopedLlm extends BaseLlm {
   }
 }
 
-/** Bind `author` onto a concrete BaseLlm; leave string model ids unchanged. */
+/**
+ * Bind `author` onto a concrete BaseLlm.
+ * Registry `provider:model` strings are materialized first so progress
+ * wrapping always sits on a real adapter.
+ */
 export function bindLlmProgressAuthor(
   model: string | BaseLlm,
   author: string,
-): string | BaseLlm {
-  if (typeof model === 'string') return model;
-  if (model instanceof ProgressScopedLlm) return model;
-  return new ProgressScopedLlm(model, author);
+): BaseLlm {
+  const concrete = materializeAgentModel(model);
+  if (concrete instanceof ProgressScopedLlm) return concrete;
+  return new ProgressScopedLlm(concrete, author);
 }

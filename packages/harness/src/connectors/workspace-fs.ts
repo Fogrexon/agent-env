@@ -116,6 +116,14 @@ export function createWorkspaceFsTools(
   const readName = options.read?.name ?? 'read_file';
   const writeName = options.write?.name ?? 'write_file';
 
+  const workspaceSource = {
+    connectorId: 'workspace_fs',
+    title: 'Workspace FS',
+    kind: 'filesystem' as const,
+    tags: ['workspace', 'filesystem'],
+    description: 'Root-jailed workspace file list / read / write.',
+  };
+
   const listFiles = createGuardedTool({
     contract: {
       version: '1.0',
@@ -135,9 +143,13 @@ export function createWorkspaceFsTools(
       maxEntries: z.number().int().min(1).max(1000).optional(),
     }),
     publicConfig: {
+      connectorId: workspaceSource.connectorId,
+      kind: workspaceSource.kind,
+      title: workspaceSource.title,
       maxListEntries: defaultListCap,
       skipDirs: [...skipDirs],
     },
+    source: workspaceSource,
     execute: ({ dir, maxEntries }) => {
       const root = resolvePath(dir);
       const cap = maxEntries ?? defaultListCap;
@@ -185,8 +197,12 @@ export function createWorkspaceFsTools(
       maxChars: z.number().int().min(200).max(50_000).optional(),
     }),
     publicConfig: {
+      connectorId: workspaceSource.connectorId,
+      kind: workspaceSource.kind,
+      title: workspaceSource.title,
       maxReadChars: defaultReadCap,
     },
+    source: workspaceSource,
     execute: ({ path, maxChars }) => {
       const abs = resolvePath(path);
       const cap = maxChars ?? defaultReadCap;
@@ -220,6 +236,12 @@ export function createWorkspaceFsTools(
         .describe('Absolute file path inside an allowed workspace root'),
       content: z.string().describe('Full new file content'),
     }),
+    publicConfig: {
+      connectorId: workspaceSource.connectorId,
+      kind: workspaceSource.kind,
+      title: workspaceSource.title,
+    },
+    source: workspaceSource,
     approve: options.write?.approve
       ? (args) => options.write!.approve!(args)
       : undefined,

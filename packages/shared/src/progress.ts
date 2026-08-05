@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { agentEventSummarySchema } from './types.js';
-import { runPhaseSchema, runStateSchema } from './run-spec.js';
+import { runPhaseSchema, runStateSchema } from './run-record.js';
 
 /** Kinds of normalized live progress events from harness runs. */
 export const agentProgressKindSchema = z.enum([

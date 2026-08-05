@@ -1,0 +1,30 @@
+---
+description: Python 環境は必ず uv を使う（venv+pip 直叩き禁止）
+alwaysApply: true
+---
+
+# Python / uv
+
+エージェント局所の Python（`agents/<id>/python/`）およびリポ内の Python ツールチェーンは **[uv](https://docs.astral.sh/uv/)** で管理する。
+
+## 必須
+
+- 仮想環境の作成: `uv venv`（`python -m venv` は使わない）
+- 依存のインストール: `uv pip install -r requirements.txt --python .venv`（または `uv sync` / pyproject）
+- harness API: `ensurePythonEnv` / `createPythonEnvGuard` / `createPythonScriptTool`（内部が uv 前提）
+- ホストに `uv` が無い場合はインストールを案内する（https://docs.astral.sh/uv/）。`pip` + システム Python へのフォールバックを足さない
+
+## エージェント配置
+
+```
+agents/<id>/python/
+  requirements.txt
+  scripts/*.py
+  .venv/          # uv が生成（gitignore）
+```
+
+## 禁止
+
+- `python -m venv` / `virtualenv` / 生の `pip install` をエージェントや harness の正経路にする
+- グローバル site-packages やユーザ領域への依存インストールを前提にする
+- YOLO 等の重い依存をリポルートに置く（必ずエージェント局所 `python/`）

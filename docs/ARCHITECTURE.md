@@ -10,11 +10,11 @@
 
 | Plane | 研究上の責務 | 本リポの置き場（現状） |
 |-------|--------------|------------------------|
-| Specification | version 付き RunSpec | `@agent-env/shared` の `runSpecSchema` / サンプル JSON |
-| Control | state machine、budget、orchestrator | `packages/harness/src/runtime/`（`runFromSpec`） |
+| Specification | エージェントの実行ポリシー・成功条件 | `agents/<id>/agent.ts` の `agentDefinition.limits` / `.verification`（`@agent-env/shared` の `AgentExecutionLimits` / `VerificationPlan`） |
+| Control | state machine、budget、orchestrator | `packages/harness/src/runtime/`（`executeAgentRun`） |
 | Execution | model / typed tool gateway | `@agent-env/llm` + `createGuardedTool` + ADK tools |
-| State & evidence | append-only events、artifact | `InMemoryEventStore`（RunSpec evidence）+ **file-backed run history**（`.runs/runs/<agentId>/<stamp>-<runId8>/`：progress.jsonl / result / final.md / workspace） |
-| Evaluation | 独立 verifier | `verifyRunSpec`（agent 発言を成功としない） |
+| State & evidence | append-only events、artifact | `InMemoryEventStore`（実行中エビデンス）+ **file-backed run history**（`.runs/runs/<agentId>/<stamp>-<runId8>/`：progress.jsonl / result / final.md / workspace） |
+| Evaluation | 独立 verifier | `executeVerificationPlan`（agent 発言を成功としない） |
 
 実行基盤の五 plane に加え、作業環境（Loop / Connection / Data）の薄い契約も `packages/harness` に段階導入する。
 
@@ -31,24 +31,70 @@ ADK FunctionTools の実行経路は provider により 2 系統ある:
 - **Gemini**: `createAdkLlm` による ADK ネイティブ function calling（tool ループは ADK 側）。
 - **Cursor（既定）**: `ProviderBackedLlm` が `toolsDict` を JSON Schema + execute 関数に変換し、Cursor SDK の `local.customTools`（in-process MCP サーバ "custom-user-tools"）へブリッジする。tool ループは Cursor エージェント側で回り、`createGuardedTool` の T0–T3 ガード（approve / policy_denied）はプロセス内 execute でそのまま効く。
 
+## エージェント定義の契約（Specification plane）
+
+`agents/<id>/agent.ts` が `export const agentDefinition = defineAgent({ id, name, description, limits?, verification?, createAgent })` を持つのが唯一の必須ファイル。`params.yaml` は任意（無ければ discovery が既定の単一 `message` フィールドを合成する）。
+
+- **`limits`**（`Partial<AgentExecutionLimits>`）: `maxSteps` / `maxToolCalls` / `maxWallSeconds` / `maxRepairs` / `maxSubagentDepth`。host 既定（`agents/dev-env/execution-policy.ts` の `DEFAULT_HOST_EXECUTION_LIMITS`: steps/tools 200・wall 1800s・repairs 3・subagentDepth 3）と `mergeExecutionLimits` でフィールドごとに **min** マージされる。agent は host より緩められない
+- **`verification`**（`VerificationPlan` または `(context) => VerificationPlan`）: `@agent-env/harness` の `verify.*` ファクトリで組み立てた `VerificationCheck[]`。host が追加検証を持つ場合はその後ろに連結される
+- **モデル**: `provider:model` 文字列（例 `cursor:auto` / `gemini:gemini-3.1-pro`）を ADK `LlmAgent.model` に渡すだけで ADK の LLMRegistry ルーティングに乗る。明示的な `BaseLlm` が要る場合のみ `resolveModel({ provider, model })`（`@agent-env/llm`）。**run 単位のモデル上書きはない**
+
+旧 RunSpec / EvaluationSpec（JSON テンプレート + `evaluation.ref`）は廃止された。「RunSpec が安全境界」という前提はもう成り立たない — 安全境界は `agentDefinition.limits`（host 既定との min マージ、agent 自身は緩められない）と `createGuardedTool` の T0–T3 fail-closed ガードが担う。
+
+## 実行オーケストレーション（Control plane）
+
+```mermaid
+flowchart LR
+  CLI["npm run run / admin"] --> RDA["runDiscoveredAgent"]
+  RDA --> Disc["discover agents/*/"]
+  RDA --> Build["agentDefinition.createAgent"]
+  RDA --> Merge["limits + verification を host policy とマージ"]
+  Merge --> Exec["executeAgentRun"]
+  Exec --> Agent["ADK agent loop"]
+  Exec --> Ver["verify.* checks"]
+```
+
+`executeAgentRun`（`packages/harness/src/runtime/run-execution.ts`）が state machine（`QUEUED → PROVISIONING → RUNNING → VERIFYING → (REPAIRING → RUNNING)* → SUCCEEDED|COMPLETED|FAILED|...`）・budget enforcement・tool gateway・verification 実行をまとめて担う。単一エントリは [`agents/dev-env/run-discovered-agent.ts`](../agents/dev-env/run-discovered-agent.ts) の `runDiscoveredAgent`。CLI（[`scripts/run.ts`](../scripts/run.ts)）も admin もここ経由。
+
+### 終了状態
+
+| 状態 | 条件 |
+|------|------|
+| `SUCCEEDED` | required check が 1 つ以上あり、すべて合格（`verification.outcome === 'passed'`） |
+| `COMPLETED` | required check が 0 件（advisory のみ／checks 空）で正常終了（`'not-gated'`）。ゲートなしの成功扱い |
+| `FAILED` | required check が失敗（`maxRepairs` 使い切り後）、または budget / maxSteps 超過など |
+
+`SUCCEEDED` と `COMPLETED` はいずれも成功として扱う（`isSuccessfulRunState`、`@agent-env/shared`）。admin UI は `COMPLETED` = Unverified、`SUCCEEDED` = Verified と表示する。
+
+### グラフ（effective / observed）
+
+- `describeAgentGraph(agent, { agentId })` — `createAgent` が返した ADK ツリーから **effective graph**（宣言された構造・モデル・ツール）を静的に構築。`assertGraphModelsResolvable` で未登録 provider を実行前に検出
+- `buildObservedGraph(effectiveGraph, events)` — 実際に使われたモデル・辿られたノードから **observed graph** を合成（`RunRecord.modelsUsed` を反映）
+- エッジ種別の要点: `next`（順次）/ `parallel`（分岐）/ **`join`**（Parallel 後の session・outputKey 合流）/ **`handoff`**（`createEmitHandoffTool` の型付き引き渡し）/ **`reads`**（LLM → `datasource` ノード）。コネクタは LLM と別ノード（`kind: datasource`）として描画する。admin グラフは top→bottom 固定
+- `createSubagentTool` / `createTrackedAgentTool`（`packages/harness/src/tools/tracked-agent-tool.ts`）— 別の発見済み `agentDefinition` を AgentTool として再利用（単体実行と同じ `agents/<id>/agent.ts`）。ADK は子を private に持つため tracked ラップでグラフ検査用の参照を残す
+- `createReviewLoopAgent`（`packages/harness/src/agents/review-loop-agent.ts`）— outer の budget / abort / tool approval を共有するレビュー往復ループ（`runAgent()` を入れ子にしない）
+- 実行時に `effective-graph.json` / `observed-graph.json` が run history に保存される
+
 ## Phase ロードマップ（研究 §9 の圧縮）
 
 ### Phase A（実装済み骨格）— 測れる一実行
 
-- [x] RunSpec / RunRecord（Zod）
+- [x] `AgentExecutionLimits` + `VerificationPlan`（Zod, `@agent-env/shared`）
 - [x] Run state machine（遷移検証）
-- [x] Append-only event log（in-memory RunSpec evidence + file-backed `progress.jsonl` via `createRunHistoryStore`）
+- [x] Append-only event log（in-memory 実行中エビデンス + file-backed `progress.jsonl` via `createRunHistoryStore`）
 - [x] Durable per-run history（CLI / admin 共通: `run.json` / `result.json` / `final.md` / `workspace/`）
 - [x] Hard budget（tool / wall / tokens / cost）
 - [x] Budget をツール gateway で enforce（`maxToolCalls` 超過は呼び出し拒否 → `BUDGET_EXHAUSTED`）
 - [x] Tool risk T0–T3 + fail-closed T2/T3（`createGuardedTool` + 実行単位 `toolApproval`: deny / auto / interactive）
-- [x] RunSpec `tools.allow` enforce（fail-closed。allowlist 外は実行せず denial stub のまま残し、instruction + tool 結果で LLM に理由を通知 — `applyRunSpecToolPolicy`）
-- [x] RunSpec `harness.maxSteps`（非 partial エージェントイベントを step として計数、超過で中断 → `FAILED`）
-- [x] RunSpec `harness.maxRepairs`（verifier 失敗時に failed checks をフィードバックして再実行: `VERIFYING → REPAIRING → RUNNING`）
+- [x] `limits.maxSteps`（非 partial エージェントイベントを step として計数、超過で中断 → `FAILED`）
+- [x] `limits.maxRepairs`（verifier 失敗時に failed checks をフィードバックして再実行: `VERIFYING → REPAIRING → RUNNING`）
 - [x] AI 生成 TS 実行: `createTsCodeRunnerTool` + エージェント単位 `exec/` npm 環境（`ensureExecEnv`）
-- [x] Independent verifier（`EvaluationSpec` + deterministic / agent / external graders）
+- [x] エージェント局所 Python: **uv** 管理の `ensurePythonEnv` + `createPythonScriptTool`（事前宣言 scripts）+ `createPythonCodeRunnerTool`（生成コード T2）
+- [x] Independent verifier（`agentDefinition.verification` + `verify.*` deterministic checks + custom/agent SPI）
 - [x] サンプル: `agents/runspec-demo` + `npm run run -- runspec-demo`
 - [x] サンプル: `agents/code-exec`（固定処理は FunctionTool、生成 TS は `exec/`）
+- [x] サンプル: `agents/python-vision`（`python/scripts/detect.py` mock YOLO → 判断）
+- [x] サンプル: `agents/knowledge-assistant`（local hybrid RAG + citations）
 
 ### Phase W（作業環境の骨格）— Loop / Connection / Data
 
@@ -58,26 +104,27 @@ ADK FunctionTools の実行経路は provider により 2 系統ある:
 - [x] Typed handoff — digest + schema/宛先検証（`createHandoffArtifact` / `acceptHandoffArtifact` / `createEmitHandoffTool`）
 - [x] 参照実装: `collector`（EvidenceBundle handoff）、`security-audit`（findings → handoff digest）
 - [x] Agent memory store — propose→validate→accept + ADD/UPDATE/DELETE/NOOP（`createAgentMemoryStore` / `createAgentMemoryTools`）
-- [ ] GraphRAG / 外部 vector DB / A2A / 学習型 memory policy（意図的に後回し）
+- [x] Knowledge / RAG — local hybrid index（BM25 + optional embeddings + RRF/MMR）、差分 sync、citation、bounded agentic search（`packages/harness/src/knowledge/`）
+- [ ] GraphRAG / 外部 vector DB / A2A / 学習型 memory policy（意図的に後回し。KnowledgeStore SPI で外部 DB へ差し替え可能）
 
-### 成功判定（`EvaluationSpec`）
+### 成功判定（`verify.*` + `VerificationPlan`）
 
-成功は agent の完了文ではなく postcondition。RunSpec は `evaluation.ref`（既定 `./evaluation.json`）で評価仕様を参照し、**インライン `successCriteria` は持たない**。
+成功は agent の完了文ではなく postcondition。`agentDefinition.verification` が `VerificationCheck[]` を持つ `VerificationPlan` を返し、host 既定 execution policy の追加検証（あれば）と連結してから実行される。**インライン成功文字列や agent の自己申告は成功条件にしない**。
 
-| grader ref（deterministic） | 見るもの | 強さ |
+| `verify.*` ファクトリ | 見るもの | 強さ |
 |------|---------|------|
-| `grader://command/v1` | 固定 argv の終了コード（+ 任意の出力部分一致） | ★★★ |
-| `grader://artifact-contract/v1` | 成果物契約（mediaTypes / minBytes） | ★★☆ |
-| `grader://document-contract/v1` | MD/HTML 見出しなど文書契約 | ★★☆ |
-| `grader://json-schema/v1` | JSON 成果物または finalText の構造 | ★★☆ |
-| `grader://contains/v1` | 最終メッセージの部分文字列 | ☆☆☆ |
-| `grader://non-empty/v1` | 最終メッセージ非空 | ☆☆☆ |
-| `kind: agent` / `kind: external` | 別モデル rubric / 外部アダプタ SPI | 実装依存 |
+| `verify.command({ bin, args, expectExitCode? })` | 固定 argv の終了コード（+ 任意の出力部分一致） | ★★★ |
+| `verify.artifact({ artifactId, mediaTypes, minBytes })` | 成果物契約（mediaTypes / minBytes） | ★★☆ |
+| `verify.document({ sections, ... })` | MD/HTML 見出しなど文書契約 | ★★☆ |
+| `verify.jsonSchema({ schemaRef, ... })` | JSON 成果物または finalText の構造 | ★★☆ |
+| `verify.contains({ text })` | 最終メッセージの部分文字列 | ☆☆☆ |
+| `verify.nonEmpty()` | 最終メッセージ非空 | ☆☆☆ |
+| `verify.custom({ verifierId })` / `verify.agent({ graderId })` | 実行時に注入される custom 関数 / 別モデル rubric（SPI） | 実装依存 |
 
-- **レポート形式はエージェント（EvaluationSpec artifacts）が決める**。ハーネスは MD 専用にしない
-- `contains` / `non-empty` は整形強制用途に留め、タスク成功のゲートには `command` / artifact / json-schema を置く
-- `VerifyContext` には `workspaceDir` と append-only な `events` が渡る
-- `command` は EvaluationSpec（= 信頼された設定）が argv を決める。モデルが組み立てた文字列は渡らない
+- **レポート形式はエージェント（`verify.artifact` / `verify.document` の対象）が決める**。ハーネスは MD 専用にしない
+- `contains` / `nonEmpty` は整形強制用途に留め、タスク成功のゲートには `command` / `artifact` / `jsonSchema` を使う
+- `ExecuteVerificationContext` には `workspaceDir` と append-only な `events` が渡る
+- `command` は `agentDefinition`（= 信頼された設定）が argv を決める。モデルが組み立てた文字列は渡らない
 
 ### データソース収集オーケストレーション（優先プロダクト方向）
 
@@ -92,7 +139,6 @@ ADK FunctionTools の実行経路は provider により 2 系統ある:
 - [x] X 検索: `createGrokBuildXSearchConnector`（Grok Build headless `grok -p`）
 - [x] `registerConnectors({ demo, arxiv, githubGh, grokBuildX, http, webSearch })`（env 自動読みなし）
 - [x] `agents/collector`: Parallel fan-out → synthesizer（サンプル側で配線）
-- [x] 収集用 RunSpec: `agents/collector/runspec.json`
 
 ```bash
 npm run smoke:connectors
@@ -109,19 +155,36 @@ npm run run -- collector "…"
 | `createWebSearchConnector` | 公開 Web（Tavily / Brave） |
 | `createArxivConnector` | arXiv プレプリント（Atom API） |
 | `createGrokBuildXSearchConnector` | X posts（Grok Build CLI） |
+| `createKnowledgeConnector` | local KnowledgeBase → EvidenceBundle |
+| `createKnowledgeTools` / `createKnowledgeBase` | hybrid RAG sync/search（BM25+vector） |
+| `createWorkspaceSearchTools` | glob / text search / ranged read |
 
-`@agent-env/llm` / `@agent-env/harness` は env 名を知らない。`apiKey` / `repo` / `headers` 等は **アプリ側が注入**する。  
+`@agent-env/llm` / `@agent-env/harness` は env 名を知らない。`apiKey` / `repo` / `headers` 等は **アプリ側が注入**する。
 このリポの env 配線は `agents/dev-env/`（`@agent-env/repo-env`）のみ。`packages/*` には置かない。
 
 未実装（意図的に後回し）:
 
-- RunSpec `environment`（backend / networkPolicy / egressDomains）の enforce — sandbox が前提のため宣言のみ
-- RunSpec `harness` の retry 系（maxInfraRetries / maxToolRetries / maxCheckpointRetries / maxVerificationRetries）— 対応する provisioning / checkpoint 基盤がまだ無い
+- サンドボックスの network / egress ポリシー enforce — sandbox が前提のため宣言のみ
+- infra retry 系（provisioning / checkpoint 失敗時の自動再試行）— 対応する provisioning / checkpoint 基盤がまだ無い
 - 実 Docker/microVM sandbox（現状の code-exec は process jail: timeout / path / output cap / scrubbed env）
-- exactly-once delivery / 分散 durable event store
+- exactly-once delivery / 分散 durable event store（admin Control Plane の SQLite queue は単一プロセス向け）
 - Crab/DeltaBox 級 checkpoint
 - workflow-aware KV scheduler（不要寄り・本プロダクトでは非優先）
 - NLAH 自然言語 harness policy 実行器
+
+## Admin Control Plane（ホスト側）
+
+`apps/admin` は Jenkins 風の **ローカル Control Plane**。実行五 plane は再利用し、起動制御だけをホストが持つ。
+
+| 関心 | 置き場 |
+|------|--------|
+| Durable job queue + worker slots (`ADMIN_MAX_SLOTS`) | `.runs/control/control.sqlite` + `apps/admin/server/control/` |
+| Schedules (cron) / inbound webhooks | 同上 |
+| Basic Auth（任意） | `ADMIN_BASIC_USER` / `ADMIN_BASIC_PASSWORD` |
+| Live SSE / T2 承認 | 既存 `AdminRunStore`（プロセス内） |
+| Build history / artifacts | 既存 `.runs/runs/<agentId>/...` |
+
+ジョブ定義の SoT は引き続き `agents/<id>/`。Control Plane に固有 agent id を焼かない。詳細 API は [apps/README.md](../apps/README.md)。
 
 ## 最重要の設計判断（研究 §12.2）
 
@@ -143,55 +206,56 @@ npm run smoke:params   # AgentParams YAML（全ディスカバリ）
 # 汎用 CLI（エージェント増えても script は増やさない）
 npm run run -- <agent-id> "メッセージ"
 
-# 管理画面（params.yaml フォーム → 実行）
+# 管理画面（Control Plane: queue / schedules / webhooks）
 npm run admin
 ```
 
 ```ts
-import { runFromSpec, defineAgent } from '@agent-env/harness';
+import { defineAgent, executeAgentRun, verify } from '@agent-env/harness';
 
 export const agentDefinition = defineAgent({
   id: 'demo',
   name: 'Demo',
   description: '…',
+  limits: { maxSteps: 20, maxToolCalls: 20, maxWallSeconds: 300, maxRepairs: 1 },
+  verification: { checks: [verify.nonEmpty()] },
   createAgent(_ctx) {
     return /* LlmAgent / SequentialAgent … */;
   },
 });
 
-const result = await runFromSpec({
-  spec: runSpec,
-  evaluation,
+const result = await executeAgentRun({
   agent: await agentDefinition.createAgent({
     repoRoot,
     config: (name) => process.env[name],
     secret: (name) => process.env[name],
   }),
-  message: '…',
+  agentId: agentDefinition.id,
+  objective: '…',
   inputs: {},
+  limits: mergeExecutionLimits(hostLimits, agentDefinition.limits),
+  verification: { checks: [] }, // 実際は resolveVerificationPlan で agent + host を連結
 });
 ```
 
 ## AgentParams YAML + admin
 
-エージェントの**呼出し入力**は `agents/<id>/params.yaml` で型付き定義する（スキーマ型だけ `@agent-env/shared`）。実行ポリシー・評価はそれぞれ `runspec.json` / `evaluation.json`。
+エージェントの**呼出し入力**は任意の `agents/<id>/params.yaml` で型付き定義する（スキーマ型だけ `@agent-env/shared`）。無ければ discovery が既定の単一 `message` フィールドを合成する。実行ポリシー・成功判定は `agent.ts` の `agentDefinition.limits` / `.verification`。
 
 | 層 | 役割 |
 |----|------|
-| `agents/<id>/` | agent.ts（`agentDefinition`）+ params.yaml + runspec.json + evaluation.json |
+| `agents/<id>/` | `agent.ts`（`agentDefinition`。`limits` / `verification` を内包）+ 任意 `params.yaml` |
 | `@agent-env/repo-env` `discoverAgents` / `runDiscoveredAgent` | スキャンと単一実行経路 |
-| `packages/*` | 汎用 loader / `runFromSpec` / `AgentProgressEvent`（エージェント非依存） |
+| `packages/*` | 汎用 loader / `executeAgentRun` / `AgentProgressEvent`（エージェント非依存） |
 | `scripts/` / `apps/admin` | 汎用エントリ（argv / ディスカバリ駆動。固有 default id なし） |
 
-**エージェント追加時:** 上記 4 ファイルを置くだけ。`packages/*`・ルート `package.json` は更新しない。
+**エージェント追加時:** `agents/<id>/agent.ts` を置くだけ。`packages/*`・ルート `package.json` は更新しない。
 
 `params.yaml`:
 
-- `objectiveField`（既定 `message`）→ フォーム値から RunRequest の `objective` へ
-- その他フィールド → `inputs`（構造化入力）または `attachments` / `metadata`
-- 実行は常に canonical RunSpec + EvaluationSpec（`runDiscoveredAgent`）
-
-RunSpec 実行の intent は **その attempt の有効 RunSpec 1 枚**（テンプレート JSON + objective/model override）。`runFromSpec` はそれを唯一の真として読み、agent.ts 側で競合する上書きはしない。履歴ディレクトリに `runspec.json`（有効版）と評価結果を保存する。
+- `objectiveField`（既定 `message`）→ フォーム値から `AgentRunRequest` の `objective` へ
+- その他フィールド → `inputs`（構造化入力。`AgentBuildContext.inputs` / ADK session state）または `attachments` / `metadata`
+- 実行は常に discovery 経由（`runDiscoveredAgent`）
 
 ファイル系フィールドの `delivery`（エージェント定義が決める）:
 
@@ -233,12 +297,13 @@ RunSpec 実行の intent は **その attempt の有効 RunSpec 1 枚**（テン
 
 ### リアルタイム進捗と run 履歴
 
-- ハーネス: `runAgent` / `runFromSpec` の `onProgress` が正規化済み `AgentProgressEvent` を連番付きで通知
+- ハーネス: `runAgent` / `executeAgentRun` の `onProgress` が正規化済み `AgentProgressEvent` を連番付きで通知
 - admin: `POST /api/agents/:id/runs` → 即 `runId`、`GET /api/runs/:runId/events` が SSE（ライブはプロセス内。再接続リプレイも同一プロセス内）
 - **永続履歴**（CLI / admin 共通）: `createRunHistoryStore` が `.runs/runs/<agentId>/<stamp>-<runId8>/` に `progress.jsonl` / `result.json` / `final.md` / `workspace/` を書く。エージェント定義の変更は不要。`GET /api/runs` はメモリ + ディスクをマージ
 - `progress.jsonl` はマイルストーンのみ（`run.*` / 非 partial の `agent.event` / `verification`）。ストリーム中の `partial` チャンクはライブ SSE 専用でディスクには書かない（累積テキストの全履歴は不要）
 - ワークスペース絶対パスは `stateDelta.runWorkspaceDir`（`RUN_WORKSPACE_STATE_KEY`）として注入。エージェントが `createWorkspaceFsTools` / `createHttpDownloadTool` / `createMarkdownPdfTool` の roots に含めるかは任意
 - **成果物 API**（admin）: `GET /api/runs/:runId/files` で履歴ディレクトリ配下を一覧、`GET /api/runs/:runId/files/*` で path-jail 付き配信（`?download=1` で attachment）。UI は MD/画像プレビューと DL リンクを表示
+- **グラフ API**（admin）: `POST /api/agents/:id/graph` がフォーム値を適用して `describeAgentGraph` を実行なしで返す（Preview）。run 完了後は `GET /api/runs/:runId` の `effectiveGraph` / `observedGraph` で比較できる
 
 詳細: [apps/README.md](../apps/README.md)
 

@@ -5,13 +5,14 @@ import {
   DEFAULT_MODEL_REF,
   DEFAULT_OPENAI_COMPATIBLE_MODEL,
   DEFAULT_OPENAI_MODEL,
-  llmProviderIdSchema,
-  modelRefSchema,
+  parseProviderModelId,
   type ModelRef,
 } from '@agent-env/shared';
 import type { BaseLlm } from '@google/adk';
 import { ProviderBackedLlm } from './provider-backed-llm.js';
 import { getProvider } from './registry.js';
+
+export { parseModelRef } from './model-ref-string.js';
 
 export interface ResolveModelOptions {
   /**
@@ -19,34 +20,6 @@ export interface ResolveModelOptions {
    * (Gemini FunctionTools / streaming).
    */
   preferNativeAdk?: boolean;
-}
-
-/**
- * Parse `provider:model` or JSON ModelRef from a string (CLI flag, config file, …).
- * Does not read process.env — pass the raw string from the caller.
- */
-export function parseModelRef(
-  raw: string | undefined | null,
-  fallback: ModelRef = DEFAULT_MODEL_REF,
-): ModelRef {
-  if (raw == null || !raw.trim()) return fallback;
-  const text = raw.trim();
-
-  if (text.startsWith('{')) {
-    return modelRefSchema.parse(JSON.parse(text));
-  }
-
-  const colon = text.indexOf(':');
-  if (colon > 0) {
-    const provider = llmProviderIdSchema.parse(text.slice(0, colon));
-    const model = text.slice(colon + 1).trim();
-    if (!model) {
-      throw new Error(`Model id missing in ModelRef string: ${text}`);
-    }
-    return { provider, model };
-  }
-
-  return { provider: 'gemini', model: text };
 }
 
 /**
@@ -68,6 +41,15 @@ export function resolveModel(
     modelRef: ref,
     provider,
   });
+}
+
+/**
+ * Turn an LlmAgent.model value into a concrete {@link BaseLlm}.
+ * String forms must be `provider:model` (ADK registry wire format).
+ */
+export function materializeAgentModel(model: string | BaseLlm): BaseLlm {
+  if (typeof model !== 'string') return model;
+  return resolveModel(parseProviderModelId(model));
 }
 
 /** Resolve using an explicit ref, or the shared default constant. */

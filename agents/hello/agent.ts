@@ -2,13 +2,11 @@ import {
   createAgentMemoryStore,
   createAgentMemoryTools,
   createContextBuilder,
-  defaultCursorModelRef,
   defineAgent,
-  resolveModel,
-  selectModelRef,
+  isProviderConfigured,
   shapeObservation,
+  verify,
 } from '@agent-env/harness';
-import { DEFAULT_CURSOR_MODEL, DEFAULT_GEMINI_MODEL } from '@agent-env/shared';
 import { LlmAgent } from '@google/adk';
 
 /**
@@ -21,11 +19,19 @@ export const agentDefinition = defineAgent({
   name: 'Hello',
   description:
     'Minimal demo with ContextBuilder working-context hint + agent memory tools.',
+  limits: {
+    maxSteps: 12,
+    maxToolCalls: 12,
+    maxWallSeconds: 180,
+    maxRepairs: 0,
+  },
+  verification: {
+    checks: [verify.nonEmpty({ severity: 'advisory' })],
+  },
   createAgent() {
-    const modelRef = selectModelRef(defaultCursorModelRef(), {
-      provider: 'gemini',
-      model: DEFAULT_GEMINI_MODEL,
-    });
+    const model = isProviderConfigured('cursor')
+      ? 'cursor:auto'
+      : 'gemini:gemini-3.6-flash';
 
     const memory = createAgentMemoryStore({ defaultScope: 'hello' });
     const memoryTools = createAgentMemoryTools({ store: memory });
@@ -34,7 +40,8 @@ export const agentDefinition = defineAgent({
     memory.apply(
       {
         op: 'ADD',
-        content: 'This harness greets briefly and can remember short facts via memory tools.',
+        content:
+          'This harness greets briefly and can remember short facts via memory tools.',
         kind: 'fact',
         scope: 'hello',
         tags: ['harness'],
@@ -68,8 +75,8 @@ export const agentDefinition = defineAgent({
 
     return new LlmAgent({
       name: 'hello',
-      model: resolveModel(modelRef),
-      description: `Greets the user (provider=${modelRef.provider}, model=${modelRef.model || DEFAULT_CURSOR_MODEL}).`,
+      model,
+      description: `Greets the user (model=${model}).`,
       instruction: `${working.text}
 
 If the user attached documents, some may arrive as "[attachment: ... text-extracted]"; use them when relevant.

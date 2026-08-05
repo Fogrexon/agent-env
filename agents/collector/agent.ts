@@ -7,16 +7,14 @@ import {
   createGrokBuildXSearchConnector,
   createSimpleHttpJsonConnector,
   createWebSearchConnector,
-  defaultCursorModelRef,
-  defaultGeminiModelRef,
   defineAgent,
   EVIDENCE_BUNDLE_SCHEMA_ID,
   getConnector,
   hasConnector,
+  isProviderConfigured,
   registerConnector,
   registerDemoConnectors,
-  resolveModel,
-  selectModelRef,
+  verify,
   type AgentBuildContext,
   type DataSourceConnector,
 } from '@agent-env/harness';
@@ -32,6 +30,15 @@ export const agentDefinition = defineAgent({
   name: 'Collector',
   description:
     'Gather from multiple data sources in parallel, then synthesize a result-focused brief with links.',
+  limits: {
+    maxSteps: 24,
+    maxToolCalls: 40,
+    maxWallSeconds: 600,
+    maxRepairs: 0,
+  },
+  verification: {
+    checks: [verify.nonEmpty({ severity: 'advisory' })],
+  },
   createAgent(context: AgentBuildContext) {
     registerDemoConnectors();
 
@@ -114,12 +121,11 @@ export const agentDefinition = defineAgent({
      * Cursor SDK by default (FunctionTools are bridged via customTools);
      * Gemini is the fallback when CURSOR_API_KEY is not set.
      */
-    const cursorOrGemini = selectModelRef(
-      defaultCursorModelRef(),
-      defaultGeminiModelRef(),
-    );
-    const toolModel = resolveModel(cursorOrGemini);
-    const synthModel = resolveModel(cursorOrGemini);
+    const model = isProviderConfigured('cursor')
+      ? 'cursor:auto'
+      : 'gemini:gemini-3.6-flash';
+    const toolModel = model;
+    const synthModel = model;
 
     function collectorAgent(
       connector: DataSourceConnector,

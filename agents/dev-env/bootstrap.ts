@@ -6,6 +6,7 @@ import { resolve } from 'node:path';
 import {
   createOpenaiCompatibleProvider,
   hasProvider,
+  registerAdkLlmRouting,
   registerProvider,
   registerProviders,
   type RegisterProvidersConfig,
@@ -188,4 +189,6 @@ export function bootstrapProvidersFromEnv(): void {
       { replace: false },
     );
   }
+
+  registerAdkLlmRouting();
 }

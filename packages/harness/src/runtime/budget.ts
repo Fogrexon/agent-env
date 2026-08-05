@@ -1,4 +1,4 @@
-import { budgetSpecSchema, type BudgetSpec, type BudgetSpecInput } from '@agent-env/shared';
+import type { AgentExecutionLimits } from '@agent-env/shared';
 
 export interface BudgetSnapshot {
   toolCalls: number;
@@ -13,19 +13,33 @@ export type BudgetExhaustionReason =
   | 'maxWallSeconds'
   | 'maxCostUsd';
 
+export interface BudgetLimits {
+  maxToolCalls: number;
+  maxWallSeconds: number;
+  maxTokens?: number;
+  maxCostUsd?: number;
+}
+
 /**
- * Hard budget tracker (research P0). Soft warnings are optional; exhaustion is hard.
+ * Hard budget tracker. Soft warnings are optional; exhaustion is hard.
  */
 export class BudgetManager {
-  readonly #spec: BudgetSpec;
+  readonly #spec: BudgetLimits;
   readonly #startedAtMs: number;
   #toolCalls = 0;
   #tokens = 0;
   #costUsd = 0;
 
-  constructor(spec: BudgetSpecInput, startedAtMs = Date.now()) {
-    this.#spec = budgetSpecSchema.parse(spec);
+  constructor(spec: BudgetLimits, startedAtMs = Date.now()) {
+    this.#spec = spec;
     this.#startedAtMs = startedAtMs;
+  }
+
+  static fromLimits(limits: AgentExecutionLimits): BudgetManager {
+    return new BudgetManager({
+      maxToolCalls: limits.maxToolCalls,
+      maxWallSeconds: limits.maxWallSeconds,
+    });
   }
 
   get snapshot(): BudgetSnapshot {
@@ -52,19 +66,13 @@ export class BudgetManager {
   /** Returns the first exhausted dimension, or undefined if within budget. */
   exhaustionReason(): BudgetExhaustionReason | undefined {
     const wall = (Date.now() - this.#startedAtMs) / 1000;
-    if (
-      this.#spec.maxToolCalls != null &&
-      this.#toolCalls > this.#spec.maxToolCalls
-    ) {
+    if (this.#toolCalls > this.#spec.maxToolCalls) {
       return 'maxToolCalls';
     }
     if (this.#spec.maxTokens != null && this.#tokens > this.#spec.maxTokens) {
       return 'maxTokens';
     }
-    if (
-      this.#spec.maxWallSeconds != null &&
-      wall > this.#spec.maxWallSeconds
-    ) {
+    if (wall > this.#spec.maxWallSeconds) {
       return 'maxWallSeconds';
     }
     if (

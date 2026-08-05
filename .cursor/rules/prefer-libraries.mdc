@@ -1,0 +1,46 @@
+---
+description: Prefer mature libraries for UI/graph/interaction-heavy features; avoid reinventing
+alwaysApply: true
+---
+
+# Prefer libraries over custom UI plumbing
+
+コネクタ再利用（`reuse-existing.mdc`）と同様、**管理画面・可視化・複雑なインタラクション**は自前実装より既存ライブラリを先に検討する。
+
+## 判断
+
+1. **先に探す** — npm 上の成熟した React/TS 向けライブラリ、またはリポ内の既存採用
+2. **自前でよいもの** — 薄い配線、1 画面の単純フォーム、デザイン合わせの CSS、ドメイン固有ロジック
+3. **ライブラリ向き** — ノードグラフ、レイアウト（LR/TB）、仮想スクロール、リッチエディタ、チャート、DnD、複雑なテーブル
+
+迷ったら: 「交差削減・ズーム・パン・アクセシビリティを自前で持つ価値があるか？」→ NO ならライブラリ。
+
+## admin / 可視化で優先候補
+
+| 用途 | 推奨 | 備考 |
+|------|------|------|
+| 汎用 UI kit（admin） | `antd` + `@ant-design/icons` | control plane シェル / Table / Form。テーマは `apps/admin/src/ui/theme.tsx` |
+| エージェントグラフ | `@xyflow/react` + `@dagrejs/dagre`（または ELK） | 自前 SVG + Sugiyama は避ける |
+| ルーティング | `react-router-dom` | 採用済み |
+| Markdown | `react-markdown` / `@uiw/react-md-editor` | 採用済み |
+| Cron | `croner` | 採用済み |
+| チャートが必要なら | `recharts` | 必要になるまで入れない |
+
+`packages/*` に UI ライブラリを引きずり込まない。依存は `apps/admin`（または該当アプリ）に閉じる。
+
+## NG / OK
+
+```tsx
+// ❌ 交差・ズーム・パンを自前 SVG で再発明
+<svg>{nodes.map(...)}{edges.map(...manual path...)}</svg>
+
+// ✅ xyflow + dagre で LR/TB レイアウト
+import { ReactFlow, Background } from '@xyflow/react';
+// dagre で position を計算して nodes/edges を渡す
+```
+
+## チェック
+
+- [ ] 同種の問題を解くライブラリを 1 つ以上比較した
+- [ ] 依存を置く場所がアプリ層（`apps/*`）である
+- [ ] レイヤ境界（エージェント固有を packages に漏らさない）を破っていない

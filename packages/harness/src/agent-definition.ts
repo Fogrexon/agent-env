@@ -1,4 +1,10 @@
 import type { BaseAgent } from '@google/adk';
+import type {
+  AgentExecutionLimits,
+  AgentExecutionLimitsInput,
+  VerificationPlan,
+  VerificationPlanInput,
+} from '@agent-env/shared';
 
 /**
  * Host-injected construction services for `createAgent`.
@@ -17,19 +23,62 @@ export interface AgentBuildContext {
    * Same keys land in ADK session state; optional here for graph construction.
    */
   inputs?: Readonly<Record<string, unknown>>;
+  /**
+   * Build another discovered agent as a sub-agent graph.
+   * Host (repo-env) injects discovery; packages never hold an agent registry.
+   * Throws on unknown id, circular dependency, or depth overflow.
+   */
+  buildSubagent?(
+    id: string,
+    options?: { inputs?: Readonly<Record<string, unknown>> },
+  ): Promise<BaseAgent>;
 }
 
-/**
- * Pure agent graph definition. The host calls createAgent once per run so
- * mutable tool/workflow state cannot leak between concurrent invocations.
- */
 export interface AgentDefinition {
   id: string;
   name: string;
   description: string;
+  /** Soft limits; host policy takes the min per field. */
+  limits?: Partial<AgentExecutionLimitsInput>;
+  /**
+   * Post-run verification plan (not an ADK tool).
+   * May be a static plan or built from context.
+   */
+  verification?:
+    | VerificationPlan
+    | VerificationPlanInput
+    | ((
+        context: AgentBuildContext,
+      ) =>
+        | VerificationPlan
+        | VerificationPlanInput
+        | Promise<VerificationPlan | VerificationPlanInput>);
   createAgent(context: AgentBuildContext): BaseAgent | Promise<BaseAgent>;
 }
 
 export function defineAgent(definition: AgentDefinition): AgentDefinition {
   return Object.freeze(definition);
+}
+
+export function mergeExecutionLimits(
+  host: AgentExecutionLimits,
+  agent?: Partial<AgentExecutionLimitsInput>,
+): AgentExecutionLimits {
+  if (!agent) return host;
+  return {
+    maxSteps: Math.min(host.maxSteps, agent.maxSteps ?? host.maxSteps),
+    maxToolCalls: Math.min(
+      host.maxToolCalls,
+      agent.maxToolCalls ?? host.maxToolCalls,
+    ),
+    maxWallSeconds: Math.min(
+      host.maxWallSeconds,
+      agent.maxWallSeconds ?? host.maxWallSeconds,
+    ),
+    maxRepairs: Math.min(host.maxRepairs, agent.maxRepairs ?? host.maxRepairs),
+    maxSubagentDepth: Math.min(
+      host.maxSubagentDepth,
+      agent.maxSubagentDepth ?? host.maxSubagentDepth,
+    ),
+  };
 }

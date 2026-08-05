@@ -17,8 +17,23 @@ export const WELL_KNOWN_PROVIDER_IDS = [
 ] as const;
 
 /**
- * Provider-qualified model binding.
- * `provider` must match a registered LlmProvider id.
+ * Provider-qualified model id used in LlmAgent.model strings.
+ * Format: `provider:model` (first colon splits; model may contain colons).
+ */
+export type ProviderModelId = `${string}:${string}`;
+
+export const providerModelIdSchema = z
+  .string()
+  .min(3)
+  .refine((value) => {
+    const colon = value.indexOf(':');
+    return colon > 0 && colon < value.length - 1 && !/\s/.test(value);
+  }, 'expected provider:model')
+  .transform((value) => value as ProviderModelId);
+
+/**
+ * Provider-qualified model binding (internal / telemetry / advanced params).
+ * Agent authors prefer `provider:model` strings via ADK LLMRegistry routing.
  */
 export const modelRefSchema = z.object({
   provider: llmProviderIdSchema,
@@ -27,6 +42,29 @@ export const modelRefSchema = z.object({
   params: z.record(z.string(), z.unknown()).optional(),
 });
 export type ModelRef = z.infer<typeof modelRefSchema>;
+
+/** Format a ModelRef as a provider-qualified wire string. */
+export function formatModelRef(ref: ModelRef): ProviderModelId {
+  return `${ref.provider}:${ref.model}` as ProviderModelId;
+}
+
+/**
+ * Parse `provider:model`. Rejects bare model ids (no colon).
+ * Does not read process.env — pass the raw string from the caller.
+ */
+export function parseProviderModelId(raw: string): ModelRef {
+  const text = raw.trim();
+  const colon = text.indexOf(':');
+  if (colon <= 0 || colon >= text.length - 1 || /\s/.test(text)) {
+    throw new Error(
+      `Invalid provider model id "${raw}". Expected "provider:model" (bare model ids are not allowed).`,
+    );
+  }
+  return {
+    provider: llmProviderIdSchema.parse(text.slice(0, colon)),
+    model: text.slice(colon + 1),
+  };
+}
 
 /** Default Gemini model id used when provider is gemini. */
 export const DEFAULT_GEMINI_MODEL = 'gemini-3.6-flash' as const;

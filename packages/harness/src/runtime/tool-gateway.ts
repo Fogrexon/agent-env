@@ -6,6 +6,7 @@ import {
   type ToolRiskClass,
 } from '@agent-env/shared';
 import type { z } from 'zod';
+import { attachConnectorToolMeta } from '../connectors/tool-meta.js';
 import { emitToolProgress } from './progress-context.js';
 import { resolveToolApproval } from './tool-approval.js';
 
@@ -22,6 +23,16 @@ export interface GuardedToolOptions<TSchema extends AnyZodObject> {
    * Never put API keys or tokens here.
    */
   publicConfig?: Record<string, unknown>;
+  /**
+   * When set, graph inspectors emit a distinct datasource node linked via `reads`.
+   */
+  source?: {
+    connectorId: string;
+    title: string;
+    kind: string;
+    tags?: string[];
+    description?: string;
+  };
   /**
    * Optional agent-level pre-approval for T2/T3.
    * Return true to allow immediately (env shortcut).
@@ -45,7 +56,7 @@ export function createGuardedTool<TSchema extends AnyZodObject>(
 ): FunctionTool {
   const contract = toolContractSchema.parse(options.contract);
 
-  return new FunctionTool({
+  const tool = new FunctionTool({
     name: contract.name,
     description: `${options.description} [risk=${contract.riskClass}, sideEffect=${contract.sideEffect}]`,
     parameters: options.parameters,
@@ -92,4 +103,16 @@ export function createGuardedTool<TSchema extends AnyZodObject>(
       return options.execute(input);
     },
   });
+
+  if (options.source) {
+    attachConnectorToolMeta(tool, {
+      connectorId: options.source.connectorId,
+      title: options.source.title,
+      kind: options.source.kind,
+      tags: options.source.tags,
+      description: options.source.description,
+    });
+  }
+
+  return tool;
 }

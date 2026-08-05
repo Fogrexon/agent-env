@@ -2,12 +2,18 @@
  * Smoke checks for @agent-env/llm (no network).
  * Run: npx tsx scripts/smoke-llm.ts
  */
+import { LLMRegistry } from '@google/adk';
 import {
+  clearAdkLlmRouting,
   clearProviders,
+  createCursorProvider,
   createOpenaiCompatibleProvider,
+  formatModelRef,
   isProviderConfigured,
   listProviderIds,
   parseModelRef,
+  parseProviderModelId,
+  registerAdkLlmRouting,
   registerProvider,
   registerProviders,
   selectModelRef,
@@ -96,6 +102,9 @@ assert(picked.provider === 'gemini', 'select fallback');
 const lm = parseModelRef('lm-studio:qwen2.5');
 assert(lm.provider === 'lm-studio' && lm.model === 'qwen2.5', 'named compatible');
 
+const bare = parseModelRef('gemini-3.6-flash');
+assert(bare.provider === 'gemini' && bare.model === 'gemini-3.6-flash', 'bare CLI fallback');
+
 const empty = parseModelRef(undefined);
 assert(
   empty.provider === DEFAULT_MODEL_REF.provider &&
@@ -115,5 +124,42 @@ const parsed = parseOpenaiCompatibleProvidersJson(
 );
 assert(parsed.length === 2, 'parse multi compatible');
 assert(parsed[0]?.apiKeyEnv === 'LM_STUDIO_API_KEY', 'apiKeyEnv');
+
+// --- provider:model wire format ---------------------------------------------
+{
+  const wired = formatModelRef({ provider: 'cursor', model: 'auto' });
+  assert(wired === 'cursor:auto', 'formatModelRef');
+
+  let bareRejected = false;
+  try {
+    parseProviderModelId('gemini-3.6-flash');
+  } catch {
+    bareRejected = true;
+  }
+  assert(bareRejected, 'parseProviderModelId rejects bare model ids');
+
+  const ok = parseProviderModelId('gemini:gemini-3.6-flash');
+  assert(ok.provider === 'gemini' && ok.model === 'gemini-3.6-flash', 'parse ok');
+  console.log('✓ formatModelRef / parseProviderModelId');
+}
+
+// --- ADK LLMRegistry routing -------------------------------------------------
+{
+  clearProviders();
+  registerProvider(
+    createCursorProvider({ apiKey: () => 'offline-smoke-cursor' }),
+  );
+  clearAdkLlmRouting();
+  registerAdkLlmRouting();
+  assert(isProviderConfigured('cursor'), 'cursor registered for routing');
+  const llm = LLMRegistry.newLlm('cursor:auto');
+  assert(llm, 'LLMRegistry.newLlm(cursor:auto)');
+  assert(
+    typeof (llm as { model?: string }).model === 'string',
+    'routed llm has model',
+  );
+  clearAdkLlmRouting();
+  console.log('✓ registerAdkLlmRouting + LLMRegistry.newLlm');
+}
 
 console.log('✓ smoke-llm passed');

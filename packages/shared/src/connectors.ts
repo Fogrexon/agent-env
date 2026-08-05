@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { toolContractSchema } from './run-spec.js';
+import { toolContractSchema } from './tool-contract.js';
 
 /** Logical data-source kinds (extend as needed). */
 export const dataSourceKindSchema = z.enum([
@@ -10,6 +10,7 @@ export const dataSourceKindSchema = z.enum([
   'x',
   'arxiv',
   'filesystem',
+  'knowledge',
   'custom',
 ]);
 export type DataSourceKind = z.infer<typeof dataSourceKindSchema>;

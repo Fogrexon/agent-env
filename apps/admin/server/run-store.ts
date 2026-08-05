@@ -33,6 +33,22 @@ export interface AdminRunResultSummary {
   recordState?: string;
   verificationPassed?: boolean;
   events?: AgentRunResult['events'];
+  budgetConsumed?: {
+    toolCalls: number;
+    tokens: number;
+    wallSeconds: number;
+    costUsd: number;
+  };
+  verification?: {
+    passed: boolean;
+    graderVersion: string;
+    checks: Array<{
+      criterion: string;
+      passed: boolean;
+      detail?: string;
+    }>;
+    evidenceRefs?: string[];
+  };
 }
 
 export interface AdminRunRecord {
@@ -312,6 +328,7 @@ export class AdminRunStore {
   }
 
   toPublic(run: AdminRunRecord) {
+    const stages = deriveStages(run.events, run.result?.recordState);
     return {
       runId: run.runId,
       agentId: run.agentId,
@@ -323,6 +340,11 @@ export class AdminRunStore {
       events: run.events,
       result: run.result,
       error: run.error,
+      stages,
+      recordState: run.result?.recordState,
+      verificationPassed: run.result?.verificationPassed,
+      budgetConsumed: run.result?.budgetConsumed,
+      verification: run.result?.verification,
       ...(run.historyDir ? { historyDir: run.historyDir } : {}),
       pendingApprovals: [...run.pendingApprovals.values()].map((p) => ({
         approvalId: p.request.approvalId,
@@ -380,6 +402,31 @@ export class AdminRunStore {
       .slice(0, completed.length - MAX_COMPLETED_RUNS)
       .forEach((run) => this.#runs.delete(run.runId));
   }
+}
+
+/** Project state-machine stages from progress events for Jenkins-like UI. */
+export function deriveStages(
+  events: AgentProgressEvent[],
+  terminalState?: string,
+): Array<{ state: string; phase?: string; at: string }> {
+  const stages: Array<{ state: string; phase?: string; at: string }> = [];
+  for (const event of events) {
+    if (event.kind === 'run.state' && event.state) {
+      stages.push({
+        state: event.state,
+        ...(event.phase ? { phase: event.phase } : {}),
+        at: event.timestamp,
+      });
+    }
+  }
+  if (terminalState && stages.at(-1)?.state !== terminalState) {
+    const last = events.at(-1);
+    stages.push({
+      state: terminalState,
+      at: last?.timestamp ?? new Date().toISOString(),
+    });
+  }
+  return stages;
 }
 
 export const adminRunStore = new AdminRunStore();

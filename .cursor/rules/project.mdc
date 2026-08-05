@@ -11,8 +11,8 @@ alwaysApply: true
 
 | 層 | 場所 | 役割 |
 |----|------|------|
-| Agents | `agents/<id>/` | **固有設定の唯一の置き場**（agent.ts + params.yaml + runspec.json + evaluation.json） |
-| Repo wiring | `agents/dev-env` | env bootstrap + `agents/*/` ディスカバリ |
+| Agents | `agents/<id>/` | **固有設定の唯一の置き場**（必須 `agent.ts`。任意 `params.yaml`） |
+| Repo wiring | `agents/dev-env` | env bootstrap + host execution policy（`execution-policy.ts`） + `agents/*/` ディスカバリ |
 | Libraries | `packages/*` | 汎用ランタイム・Zod（エージェント非依存） |
 | Entrypoints | `scripts/` / `apps/admin` | 汎用 CLI / UI（ディスカバリ駆動・固有値なし） |
 | Docs | `docs/` | ARCHITECTURE + 研究レポート |
@@ -21,13 +21,15 @@ alwaysApply: true
 
 - 秘密情報・接続設定の取得は利用側の責務。`packages/*` は `process.env` を読まない。env 配線は `agents/dev-env` のみ
 - **エージェント固有の設定・一覧・default id は `agents/<id>/` に閉じる。`packages/*` にも `scripts/` にも入れない**（`layer-boundaries.mdc`）
-- エージェント追加は `agents/<id>/agent.ts` + `params.yaml` + `runspec.json` + `evaluation.json` のみ。ルート `package.json` に per-agent script を増やさない
+- エージェント追加は `agents/<id>/agent.ts` を置くだけ（`params.yaml` は任意）。ルート `package.json` に per-agent script を増やさない
 - OpenAI 互換は `createOpenaiCompatibleProvider({ id, baseUrl, apiKey? })` を **id ごとに複数**登録してよい
 - Gemini / Anthropic は API key または Vertex ADC（`vertex: { project, location|region }`）をファクトリに注入
-- モデルは `resolveModel({ provider, model })`（登録済み provider id）
+- モデルは `agentDefinition` 内で `provider:model` 文字列（例 `cursor:auto`）を ADK LLMRegistry に渡すだけでよい。明示的な `BaseLlm` が要るときだけ `resolveModel({ provider, model })`（登録済み provider id）。run 単位のモデル上書きはない
 - デモの既定は Cursor SDK。FunctionTools も Cursor で動く（`ProviderBackedLlm` が SDK customTools にブリッジ）。Gemini はフォールバック / ADK ネイティブ
-- 計測可能な実行は RunSpec + EvaluationSpec + `runFromSpec` / `runDiscoveredAgent`（成功は verifier、agent 自己申告ではない）
+- 実行制限・成功判定は `agentDefinition.limits` / `.verification`（`verify.*` factories）に置く。計測可能な実行は `executeAgentRun` / `runDiscoveredAgent`（成功は独立検証、agent 自己申告ではない）
 - ツール引数は Zod。権限境界は `createGuardedTool`（T0–T3）
 - **既存コネクタを再実装しないだけでなく、コネクタ向きの能力をエージェント内の自前関数にしない**（`reuse-existing.mdc`）。例: 検索は `createWebSearchConnector`、抽出は `createTavilyExtractTool`
+- **管理画面・グラフ・複雑な UI は自前再発明よりライブラリ優先**（`prefer-libraries.mdc`）。例: エージェントグラフは `@xyflow/react` + dagre
 - 並列分岐の `outputKey` は一意
 - シークレットをコミットしない
+- **Python 環境は uv 必須**（`python -m venv` / 生 pip 禁止）。詳細は `python-uv.mdc`

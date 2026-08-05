@@ -84,6 +84,13 @@ export function createSearchConnector(
           tags: meta.tags,
           ...options.publicConfig,
         },
+        source: {
+          connectorId: meta.id,
+          title: meta.title,
+          kind: meta.kind,
+          tags: meta.tags,
+          description: meta.description,
+        },
         execute: (input) => options.search(input),
       });
     },

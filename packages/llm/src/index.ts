@@ -37,6 +37,7 @@ export {
 export type { ProviderMediaInfo } from './media-catalog.js';
 export {
   adkToolToProviderTool,
+  createProviderBridgeToolContext,
   genaiSchemaToJsonSchema,
 } from './adk-tool-bridge.js';
 export {
@@ -111,12 +112,24 @@ export {
   type OpenAiToolLoopOptions,
 } from './openai-tools.js';
 export {
+  formatModelRef,
+  parseModelRef,
+  parseProviderModelId,
+  providerModelIdSchema,
+  type ProviderModelId,
+} from './model-ref-string.js';
+export {
+  clearAdkLlmRouting,
+  registerAdkLlmRouting,
+  RegistryRoutedLlm,
+} from './adk-llm-routing.js';
+export {
   defaultAnthropicModelRef,
   defaultCursorModelRef,
   defaultGeminiModelRef,
   defaultOpenaiCompatibleModelRef,
   defaultOpenaiModelRef,
-  parseModelRef,
+  materializeAgentModel,
   resolveDefaultModel,
   resolveModel,
   type ResolveModelOptions,

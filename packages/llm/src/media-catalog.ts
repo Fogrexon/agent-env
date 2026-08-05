@@ -73,8 +73,19 @@ export function providerSupportsMime(
   return supportsMedia(getProvider(id).media, mimeType);
 }
 
-/** Provider id behind an ADK model instance, when the adapter exposes one. */
+/**
+ * Provider id behind an ADK model value.
+ * Accepts `provider:model` strings and BaseLlm adapters that expose `providerId`.
+ */
 export function providerIdOfModel(model: unknown): LlmProviderId | undefined {
+  if (typeof model === 'string') {
+    const text = model.trim();
+    const colon = text.indexOf(':');
+    if (colon > 0 && colon < text.length - 1 && !/\s/.test(text)) {
+      return text.slice(0, colon);
+    }
+    return undefined;
+  }
   if (typeof model !== 'object' || model === null) return undefined;
   const id = (model as { providerId?: unknown }).providerId;
   return typeof id === 'string' ? id : undefined;

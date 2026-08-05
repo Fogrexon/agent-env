@@ -267,6 +267,22 @@ export interface CreateEmitHandoffToolOptions<T> {
   doneCriteria?: string[];
 }
 
+export interface EmitHandoffToolMeta {
+  fromAgent: string;
+  toAgent: string;
+  outputSchema: string;
+  toolName: string;
+}
+
+const EMIT_HANDOFF_META = new WeakMap<object, EmitHandoffToolMeta>();
+
+/** Graph inspectors: recover handoff destinations from emit tools. */
+export function getEmitHandoffToolMeta(
+  tool: object,
+): EmitHandoffToolMeta | undefined {
+  return EMIT_HANDOFF_META.get(tool);
+}
+
 /**
  * Guarded tool: validate payload JSON, mint a typed handoff, return envelope.
  * Agents call this instead of freeform prose when handing off structured work.
@@ -275,7 +291,7 @@ export function createEmitHandoffTool<T>(
   options: CreateEmitHandoffToolOptions<T>,
 ) {
   const name = options.name ?? 'emit_handoff';
-  return createGuardedTool({
+  const tool = createGuardedTool({
     contract: {
       version: '1.0',
       name,
@@ -341,4 +357,11 @@ export function createEmitHandoffTool<T>(
       }
     },
   });
+  EMIT_HANDOFF_META.set(tool, {
+    fromAgent: options.fromAgent,
+    toAgent: options.toAgent,
+    outputSchema: options.outputSchema,
+    toolName: name,
+  });
+  return tool;
 }
