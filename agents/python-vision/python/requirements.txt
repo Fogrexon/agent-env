@@ -1,5 +1,0 @@
-# Agent-local Python deps (managed by uv via ensurePythonEnv).
-# Swap mock detect for real YOLO later, e.g.:
-#   ultralytics>=8.0.0
-#   opencv-python-headless>=4.8.0
-# Keep this file present even when empty so ensurePythonEnv can hash it.

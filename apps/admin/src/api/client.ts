@@ -21,13 +21,28 @@ export async function fetchJson<T>(
   init?: RequestInit,
 ): Promise<T> {
   const res = await fetch(url, init);
-  const data = (await res.json()) as T & { error?: string; ok?: boolean };
-  if (!res.ok) {
+  const text = await res.text();
+  let data: unknown;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
     throw new Error(
-      (data as { error?: string }).error ?? `HTTP ${res.status}`,
+      res.ok
+        ? `Invalid JSON from ${url}`
+        : `HTTP ${res.status} from ${url}: ${text.slice(0, 120) || res.statusText}`,
     );
   }
-  return data;
+  if (!res.ok) {
+    const errMsg =
+      data &&
+      typeof data === 'object' &&
+      'error' in data &&
+      typeof (data as { error: unknown }).error === 'string'
+        ? (data as { error: string }).error
+        : `HTTP ${res.status}`;
+    throw new Error(errMsg);
+  }
+  return data as T;
 }
 
 export function upsertEvent(

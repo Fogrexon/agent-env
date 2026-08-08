@@ -2,6 +2,7 @@ export { assertApiKey, loadHarnessConfig } from './config.js';
 export {
   defineAgent,
   mergeExecutionLimits,
+  resolveAgentMode,
   type AgentBuildContext,
   type AgentDefinition,
 } from './agent-definition.js';

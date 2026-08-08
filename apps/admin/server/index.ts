@@ -22,6 +22,10 @@ import {
   getResolvedAgentPackage,
   loadAgentDefinition,
   loadDotEnv,
+  resolveAgentPackages,
+  resolveDiscoveryOptions,
+  resolveHostPaths,
+  resolvePackageAgentMode,
 } from '@agent-env/repo-env';
 import type { AgentProgressEvent } from '@agent-env/shared';
 import {
@@ -72,10 +76,11 @@ function historyExtras(dir: string | undefined): Record<string, unknown> {
 }
 
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
-/** Monorepo root (apps/admin/server → ../../..). */
-const repoRoot = resolve(__dirname, '../../..');
-const agentsRoot = resolve(repoRoot, 'agents');
-const discovery = { agentsDir: agentsRoot, repoRoot };
+/** Platform repo root when AGENT_ENV_ROOT is unset (apps/admin/server → ../../..). */
+const platformRoot = resolve(__dirname, '../../..');
+const host = resolveHostPaths({ fallbackRoot: platformRoot });
+const repoRoot = host.root;
+const discovery = resolveDiscoveryOptions({ fallbackRoot: platformRoot });
 
 function mapHistoryStatus(
   status: RunHistoryStatus,
@@ -192,32 +197,41 @@ app.get('/api/providers', (_req, res) => {
   }
 });
 
-app.get('/api/agents', (_req, res) => {
+app.get('/api/agents', async (_req, res) => {
   try {
-    const agents = discoverAgents(discovery).map((m) => {
-      let title: string | undefined;
-      let fieldCount = 0;
-      if (m.paramsFile) {
-        try {
-          const params = loadAgentParamsFile(m.paramsFile, repoRoot);
-          title = params.title;
-          fieldCount = params.fields.length;
-        } catch {
-          // list still works without params detail
+    const packages = resolveAgentPackages(discovery);
+    const agents = await Promise.all(
+      packages.map(async (pkg) => {
+        let title: string | undefined;
+        let fieldCount = 0;
+        if (pkg.paramsFile) {
+          try {
+            const params = loadAgentParamsFile(pkg.paramsFile, repoRoot);
+            title = params.title;
+            fieldCount = params.fields.length;
+          } catch {
+            // list still works without params detail
+          }
         }
-      }
-      return {
-        id: m.id,
-        name: m.name,
-        description: m.description,
-        entry: m.entry,
-        paramsFile: m.paramsFile,
-        models: m.models,
-        title,
-        runMode: 'agent',
-        fieldCount,
-      };
-    });
+        let mode: 'interactive' | 'autonomous' = 'autonomous';
+        try {
+          mode = await resolvePackageAgentMode(pkg, repoRoot);
+        } catch {
+          // definition load failure → autonomous default
+        }
+        return {
+          id: pkg.id,
+          name: pkg.manifest.name,
+          description: pkg.manifest.description,
+          entry: pkg.entry,
+          paramsFile: pkg.paramsFile,
+          models: pkg.manifest.models,
+          title,
+          mode,
+          fieldCount,
+        };
+      }),
+    );
     res.json({ agents });
   } catch (err) {
     res.status(500).json({
@@ -968,10 +982,19 @@ app.get(
   createRunFileServeHandler(repoRoot),
 );
 
+// Express default 404 is plain text "Not found." which breaks admin fetchJson.
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: `Not found: ${_req.method} ${_req.originalUrl}` });
+});
+
 app.listen(port, () => {
   const ids = discoverAgents(discovery).map((a) => a.id);
   console.log(`agent-env admin API on http://127.0.0.1:${port}`);
-  console.log(`  repo root: ${repoRoot}`);
+  console.log(`  host root: ${repoRoot}`);
+  console.log(`  builtin agents: ${host.builtinAgentsDir}`);
+  console.log(
+    `  plugin packs: ${host.pluginPackDirs.length ? host.pluginPackDirs.join(', ') : '(none)'}`,
+  );
   console.log(`  agents: ${ids.join(', ') || '(none)'}`);
   console.log(`  maxSlots: ${maxSlots}`);
   console.log(`  auth: ${authConfig.enabled ? 'basic' : 'disabled'}`);

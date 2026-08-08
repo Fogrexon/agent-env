@@ -8,21 +8,26 @@ import {
   type AgentParamsSpec,
 } from '@agent-env/shared';
 
-/** Directories under agents/ that are not runnable agent packages. */
+/** Directories under an agents root that are not runnable agent packages. */
 const SKIP_DIR_NAMES = new Set(['dev-env', 'node_modules', 'dist']);
 
 export interface DiscoverAgentsOptions {
-  /** Absolute or cwd-relative path to the agents/ directory. */
-  agentsDir: string;
-  /** Repo root for relative entry/paramsFile paths. Defaults to parent of agentsDir. */
+  /**
+   * Single agents directory (legacy). Prefer `agentsDirs` from resolveHostPaths.
+   * Ignored when `agentsDirs` is non-empty.
+   */
+  agentsDir?: string;
+  /** Multiple agents roots (builtin samples + plugin packs). */
+  agentsDirs?: readonly string[];
+  /** Host root for relative entry/paramsFile paths. */
   repoRoot?: string;
 }
 
 /**
  * Filesystem package resolved by convention:
  *
- *   agents/<id>/agent.ts          (required)
- *   agents/<id>/params.yaml       (optional)
+ *   <agentsRoot>/<id>/agent.ts          (required)
+ *   <agentsRoot>/<id>/params.yaml       (optional)
  */
 export interface ResolvedAgentPackage {
   id: string;
@@ -31,6 +36,8 @@ export interface ResolvedAgentPackage {
   paramsFile?: string;
   params: AgentParamsSpec;
   manifest: AgentManifest;
+  /** Agents root this package was discovered from. */
+  agentsRoot: string;
 }
 
 /** In-memory params when `params.yaml` is absent. */
@@ -49,28 +56,20 @@ export function defaultAgentParams(agentId: string): AgentParamsSpec {
   });
 }
 
-/**
- * Discover agents by filesystem convention (repo-local — never in packages/*).
- * Directories without `agent.ts` are skipped. `params.yaml` is optional.
- */
-export function discoverAgents(
-  options: DiscoverAgentsOptions,
-): readonly AgentManifest[] {
-  return resolveAgentPackages(options).map((pkg) => pkg.manifest);
+function normalizeAgentsDirs(options: DiscoverAgentsOptions): string[] {
+  if (options.agentsDirs && options.agentsDirs.length > 0) {
+    return options.agentsDirs.map((dir) => resolve(dir));
+  }
+  if (options.agentsDir) {
+    return [resolve(options.agentsDir)];
+  }
+  return [];
 }
 
-export function getDiscoveredAgent(
-  options: DiscoverAgentsOptions,
-  id: string,
-): AgentManifest | undefined {
-  return discoverAgents(options).find((agent) => agent.id === id);
-}
-
-export function resolveAgentPackages(
-  options: DiscoverAgentsOptions,
-): readonly ResolvedAgentPackage[] {
-  const agentsDir = resolve(options.agentsDir);
-  const repoRoot = resolve(options.repoRoot ?? join(agentsDir, '..'));
+function resolvePackagesInDir(
+  agentsDir: string,
+  repoRoot: string,
+): ResolvedAgentPackage[] {
   if (!existsSync(agentsDir) || !statSync(agentsDir).isDirectory()) {
     return [];
   }
@@ -108,6 +107,7 @@ export function resolveAgentPackages(
       entry,
       ...(paramsFile ? { paramsFile } : {}),
       params,
+      agentsRoot: agentsDir,
       manifest: {
         id: name,
         name: params.title ?? name,
@@ -119,6 +119,52 @@ export function resolveAgentPackages(
   }
 
   return packages;
+}
+
+/**
+ * Discover agents by filesystem convention across one or more agents roots
+ * (builtin `agents/` + `plugins/<pack>/`). Never scans packages/*.
+ * Directories without `agent.ts` are skipped. `params.yaml` is optional.
+ * Duplicate agent ids across roots throw.
+ */
+export function discoverAgents(
+  options: DiscoverAgentsOptions,
+): readonly AgentManifest[] {
+  return resolveAgentPackages(options).map((pkg) => pkg.manifest);
+}
+
+export function getDiscoveredAgent(
+  options: DiscoverAgentsOptions,
+  id: string,
+): AgentManifest | undefined {
+  return discoverAgents(options).find((agent) => agent.id === id);
+}
+
+export function resolveAgentPackages(
+  options: DiscoverAgentsOptions,
+): readonly ResolvedAgentPackage[] {
+  const agentsDirs = normalizeAgentsDirs(options);
+  const repoRoot = resolve(
+    options.repoRoot ??
+      (agentsDirs[0] ? join(agentsDirs[0], '..') : process.cwd()),
+  );
+
+  const byId = new Map<string, ResolvedAgentPackage>();
+  for (const agentsDir of agentsDirs) {
+    for (const pkg of resolvePackagesInDir(agentsDir, repoRoot)) {
+      const existing = byId.get(pkg.id);
+      if (existing) {
+        throw new Error(
+          `Duplicate agent id "${pkg.id}":\n` +
+            `  ${existing.dir}\n` +
+            `  ${pkg.dir}`,
+        );
+      }
+      byId.set(pkg.id, pkg);
+    }
+  }
+
+  return [...byId.values()].sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export function getResolvedAgentPackage(

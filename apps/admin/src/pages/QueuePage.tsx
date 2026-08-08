@@ -158,7 +158,7 @@ export function QueuePage() {
     <PageShell
       title="Queue / Builds"
       subtitle={`slots ${meta.running}/${meta.maxSlots} · pending ${meta.queueDepth}`}
-      crumbs={[{ title: 'Control' }, { title: 'Queue' }]}
+      crumbs={[{ title: 'Jobs', path: '/jobs' }, { title: 'Queue' }]}
       extra={
         <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
           Refresh

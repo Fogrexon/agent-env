@@ -1,27 +1,33 @@
 /**
- * Shared repo paths for scripts/* (not packages).
+ * Shared host paths for scripts/* (not packages).
  * Agent discovery lives in @agent-env/repo-env (= agents/dev-env).
  */
-import { resolve } from 'node:path';
 import {
   discoverAgents,
   getDiscoveredAgent,
+  resolveDiscoveryOptions,
+  resolveHostPaths,
   type DiscoverAgentsOptions,
+  type HostPaths,
 } from '@agent-env/repo-env';
 import type { AgentManifest } from '@agent-env/shared';
 
+export function hostPaths(cwd: string = process.cwd()): HostPaths {
+  return resolveHostPaths({ fallbackRoot: cwd });
+}
+
 export function repoRoot(cwd: string = process.cwd()): string {
-  return resolve(cwd);
+  return hostPaths(cwd).root;
 }
 
 export function agentsDir(cwd: string = process.cwd()): string {
-  return resolve(cwd, 'agents');
+  return hostPaths(cwd).builtinAgentsDir;
 }
 
 export function discoveryOptions(
   cwd: string = process.cwd(),
 ): DiscoverAgentsOptions {
-  return { agentsDir: agentsDir(cwd), repoRoot: repoRoot(cwd) };
+  return resolveDiscoveryOptions({ fallbackRoot: cwd });
 }
 
 export function listAgents(cwd: string = process.cwd()): readonly AgentManifest[] {

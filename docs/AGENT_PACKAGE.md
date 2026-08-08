@@ -14,8 +14,6 @@ agents/<id>/
 
 ディレクトリ名 = `agentDefinition.id`（`params.yaml` があればその `agentId` も一致必須）。不一致は fail-closed。
 
-`runspec.json` / `evaluation.json` を著者が置く仕組みは廃止された（互換レイヤなし）。過去の実行履歴ディレクトリ（`.runs/runs/...`）には旧形式の同名ファイルが残ることがあるが、リーダーはそれを無視する。
-
 ## 実行経路
 
 ```mermaid
@@ -29,9 +27,9 @@ flowchart LR
   Exec --> Ver["verify.* checks を実行"]
 ```
 
-単一エントリは [`agents/dev-env/run-discovered-agent.ts`](../agents/dev-env/run-discovered-agent.ts) の `runDiscoveredAgent`。CLI（[`scripts/run.ts`](../scripts/run.ts)）も admin もここ経由。内部で `@agent-env/harness` の `executeAgentRun`（`runFromSpec` ではない）を呼ぶ。
+単一エントリは [`agents/dev-env/run-discovered-agent.ts`](../agents/dev-env/run-discovered-agent.ts) の `runDiscoveredAgent`。CLI（[`scripts/run.ts`](../scripts/run.ts)）も admin もここ経由。内部で `@agent-env/harness` の `executeAgentRun` を呼ぶ。
 
-host 側の既定 execution policy は [`agents/dev-env/execution-policy.ts`](../agents/dev-env/execution-policy.ts) の `DEFAULT_HOST_EXECUTION_LIMITS`（`maxSteps` / `maxToolCalls` = 200、`maxWallSeconds` = 1800、`maxRepairs` = 3、`maxSubagentDepth` = 3）。`mergeExecutionLimits` が agent の `limits` と host 既定をフィールドごとに **小さい方** へマージする（agent は緩めることができない）。
+host 側の既定 execution policy は [`agents/dev-env/execution-policy.ts`](../agents/dev-env/execution-policy.ts) の `DEFAULT_HOST_EXECUTION_LIMITS`（`maxSteps` / `maxToolCalls` = 2000、`maxWallSeconds` = 7200、`maxRepairs` = 3、`maxSubagentDepth` = 3）。`mergeExecutionLimits` が agent の `limits` と host 既定をフィールドごとに **小さい方** へマージする（agent は緩めることができない）。
 
 ## 責務の分離
 
@@ -153,9 +151,9 @@ boolean は `true` / `false` / `1` / `0`。files はカンマ区切りパス可�
 
 | フィールド | 意味 | host 既定 |
 |-----------|------|-----------|
-| `maxSteps` | 非 partial エージェントイベントの上限。超過で `FAILED` | 200 |
-| `maxToolCalls` | ツール呼び出し数の上限。超過は `BUDGET_EXHAUSTED` | 200 |
-| `maxWallSeconds` | 実行時間の上限 | 1800 |
+| `maxSteps` | 非 partial エージェントイベントの上限。超過で `FAILED` | 2000 |
+| `maxToolCalls` | ツール呼び出し数の上限。超過は `BUDGET_EXHAUSTED` | 2000 |
+| `maxWallSeconds` | 実行時間の上限 | 7200 |
 | `maxRepairs` | required 検証失敗時に再試行できる回数（`REPAIRING` → 失敗チェックをフィードバック → 再実行） | 3 |
 | `maxSubagentDepth` | `context.buildSubagent` によるネスト深さの上限 | 3 |
 
@@ -168,7 +166,7 @@ agent の `limits` は host 既定より **緩められない**（フィール�
 1. 子を普通のエージェントとして置く（単体: `npm run run -- investigator "..."`）
 2. 親は `createSubagentTool(context, 'investigator')` で同じ定義を AgentTool 化
 
-host（`runDiscoveredAgent` / admin）が `context.buildSubagent` を注入する。packages に registry はない。参照: `agents/investigator/`（子）+ `agents/research-desk/`（親）。
+host（`runDiscoveredAgent` / admin）が `context.buildSubagent` を注入する。packages に registry はない。参照: personal pack の `investigator/`（子）+ `research-desk/`（親）。
 
 ```typescript
 import { createSubagentTool, defineAgent } from '@agent-env/harness';
@@ -374,21 +372,25 @@ const runDetect = createPythonScriptTool({
 
 ## サンプル対応表
 
-| id | 参考ポイント |
-|----|----------------|
-| `hello` | ContextBuilder + agent memory tools |
-| `runspec-demo` | `limits` + guarded tools + typed result handoff + T2 approval |
-| `code-exec` | bounded observations + optional CodeAct TS runner |
-| `python-vision` | `python/scripts/detect.py`（mock YOLO）→ 判断 |
-| `knowledge-assistant` | local hybrid RAG + citations + agentic search |
-| `parallel-pipeline` | typed DebateTurn handoffs (PRO/CON → judge) |
-| `collector` | connectors 並列収集 + typed EvidenceBundle handoff |
-| `deep-research` | typed stage handoffs (scope→plan→ledger→gaps→draft→publish) |
-| `security-audit` | findings Zod + handoff digest、ネスト評価は `runAgent`+Zod |
-| `local-report` | contextBudgetModelParams + typed evidence handoff |
-| `super-debate` | typed PanelTurn handoffs (multi-model → synth) |
-| `investigator` | 再利用可能な Web 調査（単体実行可。search/extract → typed brief） |
-| `research-desk` | 親: `createSubagentTool(context, 'investigator')` で同じ定義を呼ぶ |
+Builtin（`agents/`）と薄いデモ（`plugins/showcase/`）。個人自動化は別リポ `agent-env-plugins-personal` を `plugins/personal/` に clone。
+
+| id | pack | 参考ポイント |
+|----|------|----------------|
+| `hello` | builtin | ContextBuilder + agent memory tools |
+| `harness-demo` | builtin | `limits` + guarded tools + typed result handoff + T2 approval |
+| `code-exec` | builtin | bounded observations + optional CodeAct TS runner |
+| `character-chat` | showcase | キャラなりきり対話のみ（ツールなし） |
+| `web-qa` | showcase | Web 検索 → 短い回答 |
+| `python-vision` | personal (別リポ) | `python/scripts/detect.py`（mock YOLO）→ 判断 |
+| `knowledge-assistant` | personal (別リポ) | local hybrid RAG + citations + agentic search |
+| `parallel-pipeline` | personal (別リポ) | typed DebateTurn handoffs (PRO/CON → judge) |
+| `collector` | personal (別リポ) | connectors 並列収集 + typed EvidenceBundle handoff |
+| `deep-research` | personal (別リポ) | typed stage handoffs (scope→plan→ledger→gaps→draft→publish) |
+| `security-audit` | personal (別リポ) | findings Zod + handoff digest、ネスト評価は `runAgent`+Zod |
+| `local-report` | personal (別リポ) | contextBudgetModelParams + typed evidence handoff |
+| `super-debate` | personal (別リポ) | typed PanelTurn handoffs (multi-model → synth) |
+| `investigator` | personal (別リポ) | 再利用可能な Web 調査（単体実行可。search/extract → typed brief） |
+| `research-desk` | personal (別リポ) | 親: `createSubagentTool(context, 'investigator')` で同じ定義を呼ぶ |
 
 ## 関連コード
 

@@ -1,0 +1,13 @@
+apiVersion: agent-env/v1
+kind: AgentParams
+agentId: web-qa
+title: Web Q&A
+description: Web 検索して答えるだけ（単一エージェント + 検索ツール）。
+objectiveField: message
+fields:
+  - id: message
+    type: text
+    label: 質問
+    required: true
+    placeholder: 調べて答えてほしいこと
+    default: "agent-env とは何ですか？（一般的な説明でよい）"

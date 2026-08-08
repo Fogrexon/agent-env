@@ -15,23 +15,15 @@ import type {
 
 
 export interface AgentListItem {
-
   id: string;
-
   name: string;
-
   description: string;
-
   title?: string;
-
-  runMode?: string;
-
+  /** interactive = Chat; autonomous = Jobs / schedules. Default autonomous. */
+  mode?: 'interactive' | 'autonomous';
   fieldCount?: number;
-
   paramsFile?: string;
-
   models?: AgentManifest['models'];
-
 }
 
 

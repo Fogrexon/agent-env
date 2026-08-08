@@ -29,7 +29,14 @@ export interface CreateReviewLoopAgentOptions<TReview> {
   /** Session state key where the reviewer writes JSON / structured output. */
   reviewKey: string;
   reviewSchema: z.ZodType<TReview>;
-  isApproved: (review: TReview) => boolean;
+  /**
+   * Return true to stop the loop. `iteration` is 0-based.
+   * May mutate `state` (e.g. rewrite a premature accept into dig_deeper).
+   */
+  isApproved: (
+    review: TReview,
+    ctx: { iteration: number; state: Record<string, unknown> },
+  ) => boolean;
   maxIterations: number;
   /**
    * How to read the review from session state.
@@ -97,7 +104,7 @@ export function createReviewLoopAgent<TReview>(
           continue;
         }
 
-        if (options.isApproved(review)) {
+        if (options.isApproved(review, { iteration: i, state })) {
           yield createEvent({
             invocationId: context.invocationId,
             author: this.name,

@@ -21,7 +21,7 @@ alwaysApply: true
 ## エージェント内に残してよいもの
 
 - **配線**（`apiKey` / `repo` 等を env や secret からファクトリへ渡す）
-- **そのエージェントの構成でしか意味を持たない処理**（例: security-audit の「findings を別モデルの RunSpec 評価にかける」ようなエージェント固有のワークフローツール）。汎用データ源アクセスでなければ、無理に harness へ昇格させない
+- **そのエージェントの構成でしか意味を持たない処理**（例: security-audit の「findings を別モデルの verification にかける」ようなエージェント固有のワークフローツール）。汎用データ源アクセスでなければ、無理に harness へ昇格させない
 
 判断基準: **「他のエージェントも欲しがりうる外部データ源アクセスか？」** YES → connector/factory。NO（そのエージェントの業務ロジック）→ agent.ts 内でよい。
 

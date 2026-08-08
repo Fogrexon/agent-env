@@ -213,7 +213,7 @@ export function RunDetailPage() {
         snap?.jobId ? ` · job ${snap.jobId.slice(0, 8)}` : ''
       }`}
       crumbs={[
-        { title: 'Control', path: '/' },
+        { title: 'Jobs', path: '/jobs' },
         { title: 'Queue', path: '/queue' },
         { title: 'Run' },
       ]}

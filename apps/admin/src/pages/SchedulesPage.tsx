@@ -33,10 +33,13 @@ export function SchedulesPage() {
   const refresh = async () => {
     try {
       const [s, a] = await Promise.all([listSchedules(), listAgents()]);
+      const autonomous = a.filter(
+        (x) => (x.mode ?? 'autonomous') === 'autonomous',
+      );
       setSchedules(s);
-      setAgents(a);
-      if (!form.agentId && a[0]) {
-        setForm((f) => ({ ...f, agentId: a[0]!.id }));
+      setAgents(autonomous);
+      if (!form.agentId && autonomous[0]) {
+        setForm((f) => ({ ...f, agentId: autonomous[0]!.id }));
       }
       setError(null);
     } catch (err) {
@@ -148,7 +151,7 @@ export function SchedulesPage() {
     <PageShell
       title="Schedules"
       subtitle="Enqueue jobs on a cron expression"
-      crumbs={[{ title: 'Control' }, { title: 'Schedules' }]}
+      crumbs={[{ title: 'Jobs', path: '/jobs' }, { title: 'Schedules' }]}
     >
       {error ? (
         <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />

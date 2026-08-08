@@ -11,3 +11,11 @@ coverage/
 .adk/
 .agent-env/
 .runs/
+
+# Cloned packs stay local; only in-tree showcase is tracked
+plugins/*
+!plugins/README.md
+!plugins/showcase/
+!plugins/showcase/**
+plugins/showcase/**/dist/
+plugins/showcase/**/node_modules/

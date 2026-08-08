@@ -2,6 +2,7 @@ import type { BaseAgent } from '@google/adk';
 import type {
   AgentExecutionLimits,
   AgentExecutionLimitsInput,
+  AgentMode,
   VerificationPlan,
   VerificationPlanInput,
 } from '@agent-env/shared';
@@ -38,6 +39,13 @@ export interface AgentDefinition {
   id: string;
   name: string;
   description: string;
+  /**
+   * Host presentation / run shape.
+   * - interactive: chat-style turns; tools/subagents bound the agent's purpose
+   * - autonomous: batch / one-shot / scheduled jobs
+   * Default when omitted: autonomous.
+   */
+  mode?: AgentMode;
   /** Soft limits; host policy takes the min per field. */
   limits?: Partial<AgentExecutionLimitsInput>;
   /**
@@ -54,6 +62,13 @@ export interface AgentDefinition {
         | VerificationPlanInput
         | Promise<VerificationPlan | VerificationPlanInput>);
   createAgent(context: AgentBuildContext): BaseAgent | Promise<BaseAgent>;
+}
+
+/** Resolve agent mode with autonomous as the default. */
+export function resolveAgentMode(
+  definition: Pick<AgentDefinition, 'mode'>,
+): AgentMode {
+  return definition.mode ?? 'autonomous';
 }
 
 export function defineAgent(definition: AgentDefinition): AgentDefinition {

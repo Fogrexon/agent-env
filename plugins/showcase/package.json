@@ -1,0 +1,7 @@
+{
+  "name": "@agent-env/plugins-showcase",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Thin showcase demos for agent-env (character chat, web Q&A)",
+  "license": "MIT"
+}

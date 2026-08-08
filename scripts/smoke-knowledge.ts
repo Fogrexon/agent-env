@@ -50,8 +50,8 @@ const indexPath = join(root, 'index.sqlite');
 mkdirSync(corpus, { recursive: true });
 
 writeFileSync(
-  join(corpus, 'runspec.md'),
-  `# RunSpec
+  join(corpus, 'verification.md'),
+  `# Verification
 
 Success is decided by independent verification postconditions,
 not by the agent saying it finished.
@@ -100,8 +100,8 @@ assert(report2.totals.unchanged >= 3, 'second sync should skip unchanged');
 assert(report2.totals.added === 0, 'no re-add on unchanged');
 
 writeFileSync(
-  join(corpus, 'runspec.md'),
-  `# RunSpec
+  join(corpus, 'verification.md'),
+  `# Verification
 
 Success is decided by independent verification postconditions,
 not by the agent saying it finished.
@@ -136,9 +136,9 @@ assert(
   semantic.hits.some(
     (h) =>
       h.chunk.text.includes('verification') ||
-      h.citation.sourceUri.includes('runspec'),
+      h.citation.sourceUri.includes('verification'),
   ),
-  'expected runspec evidence',
+  'expected verification evidence',
 );
 assert(
   semantic.hits.every((h) => h.citation.uri.startsWith('knowledge://')),
@@ -218,7 +218,7 @@ const agentic = createKnowledgeSearchAgentTool({
   maxIterations: 3,
 });
 const agenticResult = await callTool(agentic as BaseTool, {
-  query: 'What decides RunSpec success? Also mention E-KNOW-404.',
+  query: 'What decides verification success? Also mention E-KNOW-404.',
 });
 assert(
   (agenticResult as { status?: string; ledger?: { citations?: unknown[] } })

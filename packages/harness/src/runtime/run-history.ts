@@ -30,7 +30,7 @@ export type RunHistoryStatus =
   | 'failed'
   | 'cancelled';
 
-export type RunHistoryMode = 'agent' | 'runspec';
+export type RunHistoryMode = 'agent';
 
 export interface RunHistoryMeta {
   runId: string;

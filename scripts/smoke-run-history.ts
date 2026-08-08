@@ -124,7 +124,7 @@ try {
   const writer = store.open({
     runId: '66666666-7777-8888-9999-000000000000',
     agentId: 'demo-agent',
-    runMode: 'runspec',
+    runMode: 'agent',
     message: 'snapshot smoke message',
   });
 

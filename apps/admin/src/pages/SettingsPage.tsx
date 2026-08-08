@@ -198,7 +198,7 @@ export function SettingsPage() {
     <PageShell
       title="Settings"
       subtitle="Slots, auth, webhooks, audit"
-      crumbs={[{ title: 'Control' }, { title: 'Settings' }]}
+      crumbs={[{ title: 'Settings' }]}
     >
       {error ? (
         <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />

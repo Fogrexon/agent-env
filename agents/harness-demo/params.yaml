@@ -1,0 +1,12 @@
+apiVersion: agent-env/v1
+kind: AgentParams
+agentId: harness-demo
+title: Harness Demo
+description: limits + guarded tools + JSON Schema verifier + typed handoff.
+fields:
+  - id: message
+    type: text
+    label: 初回クエリ / objective 上書き
+    required: true
+    placeholder: objective を上書きするメッセージ
+    default: "Summarize what an execution harness should measure for one coding-style agent run."

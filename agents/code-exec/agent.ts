@@ -26,6 +26,7 @@ export const agentDefinition = defineAgent({
   name: 'Code Exec',
   description:
     'Bounded-observation FunctionTools + optional AI-generated TS (CodeAct-style) in a per-agent exec env.',
+  mode: 'autonomous',
   limits: {
     maxSteps: 20,
     maxToolCalls: 20,

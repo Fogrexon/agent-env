@@ -11,17 +11,17 @@ alwaysApply: true
 
 | 層 | 場所 | 役割 |
 |----|------|------|
-| Agents | `agents/<id>/` | **固有設定の唯一の置き場**（必須 `agent.ts`。任意 `params.yaml`） |
-| Repo wiring | `agents/dev-env` | env bootstrap + host execution policy（`execution-policy.ts`） + `agents/*/` ディスカバリ |
+| Execution host | `agents/dev-env` + `scripts/` + `apps/admin` | **実行の主体**（discovery / bootstrap / `executeAgentRun` / UI） |
+| Builtin samples | `agents/<id>/` | 最小サンプル定義（必須 `agent.ts`。任意 `params.yaml`） |
+| Workflow packs | `plugins/<pack>/<id>/` | 目的別ワークフロー定義（ホストが読んで実行。独自ランループなし） |
 | Libraries | `packages/*` | 汎用ランタイム・Zod（エージェント非依存） |
-| Entrypoints | `scripts/` / `apps/admin` | 汎用 CLI / UI（ディスカバリ駆動・固有値なし） |
 | Docs | `docs/` | ARCHITECTURE + 研究レポート |
 
 ## 必須ルール
 
-- 秘密情報・接続設定の取得は利用側の責務。`packages/*` は `process.env` を読まない。env 配線は `agents/dev-env` のみ
-- **エージェント固有の設定・一覧・default id は `agents/<id>/` に閉じる。`packages/*` にも `scripts/` にも入れない**（`layer-boundaries.mdc`）
-- エージェント追加は `agents/<id>/agent.ts` を置くだけ（`params.yaml` は任意）。ルート `package.json` に per-agent script を増やさない
+- 秘密情報・接続設定の取得は実行環境の責務。`packages/*` は `process.env` を読まない。env 配線は `agents/dev-env` のみ
+- **エージェント固有の設定・一覧・default id は定義側（`agents/<id>/` または `plugins/<pack>/<id>/`）に閉じる。`packages/*` にも `scripts/` にも入れない**（`layer-boundaries.mdc`）
+- 定義追加は pack を `plugins/` に置くか builtin を `agents/<id>/agent.ts` に置く。ルート `package.json` に per-agent script を増やさない
 - OpenAI 互換は `createOpenaiCompatibleProvider({ id, baseUrl, apiKey? })` を **id ごとに複数**登録してよい
 - Gemini / Anthropic は API key または Vertex ADC（`vertex: { project, location|region }`）をファクトリに注入
 - モデルは `agentDefinition` 内で `provider:model` 文字列（例 `cursor:auto`）を ADK LLMRegistry に渡すだけでよい。明示的な `BaseLlm` が要るときだけ `resolveModel({ provider, model })`（登録済み provider id）。run 単位のモデル上書きはない

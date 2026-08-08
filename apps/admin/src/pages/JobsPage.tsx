@@ -10,7 +10,7 @@ import {
   Spin,
   Typography,
 } from 'antd';
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   getAgentParams,
@@ -31,6 +31,10 @@ import { PageShell } from '../ui/PageShell.js';
 
 const { Sider, Content } = Layout;
 
+function autonomousAgents(agents: AgentListItem[]): AgentListItem[] {
+  return agents.filter((a) => (a.mode ?? 'autonomous') === 'autonomous');
+}
+
 export function JobsPage() {
   const { agentId } = useParams();
   const navigate = useNavigate();
@@ -38,7 +42,7 @@ export function JobsPage() {
   const [providers, setProviders] = useState<ProviderMediaInfo[]>([]);
   const [params, setParams] = useState<ParamsResponse | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
-  const [autoApprove, setAutoApprove] = useState(false);
+  const [autoApprove, setAutoApprove] = useState(true);
   const [priority, setPriority] = useState(0);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
@@ -48,7 +52,11 @@ export function JobsPage() {
   const [graphLoading, setGraphLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedId = agentId ?? agents[0]?.id;
+  const jobAgents = useMemo(() => autonomousAgents(agents), [agents]);
+  const selectedId =
+    agentId && jobAgents.some((a) => a.id === agentId)
+      ? agentId
+      : jobAgents[0]?.id;
 
   useEffect(() => {
     void (async () => {
@@ -57,8 +65,11 @@ export function JobsPage() {
         const [a, p] = await Promise.all([listAgents(), listProviders()]);
         setAgents(a);
         setProviders(p);
-        if (!agentId && a[0]) {
-          navigate(`/jobs/${a[0].id}`, { replace: true });
+        const jobs = autonomousAgents(a);
+        if (!agentId && jobs[0]) {
+          navigate(`/jobs/${jobs[0].id}`, { replace: true });
+        } else if (agentId && !jobs.some((j) => j.id === agentId) && jobs[0]) {
+          navigate(`/jobs/${jobs[0].id}`, { replace: true });
         }
       } catch (err) {
         setError(err instanceof Error ? err.message : String(err));
@@ -143,15 +154,15 @@ export function JobsPage() {
 
   const title =
     params?.spec.title ??
-    agents.find((a) => a.id === selectedId)?.title ??
+    jobAgents.find((a) => a.id === selectedId)?.title ??
     selectedId ??
     'Job';
 
   return (
     <PageShell
       title="Jobs"
-      subtitle="Agent package = job definition. Build enqueues into the control queue."
-      crumbs={[{ title: 'Control' }, { title: 'Jobs' }]}
+      subtitle="Autonomous agents — one-shot / batch enqueue into the control queue."
+      crumbs={[{ title: 'Catalog', path: '/catalog' }, { title: 'Jobs' }, { title: 'Run' }]}
     >
       {error ? (
         <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
@@ -164,14 +175,18 @@ export function JobsPage() {
             type="secondary"
             style={{ display: 'block', marginBottom: 8, fontSize: 12 }}
           >
-            DEFINITIONS
+            AUTONOMOUS
           </Typography.Text>
           {loading ? (
             <Spin size="small" />
+          ) : jobAgents.length === 0 ? (
+            <Typography.Text type="secondary" style={{ fontSize: 12 }}>
+              No autonomous agents. Interactive ones live under Chat.
+            </Typography.Text>
           ) : (
             <List
               size="small"
-              dataSource={agents}
+              dataSource={jobAgents}
               renderItem={(agent) => (
                 <List.Item
                   className={

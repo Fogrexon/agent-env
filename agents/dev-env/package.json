@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Env wiring for agents in this repository only — not a reusable library API",
+  "description": "Execution-environment host wiring (discovery, env bootstrap, run entry) — not a reusable library API",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",

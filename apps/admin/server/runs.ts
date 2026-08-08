@@ -3,11 +3,15 @@
  * Enqueue lives in control/worker-pool.ts.
  */
 import { randomUUID } from 'node:crypto';
-import { resolve } from 'node:path';
-import { AgentParamsValidationError } from '@agent-env/harness';
+import {
+  AgentParamsValidationError,
+  type ToolApprovalPolicy,
+} from '@agent-env/harness';
 import {
   buildRunRequestFromValues,
   getResolvedAgentPackage,
+  resolveAgentModeForId,
+  resolveDiscoveryOptions,
   runDiscoveredAgent,
 } from '@agent-env/repo-env';
 import {
@@ -54,7 +58,7 @@ export function validateRunRequest(
   values: Record<string, unknown>,
   cwd: string = process.cwd(),
 ): ValidateRunResult {
-  const discovery = { agentsDir: resolve(cwd, 'agents'), repoRoot: cwd };
+  const discovery = resolveDiscoveryOptions({ fallbackRoot: cwd });
   const pkg = getResolvedAgentPackage(discovery, agentId);
   if (!pkg) {
     return { ok: false, error: `Unknown agent: ${agentId}` };
@@ -114,6 +118,22 @@ export async function executeQueuedRun(input: {
   const startedAt = new Date().toISOString();
 
   try {
+    const discovery = resolveDiscoveryOptions({ fallbackRoot: input.cwd });
+    const mode =
+      (await resolveAgentModeForId(discovery, input.agentId, input.cwd)) ??
+      'autonomous';
+    // Approval: explicit autoApprove wins. Else autonomous batches auto-grant
+    // T2; interactive chat waits for the human in the admin UI.
+    const toolApproval: ToolApprovalPolicy = input.autoApprove
+      ? { mode: 'auto' }
+      : mode === 'autonomous'
+        ? { mode: 'auto' }
+        : {
+            mode: 'interactive',
+            requestApproval: (req) =>
+              adminRunStore.waitForApproval(input.runId, req),
+          };
+
     const fromSpec = await runDiscoveredAgent({
       request: {
         agentId: input.agentId,
@@ -127,13 +147,7 @@ export async function executeQueuedRun(input: {
       cwd: input.cwd,
       abortSignal: input.abortSignal,
       onProgress: memorySink,
-      toolApproval: input.autoApprove
-        ? { mode: 'auto' }
-        : {
-            mode: 'interactive',
-            requestApproval: (req) =>
-              adminRunStore.waitForApproval(input.runId, req),
-          },
+      toolApproval,
     });
 
     const finishedAt = new Date().toISOString();

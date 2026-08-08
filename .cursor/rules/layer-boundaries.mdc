@@ -1,30 +1,32 @@
 ---
-description: レイヤ境界 — エージェント固有設定の置き場所（違反禁止）
+description: レイヤ境界 — 実行環境 vs ワークフロー定義の置き場所（違反禁止）
 alwaysApply: true
 ---
 
 # Layer boundaries（厳守）
 
-エージェント固有・環境固有の値は **置き場を間違えない**。便利のために `packages/*` や `scripts/` へ漏らさない。
+実行環境とワークフロー定義、エージェント固有・環境固有の値は **置き場を間違えない**。便利のために `packages/*` や `scripts/` へ漏らさない。
 
 ## 何をどこに置くか
 
 | 置き場 | 置いてよい | 置いてはいけない |
 |--------|------------|------------------|
-| `agents/<id>/` | そのエージェントの `agent.ts`（必須。`limits` / `verification` を内包）・`params.yaml`（任意）・固有 instruction・モデル選択 | — |
-| `agents/dev-env` | このリポの `.env` 配線・provider bootstrap・host execution policy 既定値（`execution-policy.ts`）・`agents/*/` **ディスカバリ** | 個別エージェントの業務設定・params 内容の複製 |
+| `agents/<id>/` / `plugins/<pack>/<id>/` | そのエージェントの `agent.ts`（必須。`limits` / `verification` を内包）・`params.yaml`（任意）・固有 instruction・モデル選択 | 独自の run ループ / admin / `.env` 読込 |
+| `agents/dev-env` | 実行環境の `.env` 配線・provider bootstrap・host execution policy・**マルチルート discovery**（builtin + plugins） | 個別エージェントの業務設定・params 内容の複製 |
+| `plugins/<pack>/` | 目的別ワークフロー定義の集合（packs）。ホストが discovery して実行する。in-tree は `showcase/`（薄いデモ）。`personal/` など重い自動化は別 git を `plugins/` に clone | `executeAgentRun` の再実装、ホスト配線の import |
 | `packages/*` | 汎用スキーマ・`runAgent`・`executeAgentRun`・`loadAgentParamsFile(path)`・`verify.*`・connector **ファクトリ** | エージェント名の列挙、固定 registry、特定 agent の default、env 名前提 |
 | `scripts/` | argv を解釈しディスカバリ結果で実行する **薄い CLI** | エージェント ID のハードコード、固有パラメータ、per-agent 分岐 |
-| `apps/admin` | ディスカバリ駆動の汎用 UI/API | 特定エージェント向けの専用画面ロジックや固定 ID |
+| `apps/admin` | ディスカバリ駆動の汎用 UI/API（実行環境の一部） | 特定エージェント向けの専用画面ロジックや固定 ID |
 | ルート `package.json` | `run` / `admin` / `smoke:*` など汎用 script | `run:hello` のような per-agent script |
 
 ## 原則
 
-1. **Source of truth は `agents/<id>/` だけ**（`agent.ts` の `limits` / `verification` + 任意 `params.yaml`）。
-2. **`packages/*` はどのエージェントが存在するかを知らない**。パスや id を引数で受け取る。
-3. **`scripts/` もエージェント固有設定を持たない**。一覧は `discoverAgents`、実行対象は argv（またはパス規約からの推論）のみ。コメント例に固有 id を書くのは可、実行時 default に固有 id を焼くのは不可。
-4. エージェント追加 = `agents/<id>/` にファイルを置く。`packages/*`・`scripts/`・ルート scripts を増やさない。
-5. 迷ったら「この定数を消しても別エージェント追加に影響しないか？」→ No なら `agents/<id>/` へ。
+1. **実行の主体は実行環境**（`runDiscoveredAgent` → `executeAgentRun`）。`agent.ts` はホストが import する定義モジュールであり、直接実行するエントリではない。
+2. **Source of truth は `<id>/agent.ts`**（`limits` / `verification` + 任意 `params.yaml`）。builtin は `agents/`、業務定義は `plugins/<pack>/`。
+3. **`packages/*` はどのエージェントが存在するかを知らない**。パスや id を引数で受け取る。
+4. **`scripts/` / admin もエージェント固有設定を持たない**。一覧は `discoverAgents`、実行対象は argv / UI 選択のみ。
+5. **定義の追加 = pack を `plugins/` に置く**（または builtin サンプルを `agents/<id>/` に置く）。`packages/*`・`scripts/`・ルート scripts を増やさない。
+6. 迷ったら「この定数を消しても別エージェント / 別 pack 追加に影響しないか？」→ No なら定義側へ。
 
 ## 違反の例（やってはいけない）
 
@@ -33,7 +35,7 @@ alwaysApply: true
 export const agentRegistry = [{ id: 'hello', ... }];
 
 // scripts に固有 default — NG
-const agentId = process.argv[3] ?? 'runspec-demo';
+const agentId = process.argv[3] ?? 'harness-demo';
 
 // packages が process.env.GEMINI_API_KEY を読む — NG
 ```
@@ -42,7 +44,8 @@ const agentId = process.argv[3] ?? 'runspec-demo';
 
 ```ts
 // scripts: ディスカバリ + argv のみ
-const manifest = getDiscoveredAgent({ agentsDir, repoRoot }, agentIdFromArgv);
+const discovery = resolveDiscoveryOptions({ fallbackRoot: cwd });
+const manifest = getDiscoveredAgent(discovery, agentIdFromArgv);
 
 // packages: パスを受けて読むだけ
 loadAgentParamsFile(paramsFilePath);

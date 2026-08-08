@@ -1,5 +1,7 @@
 /**
- * Env wiring + discovery for agents/scripts in this repo — not part of @agent-env/* packages.
+ * Execution-environment host wiring (discovery, env bootstrap, run entry).
+ * Workflow definition packs under plugins/ only export agentDefinition —
+ * they do not own the run loop.
  */
 export {
   bootstrapProvidersFromEnv,
@@ -18,8 +20,19 @@ export {
   type ResolvedAgentPackage,
 } from './catalog.js';
 export {
+  resolveAgentModeForId,
+  resolvePackageAgentMode,
+} from './agent-mode.js';
+export {
   DEFAULT_HOST_EXECUTION_LIMITS,
 } from './execution-policy.js';
+export {
+  discoveryFromHostPaths,
+  resolveDiscoveryOptions,
+  resolveHostPaths,
+  type HostPaths,
+  type ResolveHostPathsOptions,
+} from './host-paths.js';
 export {
   buildRunRequestFromValues,
   defaultValuesFromParams,

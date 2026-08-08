@@ -39,7 +39,7 @@ ADK FunctionTools の実行経路は provider により 2 系統ある:
 - **`verification`**（`VerificationPlan` または `(context) => VerificationPlan`）: `@agent-env/harness` の `verify.*` ファクトリで組み立てた `VerificationCheck[]`。host が追加検証を持つ場合はその後ろに連結される
 - **モデル**: `provider:model` 文字列（例 `cursor:auto` / `gemini:gemini-3.1-pro`）を ADK `LlmAgent.model` に渡すだけで ADK の LLMRegistry ルーティングに乗る。明示的な `BaseLlm` が要る場合のみ `resolveModel({ provider, model })`（`@agent-env/llm`）。**run 単位のモデル上書きはない**
 
-旧 RunSpec / EvaluationSpec（JSON テンプレート + `evaluation.ref`）は廃止された。「RunSpec が安全境界」という前提はもう成り立たない — 安全境界は `agentDefinition.limits`（host 既定との min マージ、agent 自身は緩められない）と `createGuardedTool` の T0–T3 fail-closed ガードが担う。
+安全境界は `agentDefinition.limits`（host 既定との min マージ、agent 自身は緩められない）と `createGuardedTool` の T0–T3 fail-closed ガードが担う。
 
 ## 実行オーケストレーション（Control plane）
 
@@ -54,7 +54,7 @@ flowchart LR
   Exec --> Ver["verify.* checks"]
 ```
 
-`executeAgentRun`（`packages/harness/src/runtime/run-execution.ts`）が state machine（`QUEUED → PROVISIONING → RUNNING → VERIFYING → (REPAIRING → RUNNING)* → SUCCEEDED|COMPLETED|FAILED|...`）・budget enforcement・tool gateway・verification 実行をまとめて担う。単一エントリは [`agents/dev-env/run-discovered-agent.ts`](../agents/dev-env/run-discovered-agent.ts) の `runDiscoveredAgent`。CLI（[`scripts/run.ts`](../scripts/run.ts)）も admin もここ経由。
+`executeAgentRun`（`packages/harness/src/runtime/run-execution.ts`）が state machine（`QUEUED → PROVISIONING → RUNNING → VERIFYING → (REPAIRING → RUNNING)* → SUCCEEDED|COMPLETED|FAILED|...`）・budget enforcement・tool gateway・verification 実行をまとめて担う。単一エントリは [`agents/dev-env/run-discovered-agent.ts`](../agents/dev-env/run-discovered-agent.ts) の `runDiscoveredAgent`。CLI（[`scripts/run.ts`](../scripts/run.ts)）も admin もここ経由。定義は builtin `agents/<id>/` と `plugins/<pack>/<id>/` から discovery される（実行の主体は常にホスト）。
 
 ### 終了状態
 
@@ -91,10 +91,10 @@ flowchart LR
 - [x] AI 生成 TS 実行: `createTsCodeRunnerTool` + エージェント単位 `exec/` npm 環境（`ensureExecEnv`）
 - [x] エージェント局所 Python: **uv** 管理の `ensurePythonEnv` + `createPythonScriptTool`（事前宣言 scripts）+ `createPythonCodeRunnerTool`（生成コード T2）
 - [x] Independent verifier（`agentDefinition.verification` + `verify.*` deterministic checks + custom/agent SPI）
-- [x] サンプル: `agents/runspec-demo` + `npm run run -- runspec-demo`
+- [x] サンプル: `agents/harness-demo` + `npm run run -- harness-demo`
 - [x] サンプル: `agents/code-exec`（固定処理は FunctionTool、生成 TS は `exec/`）
-- [x] サンプル: `agents/python-vision`（`python/scripts/detect.py` mock YOLO → 判断）
-- [x] サンプル: `agents/knowledge-assistant`（local hybrid RAG + citations）
+- [x] サンプル: `plugins/personal/python-vision`（`python/scripts/detect.py` mock YOLO → 判断）
+- [x] サンプル: `plugins/personal/knowledge-assistant`（local hybrid RAG + citations）
 
 ### Phase W（作業環境の骨格）— Loop / Connection / Data
 

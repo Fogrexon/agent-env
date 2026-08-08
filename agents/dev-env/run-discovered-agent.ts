@@ -40,6 +40,11 @@ import {
   type ResolvedAgentPackage,
 } from './catalog.js';
 import { DEFAULT_HOST_EXECUTION_LIMITS } from './execution-policy.js';
+import {
+  discoveryFromHostPaths,
+  resolveDiscoveryOptions,
+  resolveHostPaths,
+} from './host-paths.js';
 
 export interface RunDiscoveredAgentOptions {
   request: AgentRunRequest;
@@ -67,10 +72,7 @@ export interface RunDiscoveredAgentResult extends ExecuteAgentRunResult {
 }
 
 function discoveryFromCwd(cwd: string): DiscoverAgentsOptions {
-  return {
-    agentsDir: resolve(cwd, 'agents'),
-    repoRoot: resolve(cwd),
-  };
+  return resolveDiscoveryOptions({ fallbackRoot: cwd });
 }
 
 function createBuildContext(options: {
@@ -174,10 +176,11 @@ export async function runDiscoveredAgent(
   options: RunDiscoveredAgentOptions,
 ): Promise<RunDiscoveredAgentResult> {
   const cwd = options.cwd ?? process.cwd();
-  loadDotEnv(resolve(cwd, '.env'));
+  const host = resolveHostPaths({ fallbackRoot: cwd });
+  loadDotEnv(resolve(host.root, '.env'));
   bootstrapProvidersFromEnv();
 
-  const discovery = options.discovery ?? discoveryFromCwd(cwd);
+  const discovery = options.discovery ?? discoveryFromHostPaths(host);
   const pkg = getResolvedAgentPackage(discovery, options.request.agentId);
   if (!pkg) {
     throw new Error(`Unknown agent: ${options.request.agentId}`);
@@ -185,7 +188,7 @@ export async function runDiscoveredAgent(
 
   const request = options.values
     ? buildRunRequestFromValues(pkg, options.values, {
-        cwd,
+        cwd: host.root,
         runId: options.request.runId,
       })
     : agentRunRequestSchema.parse(options.request);
@@ -196,14 +199,14 @@ export async function runDiscoveredAgent(
     );
   }
 
-  const definition = await loadAgentDefinition(pkg.entry, cwd);
+  const definition = await loadAgentDefinition(pkg.entry, host.root);
   if (definition.id !== pkg.id) {
     throw new Error(
       `agentDefinition.id "${definition.id}" must match directory "${pkg.id}"`,
     );
   }
 
-  const repoRoot = discovery.repoRoot ?? cwd;
+  const repoRoot = discovery.repoRoot ?? host.root;
   const context = createBuildContext({
     repoRoot,
     discovery,
@@ -231,7 +234,7 @@ export async function runDiscoveredAgent(
   let writer: RunHistoryWriter | undefined;
   if (options.history !== false) {
     const history = createRunHistoryStore({
-      baseDir: resolve(cwd, '.runs', 'runs'),
+      baseDir: resolve(host.root, '.runs', 'runs'),
     });
     writer = history.open({
       runId,
@@ -267,7 +270,7 @@ export async function runDiscoveredAgent(
     verification,
     stateDelta,
     attachments: request.attachments,
-    cwd,
+    cwd: host.root,
     runId,
     abortSignal: options.abortSignal,
     toolApproval: options.toolApproval,

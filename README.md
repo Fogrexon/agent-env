@@ -4,28 +4,45 @@
 
 ## 構成
 
+このリポジトリは **実行環境**（ハーネス + admin + CLI）です。ワークフロー定義は builtin サンプルか `plugins/<pack>/` のパックとして読み込み、実行の主体は常にホスト側（`runDiscoveredAgent` → `executeAgentRun`）にあります。
+
 ```
-agents/                  # エージェントパッケージ（agentDefinition）
-  <id>/
-    agent.ts             # export agentDefinition（必須。limits / verification を内包）
-    params.yaml          # 呼出し入力スキーマ（任意。無ければ既定の単一 message フィールド）
-  dev-env/               # このリポ専用の env 配線 + host execution policy（@agent-env/repo-env）
+agents/                  # builtin サンプル + ホスト配線
+  <id>/                  # hello / harness-demo / code-exec など
+    agent.ts             # export agentDefinition（必須）
+    params.yaml          # 任意
+  dev-env/               # discovery / .env bootstrap / host limits（@agent-env/repo-env）
+plugins/                 # ワークフロー定義パック（各直下が agents ルート）
+  showcase/              # 薄いデモ（character-chat / web-qa）— in-tree
+  personal/              # 個人自動化（別 git を clone。gitignore）
+  <pack>/<id>/agent.ts
 packages/
   shared/                # Zod（ModelRef / AgentExecutionLimits / VerificationPlan / Connector meta）
   llm/                   # provider ファクトリ・registry（env を読まない）
   harness/               # defineAgent / executeAgentRun / verify.* / connectors（env を読まない）
 docs/                    # ARCHITECTURE + 研究レポート
-apps/                    # admin UI
+apps/admin/              # 管理 UI（実行環境の一部）
 scripts/                 # run / smoke
 ```
 
 ## セットアップ
 
 ```bash
-cp .env.example .env     # このリポのエージェント用。本番では任意の秘密管理で可
+cp .env.example .env     # 実行環境用。秘密はここだけ
 npm install
 npm run build
 ```
+
+プラグインパックを足す場合:
+
+```bash
+# 薄いデモは plugins/showcase に同梱
+# 個人自動化:
+git clone git@github.com:Fogrexon/agent-env-plugins-personal.git plugins/personal
+npm install
+```
+
+詳細は [plugins/README.md](plugins/README.md)。
 
 Node.js **≥ 24.13** / npm **≥ 11.8** を想定しています。
 
@@ -34,7 +51,7 @@ Node.js **≥ 24.13** / npm **≥ 11.8** を想定しています。
 `@agent-env/llm` と `@agent-env/harness` は **env 名も `.env` も知りません**。  
 利用側が `create*Provider` / `create*Connector` にキーや URL を渡します。
 
-このリポジトリのエージェントは `@agent-env/repo-env`（`agents/dev-env/`）から env を読んで渡しています。別アプリではそのパッケージを使わず、自前で `registerProviders` / connector を配線してください。
+このリポジトリの実行環境ホストは `@agent-env/repo-env`（`agents/dev-env/`）から env を読んで渡します。ワークフロー定義パック（`plugins/`）は env を読まず、ホストが注入した context だけを使います。
 
 ## Provider の例
 
@@ -79,7 +96,7 @@ resolveModel({ provider: 'lm-studio', model: 'local-model' });
 
 ```bash
 npm run smoke:runtime
-npm run run -- runspec-demo "短いデモを実行して"
+npm run run -- harness-demo "短いデモを実行して"
 ```
 
 実行は常に discovery 経由で `agents/<id>/agent.ts` の `agentDefinition` を読み、`runDiscoveredAgent` → `executeAgentRun` で走らせます。実行制限（`limits`: maxSteps / maxToolCalls / maxWallSeconds / maxRepairs / maxSubagentDepth）と成功判定（`verification`: `verify.*` check 配列）は `agentDefinition` 自身が持ち、host 側の既定ポリシー（`agents/dev-env/execution-policy.ts`）と自動的にマージされます（各フィールドは agent 値と host 値の小さい方 / 両方の verification checks を連結）。ランタイムはこれを唯一の真として実行し、run 単位のモデル上書きはありません。
@@ -208,22 +225,45 @@ registerConnector(
 
 すべて **Cursor SDK が既定**（`CURSOR_API_KEY`。未設定時は Gemini にフォールバック）。ツール付きエージェントも `ProviderBackedLlm` → Cursor SDK `customTools` ブリッジで Cursor 上で動きます。
 
+### Builtin（`agents/`）
+
 | id | 内容 | 追加要件 |
 |----|------|----------|
 | `hello` | 最小の単一エージェント | — |
-| `parallel-pipeline` | PRO/CON 開弁→反論×2（並列）→判定（web/X 検索可） | `TAVILY_API_KEY`（任意・推奨） |
-| `runspec-demo` | `limits` + guarded tools + 独立 verification（`verify.*`） | — |
-| `collector` | 複数コネクタ並列収集 → brief | 任意: `gh` / `TAVILY_API_KEY` |
-| `deep-research` | **Tavily** + optional **X (Grok Build)** deep research（問い分解 → 探索 → ギャップ埋め → 一枚レポート） | `TAVILY_API_KEY`（X は `grok login`） |
-| `security-audit` | GitHub clone → **並列 scout** → Finding/Patch → 別モデル評価（**REVISE 時はパッチ修正→再評価**）→ 構造化 PR | `git` / PR には `gh` |
-| `python-vision` | 局所 Python（uv）で mock YOLO → 判断 | `uv` |
-| `knowledge-assistant` | local hybrid RAG（BM25+embeddings）+ citations | —（本番 embedder は任意注入） |
-| `investigator` | 再利用可能な Web 調査（単体でも親からも） | `TAVILY_API_KEY` または `BRAVE_API_KEY` |
-| `research-desk` | `createSubagentTool` で `investigator` 定義を呼んで統合 | 同上 |
+| `harness-demo` | `limits` + guarded tools + 独立 verification（`verify.*`） | — |
+| `code-exec` | FunctionTool + 任意の TS code runner | — |
+
+### Showcase（`plugins/showcase/` — 薄いデモ）
+
+| id | 内容 | 追加要件 |
+|----|------|----------|
+| `character-chat` | キャラなりきり対話のみ（ツールなし） | — |
+| `web-qa` | Web 検索して答えるだけ | `TAVILY_API_KEY` または `BRAVE_API_KEY` |
+
+### Personal（別リポ → `plugins/personal/`）
+
+個人自動化は [Fogrexon/agent-env-plugins-personal](https://github.com/Fogrexon/agent-env-plugins-personal)（private）を clone する。
 
 ```bash
-npm run run -- deep-research "…"
-npm run run -- security-audit "Audit https://github.com/Fogrexon/CGEngine ..."
+git clone git@github.com:Fogrexon/agent-env-plugins-personal.git plugins/personal
+npm install
+```
+
+| id | 内容 | 追加要件 |
+|----|------|----------|
+| `parallel-pipeline` | PRO/CON 開弁→反論×2（並列）→判定（web/X 検索可） | `TAVILY_API_KEY`（任意・推奨） |
+| `collector` | 複数コネクタ並列収集 → brief | 任意: `gh` / `TAVILY_API_KEY` |
+| `deep-research` | **Tavily** + optional **X (Grok Build)** deep research | `TAVILY_API_KEY`（X は `grok login`） |
+| `security-audit` | GitHub clone → 並列 scout → Finding/Patch → 評価 → 構造化 PR | `git` / PR には `gh` |
+| `python-vision` | 局所 Python（uv）で mock YOLO → 判断 | `uv` |
+| `knowledge-assistant` | local hybrid RAG（BM25+embeddings）+ citations | — |
+| `investigator` | 再利用可能な Web 調査（単体でも親からも） | `TAVILY_API_KEY` または `BRAVE_API_KEY` |
+| `research-desk` | `createSubagentTool` で `investigator` を呼んで統合 | 同上 |
+
+```bash
+npm run run -- character-chat "今日のおすすめは？"
+npm run run -- web-qa "…"
+npm run run -- deep-research "…"   # personal pack が必要
 npm run run -- knowledge-assistant "検証（verification）の成功判定は何を見ますか？"
 ```
 

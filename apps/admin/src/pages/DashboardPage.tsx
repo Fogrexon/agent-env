@@ -77,7 +77,7 @@ export function DashboardPage() {
     <PageShell
       title="Dashboard"
       subtitle="Executor slots, queue depth, recent builds"
-      crumbs={[{ title: 'Control' }, { title: 'Dashboard' }]}
+      crumbs={[{ title: 'Dashboard' }]}
       extra={
         <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
           Refresh

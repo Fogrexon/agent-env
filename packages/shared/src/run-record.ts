@@ -157,8 +157,7 @@ export const runRecordSchema = z.object({
 export type RunRecord = z.infer<typeof runRecordSchema>;
 
 /**
- * Runtime-generated intent snapshot (not an authored RunSpec).
- * Written to run history as intent.json.
+ * Runtime-generated intent snapshot for a run (written as intent.json).
  */
 export const agentRunIntentSchema = z.object({
   agentId: z.string().min(1),

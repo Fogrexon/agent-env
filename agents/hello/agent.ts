@@ -19,6 +19,7 @@ export const agentDefinition = defineAgent({
   name: 'Hello',
   description:
     'Minimal demo with ContextBuilder working-context hint + agent memory tools.',
+  mode: 'interactive',
   limits: {
     maxSteps: 12,
     maxToolCalls: 12,

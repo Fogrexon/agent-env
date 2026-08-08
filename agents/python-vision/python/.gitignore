@@ -1,7 +1,0 @@
-.venv/
-.code-exec/
-__pycache__/
-*.pyc
-*.pyo
-.Python
-*.log

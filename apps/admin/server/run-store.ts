@@ -54,7 +54,7 @@ export interface AdminRunResultSummary {
 export interface AdminRunRecord {
   runId: string;
   agentId: string;
-  runMode: 'agent' | 'runspec';
+  runMode: 'agent';
   status: AdminRunStatus;
   createdAt: string;
   updatedAt: string;
@@ -78,7 +78,7 @@ export interface AdminRunRecord {
 export interface AdminRunSummary {
   runId: string;
   agentId: string;
-  runMode: 'agent' | 'runspec';
+  runMode: 'agent';
   status: AdminRunStatus;
   createdAt: string;
   updatedAt: string;
@@ -94,7 +94,7 @@ export interface AdminRunSummary {
 export interface CreateAdminRunInput {
   runId: string;
   agentId: string;
-  runMode: 'agent' | 'runspec';
+  runMode: 'agent';
   messagePreview?: string;
   historyDir?: string;
 }

@@ -1,5 +1,7 @@
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { AppLayout } from './components/Layout.js';
+import { CatalogPage } from './pages/CatalogPage.js';
+import { ChatPage } from './pages/ChatPage.js';
 import { DashboardPage } from './pages/DashboardPage.js';
 import { JobsPage } from './pages/JobsPage.js';
 import { QueuePage } from './pages/QueuePage.js';
@@ -14,14 +16,18 @@ export function App() {
       <BrowserRouter>
         <Routes>
           <Route element={<AppLayout />}>
-            <Route index element={<DashboardPage />} />
+            <Route index element={<Navigate to="/catalog" replace />} />
+            <Route path="catalog" element={<CatalogPage />} />
+            <Route path="chat" element={<ChatPage />} />
+            <Route path="chat/:agentId" element={<ChatPage />} />
             <Route path="jobs" element={<JobsPage />} />
             <Route path="jobs/:agentId" element={<JobsPage />} />
             <Route path="queue" element={<QueuePage />} />
             <Route path="runs/:runId" element={<RunDetailPage />} />
             <Route path="schedules" element={<SchedulesPage />} />
+            <Route path="dashboard" element={<DashboardPage />} />
             <Route path="settings" element={<SettingsPage />} />
-            <Route path="*" element={<Navigate to="/" replace />} />
+            <Route path="*" element={<Navigate to="/catalog" replace />} />
           </Route>
         </Routes>
       </BrowserRouter>

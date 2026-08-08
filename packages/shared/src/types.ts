@@ -140,6 +140,9 @@ export const agentRunResultSchema = z.object({
 });
 export type AgentRunResult = z.infer<typeof agentRunResultSchema>;
 
+export const agentModeSchema = z.enum(['interactive', 'autonomous']);
+export type AgentMode = z.infer<typeof agentModeSchema>;
+
 /** Manifest metadata produced by repo-local discovery (not stored in packages). */
 export const agentManifestSchema = z.object({
   id: z.string().min(1),
@@ -149,6 +152,12 @@ export const agentManifestSchema = z.object({
   models: z.array(modelRefSchema).optional(),
   /** Repo-relative path to AgentParams YAML when present. */
   paramsFile: z.string().min(1).optional(),
+  /**
+   * How the host should present and run this agent.
+   * interactive = chat-style; autonomous = batch / one-shot jobs.
+   * Omitted → treated as autonomous.
+   */
+  mode: agentModeSchema.optional(),
 });
 export type AgentManifest = z.infer<typeof agentManifestSchema>;
 
