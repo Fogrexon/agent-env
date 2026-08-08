@@ -12,10 +12,12 @@ coverage/
 .agent-env/
 .runs/
 
-# Cloned packs stay local; only in-tree showcase is tracked
-plugins/*
+# Plugin packs: track only showcase agents. Everything else under plugins/ is local.
+plugins/**
 !plugins/README.md
 !plugins/showcase/
 !plugins/showcase/**
+# Build artifacts inside the tracked showcase pack
 plugins/showcase/**/dist/
 plugins/showcase/**/node_modules/
+plugins/showcase/**/.venv/
