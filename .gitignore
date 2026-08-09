@@ -16,8 +16,17 @@ apps/admin/playwright-report/
 apps/admin/blob-report/
 apps/admin/storybook-static/
 
-# Cloned personal pack stays local; in-tree packs under agents/ are tracked
-agents/personal/
+# agents/: only in-tree packs + host are tracked (personal / user packs stay local)
+agents/*
+!agents/README.md
+!agents/dev-env/
+!agents/dev-env/**
+!agents/builtin/
+!agents/builtin/**
+!agents/meta/
+!agents/meta/**
+!agents/showcase/
+!agents/showcase/**
 agents/**/dist/
 agents/**/node_modules/
 agents/**/.venv/
