@@ -21,7 +21,6 @@ export interface EnqueueSuccess {
   agentId: string;
   status: 'pending';
   trigger: JobTrigger;
-  autoApprove: boolean;
   job: ReturnType<typeof jobPublic>;
 }
 
@@ -33,7 +32,6 @@ export function enqueueAgentJob(
     agentId: string;
     values: Record<string, unknown>;
     cwd: string;
-    autoApprove?: boolean;
     trigger: JobTrigger;
     priority?: number;
     scheduleId?: string;
@@ -47,7 +45,6 @@ export function enqueueAgentJob(
     agentId: input.agentId,
     values: input.values,
     model: null,
-    autoApprove: input.autoApprove === true,
     trigger: input.trigger,
     priority: input.priority ?? 0,
     messagePreview: validated.messagePreview,
@@ -63,7 +60,6 @@ export function enqueueAgentJob(
     agentId: job.agentId,
     status: 'pending',
     trigger: job.trigger,
-    autoApprove: job.autoApprove === 1,
     job: jobPublic(job),
   };
 }
@@ -117,7 +113,6 @@ export function createWorkerPool(options: {
       agentId: job.agentId,
       cwd,
       values,
-      autoApprove: job.autoApprove === 1,
       abortSignal: live!.abortController.signal,
     })
       .then((outcome) => {

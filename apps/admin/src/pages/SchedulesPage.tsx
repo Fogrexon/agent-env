@@ -29,7 +29,6 @@ export function SchedulesPage() {
     agentId: '',
     cron: '0 * * * *',
     message: '',
-    autoApprove: true,
     enabled: true,
   });
 
@@ -64,7 +63,6 @@ export function SchedulesPage() {
           agentId: form.agentId,
           cron: form.cron,
           values: { message: form.message },
-          autoApprove: form.autoApprove,
           enabled: form.enabled,
         }),
       });
@@ -155,14 +153,6 @@ export function SchedulesPage() {
             }
           />
           <div className="ops-inline-controls">
-            <Checkbox
-              id="schedule-auto-approve"
-              labelText="T2 auto-approve"
-              checked={form.autoApprove}
-              onChange={(_e, { checked }) =>
-                setForm((f) => ({ ...f, autoApprove: checked }))
-              }
-            />
             <Checkbox
               id="schedule-enabled"
               labelText="Enabled"

@@ -1,11 +1,11 @@
-# @agent-env/plugins-showcase
+# @agent-env/agents-showcase
 
-Thin workflow demos for [agent-env](https://github.com/) execution environments.
+Thin workflow demos for agent-env execution environments.
 
 This pack only exports `agentDefinition` modules (`<id>/agent.ts`). It does **not**
-run agents by itself — place it under an agent-env host's `plugins/` directory.
+run agents by itself — place it under an agent-env host's `agents/showcase/` directory.
 
-Heavier personal automation lives in `plugins/personal/` (same host, different pack).
+Heavier personal automation lives in `agents/personal/` (same host, different pack).
 
 ```bash
 cd /path/to/agent-env && npm install

@@ -93,7 +93,7 @@ function wrapToolWithGateway(
 
 /**
  * Wrap every BaseTool on an agent tree with the runtime gateway (budget / events).
- * Does not strip or allowlist tools — host approval remains on createGuardedTool.
+ * Does not strip or allowlist tools — host budget / maxToolCalls still apply.
  *
  * Call `restore()` after the run; agents are module-level singletons.
  */

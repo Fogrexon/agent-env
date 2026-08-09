@@ -1,0 +1,28 @@
+apiVersion: agent-env/v1
+kind: AgentParams
+agentId: agent-author
+title: エージェント作成
+description: 書き込み可能な agents pack を確認してエージェント定義を作成し、必要に応じて admin の cron schedule / webhook trigger を設定する。
+objectiveField: message
+fields:
+  - id: message
+    type: text
+    label: 依頼内容
+    required: true
+    default: "新しいエージェントの要件を書いてください（目的・ツール・希望する agents pack・cron schedule / webhook の希望など）。pack 未指定の場合は書き込み前に確認します。"
+  - id: allowWrite
+    type: boolean
+    label: ファイル書き込みを許可
+    default: true
+  - id: allowGitCommit
+    type: boolean
+    label: git add / commit を許可
+    default: false
+  - id: allowGitPush
+    type: boolean
+    label: git push を許可（リモート設定済み・確認後のみ）
+    default: false
+  - id: allowAdminControlWrite
+    type: boolean
+    label: admin の schedule / webhook 設定変更を許可
+    default: true

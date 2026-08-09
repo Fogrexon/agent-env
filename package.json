@@ -7,9 +7,9 @@
   "license": "MIT",
   "workspaces": [
     "packages/*",
-    "agents/*",
-    "apps/*",
-    "plugins/*/*"
+    "agents/dev-env",
+    "agents/*/*",
+    "apps/*"
   ],
   "scripts": {
     "build": "tsc -b",

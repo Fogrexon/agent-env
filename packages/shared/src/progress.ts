@@ -7,8 +7,6 @@ export const agentProgressKindSchema = z.enum([
   'run.started',
   'agent.event',
   'run.state',
-  'approval.requested',
-  'approval.resolved',
   'run.completed',
   'run.failed',
 ]);

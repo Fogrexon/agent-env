@@ -3,14 +3,10 @@
  * Enqueue lives in control/worker-pool.ts.
  */
 import { randomUUID } from 'node:crypto';
-import {
-  AgentParamsValidationError,
-  type ToolApprovalPolicy,
-} from '@agent-env/harness';
+import { AgentParamsValidationError } from '@agent-env/harness';
 import {
   buildRunRequestFromValues,
   getResolvedAgentPackage,
-  resolveAgentModeForId,
   resolveDiscoveryOptions,
   runDiscoveredAgent,
 } from '@agent-env/repo-env';
@@ -106,7 +102,6 @@ export async function executeQueuedRun(input: {
   agentId: string;
   cwd: string;
   values: Record<string, unknown>;
-  autoApprove: boolean;
   abortSignal: AbortSignal;
 }): Promise<ExecuteOutcome> {
   const memorySink: AgentProgressSink = (event) => {
@@ -117,22 +112,6 @@ export async function executeQueuedRun(input: {
   const startedAt = new Date().toISOString();
 
   try {
-    const discovery = resolveDiscoveryOptions({ fallbackRoot: input.cwd });
-    const mode =
-      (await resolveAgentModeForId(discovery, input.agentId, input.cwd)) ??
-      'autonomous';
-    // Approval: explicit autoApprove wins. Else autonomous batches auto-grant
-    // T2; interactive chat waits for the human in the admin UI.
-    const toolApproval: ToolApprovalPolicy = input.autoApprove
-      ? { mode: 'auto' }
-      : mode === 'autonomous'
-        ? { mode: 'auto' }
-        : {
-            mode: 'interactive',
-            requestApproval: (req) =>
-              adminRunStore.waitForApproval(input.runId, req),
-          };
-
     const fromSpec = await runDiscoveredAgent({
       request: {
         agentId: input.agentId,
@@ -146,7 +125,6 @@ export async function executeQueuedRun(input: {
       cwd: input.cwd,
       abortSignal: input.abortSignal,
       onProgress: memorySink,
-      toolApproval,
     });
 
     const finishedAt = new Date().toISOString();

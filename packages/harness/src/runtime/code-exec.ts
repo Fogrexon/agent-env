@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { FunctionTool } from '@google/adk';
-import type { ToolContract, ToolContractInput } from '@agent-env/shared';
+import type { ToolContractInput } from '@agent-env/shared';
 import { z } from 'zod';
 import { createGuardedTool } from './tool-gateway.js';
 import {
@@ -57,12 +57,8 @@ export interface CreateTsCodeRunnerToolOptions {
   name?: string;
   description?: string;
   contract?: Partial<ToolContractInput>;
-  /** Default T2 (fail-closed without approve). */
+  /** Default T2. */
   riskClass?: 'T2' | 'T3';
-  approve?: (args: {
-    contract: ToolContract;
-    input: { code: string; args?: string[] };
-  }) => Promise<boolean> | boolean;
   cwd?: string;
   env?: NodeJS.ProcessEnv;
   runner?: ProcessRunner;
@@ -156,7 +152,7 @@ export async function runGeneratedTsCode(options: {
 }
 
 /**
- * Guarded tool: run model-authored TypeScript (T2 by default, fail-closed).
+ * Guarded tool: run model-authored TypeScript (T2 by default).
  * Isolation is process-level only (timeout + path jail + output cap + scrubbed env).
  * Use `prepare: createExecEnvGuard({ moduleRoot: workRoot })` so deps declared in
  * the agent-local `exec/package.json` are installed before the first run.
@@ -165,7 +161,6 @@ export async function runGeneratedTsCode(options: {
  * createTsCodeRunnerTool({
  *   workRoot: resolve(agentDir, 'exec'),
  *   prepare: createExecEnvGuard({ moduleRoot: execRoot }),
- *   approve: () => allowGeneratedCode,
  * })
  */
 export function createTsCodeRunnerTool(
@@ -206,9 +201,8 @@ export function createTsCodeRunnerTool(
     },
     description:
       options.description ??
-      'Execute AI-generated TypeScript in the agent-local exec npm env (process jail, not a full container sandbox). Requires approval when risk is T2/T3.',
+      'Execute AI-generated TypeScript in the agent-local exec npm env (process jail, not a full container sandbox).',
     parameters,
-    approve: options.approve,
     execute: async ({ code, args }) => {
       await options.prepare?.();
       return runGeneratedTsCode({

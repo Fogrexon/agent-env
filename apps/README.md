@@ -28,7 +28,7 @@ npm run admin
 | `/` | Dashboard（スロット・queue 深さ・失敗率・trigger 別 24h） |
 | `/jobs/:id` | ジョブ定義（agents ディスカバリ）+ Build with Parameters |
 | `/queue` | pending/running キュー + Build history（filter） |
-| `/runs/:runId` | Stages / verifier / budget / SSE console / approvals / artifacts |
+| `/runs/:runId` | Stages / budget / SSE console / artifacts |
 | `/schedules` | cron CRUD |
 | `/settings` | maxSlots・認証状態・webhook トークン・audit |
 
@@ -76,7 +76,6 @@ npm run admin
 | GET | `/api/runs/:runId/files` | 成果物一覧 |
 | GET | `/api/runs/:runId/files/*?download=1` | 成果物配信 |
 | POST | `/api/runs/:runId/cancel` | キャンセル |
-| POST | `/api/runs/:runId/approvals/:approvalId` | T2/T3 承認 |
 | DELETE | `/api/runs/:runId` | 完了済み削除 |
 
 ### 実行フロー
@@ -100,7 +99,7 @@ UI/webhook/cron → enqueue (SQLite) → WorkerPool (maxSlots)
 
 ハーネスが発行する汎用 `AgentProgressEvent`（`@agent-env/shared`）:
 
-- `run.started` / `agent.event` / `run.state` / `approval.*` / `run.completed` / `run.failed`
+- `run.started` / `agent.event` / `run.state` / `run.completed` / `run.failed`
 - `sequence` は run 内単調増加。SSE 再接続時は `after` でリプレイ
 
 ライブ SSE はプロセス内 `AdminRunStore`。永続ジョブの正本は SQLite + 完了後の `.runs/runs/`。

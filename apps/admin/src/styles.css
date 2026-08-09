@@ -797,18 +797,6 @@ body {
   font-size: 0.85rem;
 }
 
-.ops-approval {
-  border-top: 1px solid var(--line);
-  padding-top: 0.75rem;
-  margin-top: 0.75rem;
-}
-
-.ops-approval:first-of-type {
-  border-top: none;
-  padding-top: 0;
-  margin-top: 0;
-}
-
 button,
 input,
 textarea,
@@ -1109,144 +1097,10 @@ button {
 .badge-RUNNING,
 .badge-PROVISIONING,
 .badge-VERIFYING,
-.badge-WAITING_APPROVAL,
 .badge-WAITING_TOOL {
   border-color: var(--cds-border-subtle-01, #e0e0e0);
   color: var(--cds-link-primary, #0f62fe);
   background: var(--cds-layer-accent-01, #e0e0e0);
-}
-
-.badge-risk-T2 {
-  border-color: var(--cds-support-warning, #f1c21b);
-  color: var(--cds-text-primary, #161616);
-  background: var(--cds-layer-accent-01, #e0e0e0);
-}
-
-.badge-risk-T3 {
-  border-color: var(--cds-support-error, #da1e28);
-  color: var(--cds-support-error, #da1e28);
-  background: var(--cds-layer-01, #ffffff);
-}
-
-.field.checkbox.auto-approve {
-  margin-top: 0.85rem;
-}
-
-.field.checkbox.auto-approve strong {
-  display: block;
-  font-size: 0.92rem;
-}
-
-.field.checkbox.auto-approve .hint {
-  display: block;
-  margin-top: 0.2rem;
-  color: var(--muted);
-  font-size: 0.82rem;
-  line-height: 1.4;
-}
-
-.approval-panel {
-  margin-top: 1rem;
-  padding: 1rem;
-  border: 1px solid var(--cds-support-warning, #f1c21b);
-  border-radius: 0;
-  background: var(--cds-layer-01, #ffffff);
-}
-
-.approval-panel h2 {
-  margin: 0 0 0.35rem;
-  font-size: 1.05rem;
-}
-
-.approval-panel > .lede {
-  margin: 0 0 0.85rem;
-  color: var(--muted);
-  font-size: 0.88rem;
-}
-
-.approval-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 0.85rem;
-}
-
-.approval-card {
-  padding: 0.75rem;
-  border: 1px solid var(--cds-border-subtle-01, #e0e0e0);
-  border-radius: 0;
-  background: var(--cds-layer-01, #ffffff);
-}
-
-.approval-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
-  align-items: center;
-  margin-bottom: 0.45rem;
-}
-
-.approval-tool {
-  font-family: var(--mono);
-  font-weight: 600;
-  font-size: 0.92rem;
-}
-
-.approval-side {
-  color: var(--muted);
-  font-size: 0.8rem;
-}
-
-.approval-message {
-  margin: 0 0 0.5rem;
-  font-size: 0.88rem;
-}
-
-.approval-input {
-  margin: 0 0 0.75rem;
-  padding: 0.5rem 0.75rem;
-  max-height: 12rem;
-  overflow: auto;
-  border: 1px solid var(--cds-border-subtle-01, #e0e0e0);
-  border-radius: 0;
-  background: var(--cds-field-01, #f4f4f4);
-  font-family: var(--mono);
-  font-size: 0.875rem;
-  line-height: 1.4;
-  white-space: pre-wrap;
-  word-break: break-word;
-}
-
-.approval-actions {
-  display: flex;
-  gap: 0.55rem;
-  align-items: center;
-}
-
-.approval-actions button.primary {
-  background: var(--cds-button-primary, #0f62fe);
-  color: var(--cds-text-on-color, #ffffff);
-  border: none;
-  border-radius: 0;
-  padding: calc(0.875rem - 3px) 1rem;
-  font-weight: 600;
-}
-
-.approval-actions button.primary:disabled,
-.approval-actions button.secondary:disabled {
-  opacity: 0.55;
-  cursor: not-allowed;
-}
-
-.approval-actions button.secondary {
-  background: transparent;
-  color: var(--ink);
-  border: 1px solid var(--cds-border-strong-01, #8d8d8d);
-  border-radius: 0;
-  padding: calc(0.875rem - 3px) 1rem;
-  font-weight: 600;
 }
 
 .badge-completed,
@@ -2006,9 +1860,15 @@ button {
   }
 }
 
+/* Chat / report markdown — isolate from Carbon global heading/reset styles. */
 .markdown-view {
-  line-height: 1.43;
+  font-family: var(--sans);
   font-size: 0.875rem;
+  font-weight: 400;
+  line-height: 1.55;
+  letter-spacing: normal;
+  color: var(--ink);
+  overflow-wrap: anywhere;
 }
 
 .markdown-view.output {
@@ -2024,40 +1884,161 @@ button {
 .markdown-view.compact {
   margin-top: 0.25rem;
   font-size: 0.8125rem;
+  line-height: 1.45;
+}
+
+.markdown-view h1,
+.markdown-view h2,
+.markdown-view h3,
+.markdown-view h4,
+.markdown-view h5,
+.markdown-view h6 {
+  font-family: inherit;
+  font-weight: 650;
+  letter-spacing: normal;
+  line-height: 1.3;
+  color: inherit;
+  margin: 1.15em 0 0.45em;
+}
+
+.markdown-view h1 {
+  font-size: 1.2rem;
+  margin-top: 0.35em;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.markdown-view h2 {
+  font-size: 1.05rem;
+}
+
+.markdown-view h3 {
+  font-size: 0.95rem;
+}
+
+.markdown-view h4,
+.markdown-view h5,
+.markdown-view h6 {
+  font-size: 0.875rem;
 }
 
 .markdown-view p {
-  margin: 0 0 0.65rem;
+  margin: 0 0 0.7rem;
 }
 
 .markdown-view p:last-child {
   margin-bottom: 0;
 }
 
-.markdown-view pre {
-  margin: 0.5rem 0;
-  padding: 0.65rem 0.75rem;
-  border-radius: 0;
-  background: var(--cds-layer-accent-01, #e0e0e0);
-  color: var(--ink);
-  overflow: auto;
-  font-family: var(--mono);
-  font-size: 0.75rem;
+.markdown-view a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 0.12em;
 }
 
-.markdown-view code {
-  font-family: var(--mono);
-  font-size: 0.85em;
+.markdown-view strong {
+  font-weight: 650;
 }
 
-.markdown-view pre code {
-  font-size: inherit;
+.markdown-view em {
+  font-style: italic;
+}
+
+.markdown-view hr {
+  border: 0;
+  border-top: 1px solid var(--line);
+  margin: 1rem 0;
+}
+
+.markdown-view blockquote {
+  margin: 0.7rem 0;
+  padding: 0.3rem 0.85rem;
+  border-left: 3px solid var(--accent);
+  color: var(--muted);
+  background: transparent;
 }
 
 .markdown-view ul,
 .markdown-view ol {
-  margin: 0.4rem 0 0.65rem;
-  padding-left: 1.25rem;
+  margin: 0.35rem 0 0.7rem;
+  padding-left: 1.35rem;
+}
+
+.markdown-view li {
+  margin: 0.2rem 0;
+}
+
+.markdown-view li > p {
+  margin: 0.2rem 0;
+}
+
+.markdown-view ul ul,
+.markdown-view ol ol,
+.markdown-view ul ol,
+.markdown-view ol ul {
+  margin: 0.15rem 0 0.25rem;
+}
+
+.markdown-view pre {
+  margin: 0.55rem 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0;
+  border: 1px solid var(--line);
+  background: var(--cds-layer-02, #f4f4f4);
+  color: var(--ink);
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  line-height: 1.45;
+}
+
+.markdown-view code {
+  font-family: var(--mono);
+  font-size: 0.84em;
+  font-weight: 450;
+  letter-spacing: 0;
+}
+
+.markdown-view :not(pre) > code {
+  padding: 0.1em 0.35em;
+  border: 1px solid var(--line);
+  background: var(--cds-layer-02, #f4f4f4);
+}
+
+.markdown-view pre code {
+  font-size: inherit;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.markdown-view table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.75rem 0;
+  font-size: 0.8125rem;
+  display: block;
+  overflow-x: auto;
+}
+
+.markdown-view th,
+.markdown-view td {
+  border: 1px solid var(--line);
+  padding: 0.35rem 0.55rem;
+  text-align: left;
+  vertical-align: top;
+}
+
+.markdown-view th {
+  background: var(--cds-layer-02, #f4f4f4);
+  font-weight: 600;
+}
+
+.markdown-view img {
+  max-width: 100%;
+  height: auto;
+  margin: 0.55rem 0;
+  border: 1px solid var(--line);
 }
 
 .event.partial {
@@ -2382,13 +2363,6 @@ button {
   max-height: 20rem;
   overflow: auto;
   font-size: 0.8125rem;
-}
-
-.approval-card {
-  border: 1px solid var(--cds-border-subtle-01, #e0e0e0);
-  border-radius: 0;
-  padding: 0.75rem;
-  margin-bottom: 0.75rem;
 }
 
 .error {
@@ -2915,20 +2889,12 @@ button {
 
 .ops-agent-seg-text .markdown-view {
   font-size: 0.875rem;
-  line-height: 1.43;
+  line-height: 1.55;
 }
 
 .ops-agent-seg-text.is-live {
   box-shadow: inset 3px 0 0 var(--accent);
   padding-left: 0.65rem;
-}
-
-.ops-agent-seg-text.is-live .markdown-view {
-  display: inline;
-}
-
-.ops-agent-seg-text.is-live .markdown-view > :last-child {
-  display: inline;
 }
 
 .ops-agent-seg-meta {
@@ -2988,7 +2954,7 @@ button {
 
 .ops-agent-answer .markdown-view {
   font-size: 0.875rem;
-  line-height: 1.43;
+  line-height: 1.55;
 }
 
 .ops-agent-caret {
@@ -3062,6 +3028,14 @@ button {
   gap: 0.5rem;
 }
 
+.ops-agent-composer-gates {
+  max-height: 10rem;
+  overflow: auto;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--cds-border-subtle-01, #e0e0e0);
+  margin-bottom: 0.15rem;
+}
+
 .ops-agent-composer-input {
   font-family: var(--mono) !important;
   font-size: 0.86rem !important;
@@ -3069,14 +3043,9 @@ button {
 
 .ops-agent-composer-bar {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 0.75rem;
-}
-
-.ops-agent-composer-hint {
-  font-size: 0.72rem;
-  font-family: var(--mono);
 }
 
 @media (max-width: 800px) {

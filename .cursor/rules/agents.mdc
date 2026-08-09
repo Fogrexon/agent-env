@@ -1,81 +1,30 @@
 ---
-description: ADK エージェント定義の書き方（agents/ と plugins/）
-globs: agents/**/*,plugins/**/*
+description: ADK エージェント定義の書き方（agents/<pack>/）
+globs: agents/**/*
 alwaysApply: false
 ---
 
 # Agent definitions
 
-エージェント固有のすべて（コード・入力・実行ポリシー）は **`agents/<id>/`（builtin）または `plugins/<pack>/<id>/`（パック）に閉じる**。必須ファイルは `agent.ts` のみ。`params.yaml` は任意。ホストが import して実行する定義であり、独自の run ループは持たない。
+エージェント固有のすべて（コード・入力・実行ポリシー）は **`agents/<pack>/<id>/` に閉じる**。必須ファイルは `agent.ts` のみ。`params.yaml` は任意。ホストが import して実行する定義であり、独自の run ループは持たない。
 
-```typescript
-import { defineAgent } from '@agent-env/harness';
-import { LlmAgent } from '@google/adk';
+## 必須
 
-export const agentDefinition = defineAgent({
-  id: 'my-agent',
-  name: 'My Agent',
-  description: '…',
-  mode: 'autonomous', // or 'interactive' for Chat UI
-  limits: {
-    maxSteps: 20,
-    maxToolCalls: 20,
-    maxWallSeconds: 300,
-  },
-  createAgent() {
-    return new LlmAgent({
-      name: 'my_agent',
-      model: 'cursor:auto', // provider:model 文字列（ADK LLMRegistry ルーティング）
-      instruction: '...',
-    });
-  },
-});
-```
+- `agents/<pack>/<id>/agent.ts` — **必須**。`export const agentDefinition`
+- `defineAgent({ id, name, description?, mode?, limits, createAgent })`
+- `id` はディレクトリ名と一致
+- モデルは `provider:model` 文字列（例 `cursor:auto`）
+- 実行制限は `limits`（host policy とマージ）
 
-ファイル:
+## 任意
 
-- `agents/<id>/agent.ts` または `plugins/<pack>/<id>/agent.ts` — **必須**。`export const agentDefinition`
-- 同ディレクトリの `params.yaml` — **任意**。あれば `agentId` はディレクトリ名と一致（呼出し入力のみ）。無ければ discovery が既定の単一 `message` フィールドを合成する
+- `params.yaml` — AgentParams（フォーム / CLI values）
+- per-agent `package.json` / `tsconfig.json` / `python/`
 
-実行ポリシーは `agentDefinition.limits` に持つ。
+## 禁止
 
-ファイル / 画像フィールド:
+- 独自の `executeAgentRun` / admin 配線
+- `process.env` 直接読み（`context.secret` / `context.config`）
+- ルート `package.json` への per-agent script
 
-- `type: file|files|image|images`
-- `delivery: path` … パス文字列として inputs へ（file 既定）
-- `delivery: content` … LLM ユーザー入力へ添付（image 既定・provider 依存）
-- `objectiveField`（既定 `message`）… RunRequest の objective
-- 管理 UI はパス手入力とファイル選択の両方を出す。渡し方は YAML が決める
-
-`delivery: content` を使うときは、実行 provider の対応メディアを確認する（`GET /api/providers` / `docs/ARCHITECTURE.md`）。
-
-- gemini: 画像・音声・動画・PDF・テキスト / openai: 画像・音声(wav,mp3)・PDF / anthropic: 画像・PDF / cursor: 画像のみ
-- 非対応 MIME は `UnsupportedMediaError` で実行前に落ちる。音声を扱うなら gemini など対応 provider を選ぶこと
-
-## モデル / 秘密情報
-
-- モデルは `provider:model` 文字列（例 `cursor:auto` / `gemini:gemini-3.1-pro`）を `LlmAgent.model` に直接渡すのが標準。`provider` は registry 上の id（カスタム可）。明示的な `BaseLlm` が要るときだけ `resolveModel({ provider, model })`
-- run 単位のモデル上書きはない — モデルは `agent.ts` が決める
-- 秘密情報・コネクタ設定は `createAgent` 内で用意し、ファクトリ引数に渡す（モジュール先頭で env bootstrap しない — `runDiscoveredAgent` / admin が行う）
-- `@agent-env/llm` / `@agent-env/harness` に `*FromEnv` や固定 env 名前提を置かない
-
-## 実行制限
-
-- `limits`（省略可）は `AgentExecutionLimits` の部分集合。host 既定（`agents/dev-env/execution-policy.ts`）とフィールドごとに **min** マージされる（緩められない）
-- 正常終了は `RunRecord.state === 'COMPLETED'`（`isSuccessfulRunState`）。budget / maxSteps 超過などは `FAILED` / `BUDGET_EXHAUSTED`
-
-## コネクタ / ツール
-
-- 外部データ源・vendor API は **harness の connector / tool factory** に置く。エージェント内に同じ仕事の自前 `fetch` を書かない（`reuse-existing.mdc`）
-- 足りないオプションは **ファクトリ側に汎用追加**し、エージェントは注入だけ行う
-- エージェントに残してよいのは配線（env → ファクトリ引数）と、本当にエージェント固有の業務ロジックだけ
-
-## チェック
-
-- [ ] `export const agentDefinition`（`agent.ts` は必須。`params.yaml` は任意）
-- [ ] `limits` は `agentDefinition` に持たせた
-- [ ] コネクタ向きの能力をエージェント内の自前 HTTP 関数にしていない
-- [ ] `packages/*` / `scripts/` にこのエージェント向けの定数・default・分岐を追加していない
-- [ ] ルート `package.json` に per-agent script を追加していない
-
-詳細: `docs/AGENT_PACKAGE.md`
+詳細: `docs/AGENT_PACKAGE.md` / `agents/README.md`

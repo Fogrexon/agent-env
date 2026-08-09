@@ -5,7 +5,6 @@ import {
   type AgentProgressEvent,
   type AgentRunResult,
 } from '@agent-env/shared';
-import type { ToolApprovalRequest } from '@agent-env/harness';
 
 export type AdminRunStatus =
   | 'queued'
@@ -13,14 +12,6 @@ export type AdminRunStatus =
   | 'completed'
   | 'failed'
   | 'cancelled';
-
-export type AdminApprovalDecision = 'granted' | 'denied';
-
-interface PendingApproval {
-  request: ToolApprovalRequest;
-  resolve: (decision: AdminApprovalDecision) => void;
-  createdAt: string;
-}
 
 export interface AdminRunResultSummary {
   status: 'finished' | 'error';
@@ -60,8 +51,6 @@ export interface AdminRunRecord {
    * one row each instead of interleaving into new rows.
    */
   streamRowByAuthor: Map<string, number>;
-  /** In-flight interactive T2/T3 approval waits. */
-  pendingApprovals: Map<string, PendingApproval>;
 }
 
 export interface AdminRunSummary {
@@ -76,8 +65,6 @@ export interface AdminRunSummary {
   finalTextPreview?: string;
   /** Absolute path to durable run history directory when persisted. */
   historyDir?: string;
-  /** Number of approvals waiting for a human decision. */
-  pendingApprovalCount?: number;
 }
 
 export interface CreateAdminRunInput {
@@ -123,7 +110,6 @@ export class AdminRunStore {
       abortController: new AbortController(),
       listeners: new Set(),
       streamRowByAuthor: new Map(),
-      pendingApprovals: new Map(),
     };
     this.#runs.set(input.runId, record);
     this.#prune();
@@ -170,51 +156,6 @@ export class AdminRunStore {
     this.#notify(run, notified);
   }
 
-  /**
-   * Register an interactive approval wait. Resolved by
-   * {@link resolveApproval} or denied on cancel / complete.
-   */
-  waitForApproval(
-    runId: string,
-    request: ToolApprovalRequest,
-  ): Promise<AdminApprovalDecision> {
-    const run = this.#runs.get(runId);
-    if (!run) {
-      return Promise.resolve('denied');
-    }
-    return new Promise<AdminApprovalDecision>((resolve) => {
-      run.pendingApprovals.set(request.approvalId, {
-        request,
-        resolve,
-        createdAt: new Date().toISOString(),
-      });
-    });
-  }
-
-  resolveApproval(
-    runId: string,
-    approvalId: string,
-    decision: AdminApprovalDecision,
-  ): boolean {
-    const run = this.#runs.get(runId);
-    if (!run) return false;
-    const pending = run.pendingApprovals.get(approvalId);
-    if (!pending) return false;
-    run.pendingApprovals.delete(approvalId);
-    pending.resolve(decision);
-    return true;
-  }
-
-  /** Deny every outstanding approval (cancel / terminal). */
-  denyAllApprovals(runId: string): void {
-    const run = this.#runs.get(runId);
-    if (!run) return;
-    for (const [id, pending] of run.pendingApprovals) {
-      run.pendingApprovals.delete(id);
-      pending.resolve('denied');
-    }
-  }
-
   complete(
     runId: string,
     result: AdminRunResultSummary,
@@ -222,7 +163,6 @@ export class AdminRunStore {
   ): void {
     const run = this.#runs.get(runId);
     if (!run) return;
-    this.denyAllApprovals(runId);
     run.status = status;
     run.result = result;
     run.error = result.error;
@@ -234,7 +174,6 @@ export class AdminRunStore {
   fail(runId: string, error: string): void {
     const run = this.#runs.get(runId);
     if (!run) return;
-    this.denyAllApprovals(runId);
     run.status = 'failed';
     run.error = error;
     run.updatedAt = new Date().toISOString();
@@ -258,7 +197,6 @@ export class AdminRunStore {
     ) {
       return false;
     }
-    this.denyAllApprovals(runId);
     run.abortController.abort();
     return true;
   }
@@ -310,9 +248,6 @@ export class AdminRunStore {
         ? previewText(run.result.finalText)
         : undefined,
       ...(run.historyDir ? { historyDir: run.historyDir } : {}),
-      ...(run.pendingApprovals.size > 0
-        ? { pendingApprovalCount: run.pendingApprovals.size }
-        : {}),
     };
   }
 
@@ -333,14 +268,6 @@ export class AdminRunStore {
       recordState: run.result?.recordState,
       budgetConsumed: run.result?.budgetConsumed,
       ...(run.historyDir ? { historyDir: run.historyDir } : {}),
-      pendingApprovals: [...run.pendingApprovals.values()].map((p) => ({
-        approvalId: p.request.approvalId,
-        tool: p.request.contract.name,
-        riskClass: p.request.contract.riskClass,
-        sideEffect: p.request.contract.sideEffect,
-        input: p.request.input,
-        createdAt: p.createdAt,
-      })),
     };
   }
 

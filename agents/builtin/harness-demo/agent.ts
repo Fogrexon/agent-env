@@ -66,7 +66,7 @@ export const agentDefinition = defineAgent({
         idempotency: 'required',
       },
       description:
-        'Propose publishing content externally (T2 — needs run approval or approve hook).',
+        'Propose publishing content externally (T2 demo tool; executes directly).',
       parameters: z.object({
         title: z.string(),
         body: z.string(),
@@ -105,9 +105,9 @@ export const agentDefinition = defineAgent({
         'Harness demo: bounded observations, T2 guard, typed result handoff.',
       instruction: `You are a concise demo agent for agent-env (execution harness + working-environment contracts).
 1. Call echo_note once with a short note about the user's objective.
-2. Call propose_publish once (T2). Without host approval it returns policy_denied — expected; report it.
+2. Call propose_publish once (T2). It executes directly; report the observation.
 3. Call emit_result_handoff ONCE with payloadJson:
-{
+   {
   "status": "verified",
   "summary": "≤80 words on the objective AND propose_publish outcome",
   "measured": ["at least two concrete harness metrics from this run", "..."]

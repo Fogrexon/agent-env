@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { AgentProgressEvent } from '@agent-env/shared';
 import { Button, InlineNotification } from '@carbon/react';
@@ -15,52 +15,12 @@ import { PageShell } from '../ui/PageShell.js';
 import { OpsPanel } from '../ui/OpsPanel.js';
 import { StatusTag } from '../ui/StatusTag.js';
 
-function pendingApprovalsFromEvents(events: AgentProgressEvent[]) {
-  const map = new Map<
-    string,
-    {
-      approvalId: string;
-      tool: string;
-      riskClass: string;
-      sideEffect?: string;
-      input: Record<string, unknown>;
-      message?: string;
-    }
-  >();
-  for (const event of events) {
-    if (event.kind === 'approval.requested') {
-      const approvalId = String(event.payload?.['approvalId'] ?? '');
-      if (!approvalId) continue;
-      map.set(approvalId, {
-        approvalId,
-        tool: String(event.payload?.['tool'] ?? 'tool'),
-        riskClass: String(event.payload?.['riskClass'] ?? ''),
-        ...(event.payload?.['sideEffect'] !== undefined
-          ? { sideEffect: String(event.payload['sideEffect']) }
-          : {}),
-        input:
-          event.payload?.['input'] &&
-          typeof event.payload['input'] === 'object' &&
-          !Array.isArray(event.payload['input'])
-            ? (event.payload['input'] as Record<string, unknown>)
-            : {},
-        message: event.message,
-      });
-    } else if (event.kind === 'approval.resolved') {
-      const approvalId = String(event.payload?.['approvalId'] ?? '');
-      if (approvalId) map.delete(approvalId);
-    }
-  }
-  return [...map.values()];
-}
-
 export function RunDetailPage() {
   const { runId = '' } = useParams();
   const [snap, setSnap] = useState<RunSnapshot | null>(null);
   const [events, setEvents] = useState<AgentProgressEvent[]>([]);
   const [status, setStatus] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [deciding, setDeciding] = useState<string | null>(null);
   const esRef = useRef<EventSource | null>(null);
   const timelineRef = useRef<HTMLDivElement | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -155,30 +115,6 @@ export function RunDetailPage() {
     void refresh();
   };
 
-  const onDecide = async (
-    approvalId: string,
-    decision: 'granted' | 'denied',
-  ) => {
-    setDeciding(approvalId);
-    try {
-      await fetch(
-        `/api/runs/${encodeURIComponent(runId)}/approvals/${encodeURIComponent(approvalId)}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ decision }),
-        },
-      );
-      void refresh();
-    } finally {
-      setDeciding(null);
-    }
-  };
-
-  const pending = useMemo(
-    () => pendingApprovalsFromEvents(events),
-    [events],
-  );
   const active =
     status === 'queued' || status === 'running' || status === 'cancelling';
   const finalText =
@@ -299,40 +235,6 @@ export function RunDetailPage() {
       {graph ? (
         <OpsPanel title="Graph" className="ops-stack-gap">
           <AgentGraphPanel graph={graph} observed={graphIsObserved} />
-        </OpsPanel>
-      ) : null}
-
-      {pending.length > 0 ? (
-        <OpsPanel title="Approvals" className="ops-stack-gap">
-          {pending.map((a) => (
-            <div key={a.approvalId} className="ops-approval">
-              <p>
-                <strong>{a.tool}</strong> / {a.riskClass}
-                {a.sideEffect ? ` / ${a.sideEffect}` : ''}
-              </p>
-              <pre className="event-json">
-                {JSON.stringify(a.input, null, 2)}
-              </pre>
-              <div className="ops-action-row">
-                <Button
-                  kind="primary"
-                  size="sm"
-                  disabled={deciding === a.approvalId}
-                  onClick={() => void onDecide(a.approvalId, 'granted')}
-                >
-                  {deciding === a.approvalId ? '…' : 'Grant'}
-                </Button>
-                <Button
-                  kind="secondary"
-                  size="sm"
-                  disabled={deciding === a.approvalId}
-                  onClick={() => void onDecide(a.approvalId, 'denied')}
-                >
-                  Deny
-                </Button>
-              </div>
-            </div>
-          ))}
         </OpsPanel>
       ) : null}
 

@@ -40,14 +40,6 @@ export interface CreateHttpDownloadToolOptions {
   timeoutMs?: number;
   /** Inject for tests; defaults to global fetch. */
   fetchImpl?: HttpFetch;
-  /**
-   * Optional T1+ approval. Default: auto (T1 is auto-allowed by gateway).
-   * Provide to further restrict writes.
-   */
-  approve?: (args: {
-    contract: { name: string; riskClass: string };
-    input: { url: string; destPath: string; filename?: string };
-  }) => Promise<boolean> | boolean;
 }
 
 function normalizeRoots(source: WorkspaceRootsSource): string[] {
@@ -131,9 +123,6 @@ export function createHttpDownloadTool(
       maxBytes,
       allowedContentTypes: [...allowedTypes],
     },
-    approve: options.approve
-      ? (args) => options.approve!(args)
-      : undefined,
     execute: async ({ url, destPath, filename }) => {
       const roots = normalizeRoots(options.roots);
       if (roots.length === 0) {

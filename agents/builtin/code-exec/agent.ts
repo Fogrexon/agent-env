@@ -78,11 +78,12 @@ export const agentDefinition = defineAgent({
         }),
     });
 
-    const runTsCode = createTsCodeRunnerTool({
-      workRoot: execRoot,
-      prepare: prepareExecEnv,
-      approve: () => allowGenerated,
-    });
+    const runTsCode = allowGenerated
+      ? createTsCodeRunnerTool({
+          workRoot: execRoot,
+          prepare: prepareExecEnv,
+        })
+      : undefined;
 
     const model = isProviderConfigured('cursor')
       ? 'cursor:auto'
@@ -99,13 +100,13 @@ Tools:
 1. hello / sum — fixed tasks; results arrive as bounded observations (status/content/source).
 2. run_ts_code — AI-generated TypeScript in this agent's exec env.
    Imports must come from packages already in agents/code-exec/exec/package.json (currently: ms).
-   Often policy_denied unless AGENT_ENV_CODE_EXEC_ALLOW=1.
+   This tool is absent unless AGENT_ENV_CODE_EXEC_ALLOW=1.
 
 Rules:
 - Prefer hello/sum when they fit.
-- For run_ts_code, write a short self-contained program that console.log's the answer.
+- For run_ts_code (when present), write a short self-contained program that console.log's the answer.
 - Report observation status / stdout / stderr clearly. Do not claim success if status is not ok.`,
-      tools: [hello, sum, runTsCode],
+      tools: [hello, sum, ...(runTsCode ? [runTsCode] : [])],
     });
   },
 });

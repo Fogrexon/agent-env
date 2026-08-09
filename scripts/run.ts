@@ -5,7 +5,6 @@
  *   npm run run -- <agent-id> [message...]
  *   npm run run -- <agent-id> --params ./values.json
  *   npm run run -- <agent-id> --input key=value --input key2=value2
- *   npm run run -- <agent-id> --auto-approve "..."
  *
  * Merge order (later wins): params defaults → --params file → --input → positional message.
  */
@@ -26,10 +25,8 @@ function printUsage(): never {
   console.log(`Usage: npm run run -- <agent-id> [message...]
        npm run run -- <agent-id> --params ./values.json
        npm run run -- <agent-id> --input key=value
-       npm run run -- <agent-id> --auto-approve [message...]
 
 Merge (later wins): params defaults > --params > --input > message.
---auto-approve: auto-grant T2 tools for this run (T3 still requires agent approve).
 
 Agents (discovered; prefer \`npm run admin\` for params forms):
 ${ids || '  (none found)'}
@@ -42,19 +39,13 @@ function parseArgs(argv: string[]): {
   messageParts: string[];
   inputs: Record<string, string>;
   paramsPath?: string;
-  autoApprove: boolean;
 } {
   const inputs: Record<string, string> = {};
   const messageParts: string[] = [];
   let agentId: string | undefined;
   let paramsPath: string | undefined;
-  let autoApprove = false;
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i]!;
-    if (arg === '--auto-approve') {
-      autoApprove = true;
-      continue;
-    }
     if (!agentId) {
       agentId = arg;
       continue;
@@ -80,7 +71,7 @@ function parseArgs(argv: string[]): {
     }
     messageParts.push(arg);
   }
-  return { agentId, messageParts, inputs, paramsPath, autoApprove };
+  return { agentId, messageParts, inputs, paramsPath };
 }
 
 function loadParamsJson(path: string): Record<string, unknown> {
@@ -144,9 +135,6 @@ async function main(): Promise<void> {
   if (!pkg.paramsFile) {
     console.log('  params: (in-memory default)');
   }
-  if (parsed.autoApprove) {
-    console.log('  tool approval: auto (T2)');
-  }
   console.log(`  objective field: ${params.objectiveField}`);
   console.log(`  value: ${String(values[params.objectiveField] ?? '')}\n`);
 
@@ -159,9 +147,6 @@ async function main(): Promise<void> {
       metadata: {},
     },
     values,
-    toolApproval: parsed.autoApprove
-      ? { mode: 'auto' }
-      : { mode: 'deny' },
   });
 
   console.log(`  history: ${result.historyDir ?? '(none)'}`);

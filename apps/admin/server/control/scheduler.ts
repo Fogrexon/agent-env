@@ -60,7 +60,6 @@ export function startScheduler(options: {
         agentId: schedule.agentId,
         values,
         cwd,
-        autoApprove: schedule.autoApprove === 1,
         trigger: 'schedule',
         scheduleId: schedule.id,
       });

@@ -41,14 +41,8 @@ export interface CreateWorkspaceFsToolsOptions {
     name?: string;
     description?: string;
     contract?: Partial<ToolContractInput>;
-    /**
-     * T2 approval for writes. Default: deny (fail closed).
-     * Return true to allow the exact write.
-     */
-    approve?: (args: {
-      contract: { name: string; riskClass: string };
-      input: { path: string; content: string };
-    }) => Promise<boolean> | boolean;
+    /** Extra path check after root jail (throws on failure). */
+    assertPath?: (absPath: string) => void;
   };
 }
 
@@ -100,7 +94,7 @@ export function assertInsideAnyRoot(
 /**
  * Bounded filesystem tools (list / read / write) for agent sandboxes.
  * Reusable across agents that need repo / workdir inspection — inject roots
- * and optional write approval; do not reimplement path jail in agents.
+ * do not reimplement path jail in agents.
  */
 export function createWorkspaceFsTools(
   options: CreateWorkspaceFsToolsOptions,
@@ -229,7 +223,7 @@ export function createWorkspaceFsTools(
     },
     description:
       options.write?.description ??
-      'Overwrite a file inside an allowed workspace root (T2 — requires approve).',
+      'Overwrite a file inside an allowed workspace root.',
     parameters: z.object({
       path: z
         .string()
@@ -242,11 +236,9 @@ export function createWorkspaceFsTools(
       title: workspaceSource.title,
     },
     source: workspaceSource,
-    approve: options.write?.approve
-      ? (args) => options.write!.approve!(args)
-      : undefined,
     execute: ({ path, content }) => {
       const abs = resolvePath(path);
+      options.write?.assertPath?.(abs);
       mkdirSync(dirname(abs), { recursive: true });
       writeFileSync(abs, content, 'utf8');
       return {

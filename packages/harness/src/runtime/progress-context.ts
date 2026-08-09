@@ -46,38 +46,14 @@ export function getLlmProgressAuthor(): string | undefined {
 }
 
 /** Emit a progress event from inside a tool if a run is active. */
-export function emitToolProgress(
-  partial: {
-    message?: string;
-    author?: string;
-    payload?: Record<string, unknown>;
-  },
-): void {
+export function emitToolProgress(partial: {
+  message?: string;
+  author?: string;
+  payload?: Record<string, unknown>;
+}): void {
   const store = progressAls.getStore();
   if (!store) return;
   store.emit('agent.event', {
-    author: partial.author ?? 'tool',
-    message: partial.message,
-    ...(store.llmAuthor ? { parentAuthor: store.llmAuthor } : {}),
-    payload: partial.payload,
-  });
-}
-
-/**
- * Emit a tool-approval lifecycle event (approval.requested / approval.resolved)
- * on the active run's progress stream so admin SSE / CLI can react.
- */
-export function emitApprovalProgress(
-  kind: 'approval.requested' | 'approval.resolved',
-  partial: {
-    message?: string;
-    author?: string;
-    payload?: Record<string, unknown>;
-  },
-): void {
-  const store = progressAls.getStore();
-  if (!store) return;
-  store.emit(kind, {
     author: partial.author ?? 'tool',
     message: partial.message,
     ...(store.llmAuthor ? { parentAuthor: store.llmAuthor } : {}),

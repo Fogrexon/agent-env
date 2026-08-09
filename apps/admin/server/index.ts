@@ -301,7 +301,6 @@ app.get('/api/agents/:id/recent-inputs', (req, res) => {
         status: job.status,
         trigger: job.trigger,
         messagePreview: job.messagePreview,
-        autoApprove: job.autoApprove === 1,
         createdAt: job.createdAt,
         finishedAt: job.finishedAt,
         values: parseJobValues(job),
@@ -489,7 +488,6 @@ app.post('/api/agents/:id/runs', (req, res) => {
   const id = req.params.id;
   const body = req.body as {
     values?: Record<string, unknown>;
-    autoApprove?: boolean;
     priority?: number;
   };
   const values = body.values ?? {};
@@ -497,7 +495,6 @@ app.post('/api/agents/:id/runs', (req, res) => {
     agentId: id,
     values,
     cwd: repoRoot,
-    autoApprove: body.autoApprove === true,
     trigger: 'manual',
     priority: typeof body.priority === 'number' ? body.priority : 0,
   });
@@ -514,7 +511,6 @@ app.post('/api/agents/:id/runs', (req, res) => {
     runMode: 'agent',
     status: outcome.status,
     trigger: outcome.trigger,
-    autoApprove: outcome.autoApprove,
     job: outcome.job,
   });
 });
@@ -599,7 +595,6 @@ app.get('/api/schedules', (_req, res) => {
   res.json({
     schedules: controlStore.listSchedules().map((s) => ({
       ...s,
-      autoApprove: s.autoApprove === 1,
       enabled: s.enabled === 1,
       values: JSON.parse(s.valuesJson) as Record<string, unknown>,
       // Legacy model_json ignored for new UI; keep read for old rows.
@@ -612,7 +607,6 @@ app.post('/api/schedules', (req, res) => {
     agentId?: string;
     cron?: string;
     values?: Record<string, unknown>;
-    autoApprove?: boolean;
     enabled?: boolean;
   };
   if (!body.agentId || !body.cron) {
@@ -634,14 +628,12 @@ app.post('/api/schedules', (req, res) => {
     cron: body.cron,
     values: body.values ?? {},
     model: null,
-    autoApprove: body.autoApprove === true,
     enabled: body.enabled !== false,
     nextRunAt,
   });
   res.status(201).json({
     schedule: {
       ...schedule,
-      autoApprove: schedule.autoApprove === 1,
       enabled: schedule.enabled === 1,
       values: JSON.parse(schedule.valuesJson) as Record<string, unknown>,
     },
@@ -652,7 +644,6 @@ app.patch('/api/schedules/:id', (req, res) => {
   const body = req.body as {
     cron?: string;
     values?: Record<string, unknown>;
-    autoApprove?: boolean;
     enabled?: boolean;
   };
   if (body.cron) {
@@ -676,7 +667,6 @@ app.patch('/api/schedules/:id', (req, res) => {
   res.json({
     schedule: {
       ...updated,
-      autoApprove: updated.autoApprove === 1,
       enabled: updated.enabled === 1,
       values: JSON.parse(updated.valuesJson) as Record<string, unknown>,
     },
@@ -698,7 +688,6 @@ app.get('/api/hooks/tokens', (_req, res) => {
   res.json({
     tokens: controlStore.listWebhookTokens().map((t) => ({
       ...t,
-      autoApprove: t.autoApprove === 1,
       enabled: t.enabled === 1,
       values: JSON.parse(t.valuesJson) as Record<string, unknown>,
     })),
@@ -710,7 +699,6 @@ app.post('/api/hooks/tokens', (req, res) => {
     name?: string;
     agentId?: string;
     values?: Record<string, unknown>;
-    autoApprove?: boolean;
   };
   if (!body.name || !body.agentId) {
     res.status(400).json({ error: 'name and agentId are required' });
@@ -725,13 +713,11 @@ app.post('/api/hooks/tokens', (req, res) => {
     agentId: body.agentId,
     values: body.values ?? {},
     model: null,
-    autoApprove: body.autoApprove === true,
   });
   const { tokenHash: _h, ...safe } = created.token;
   res.status(201).json({
     token: {
       ...safe,
-      autoApprove: safe.autoApprove === 1,
       enabled: safe.enabled === 1,
       values: JSON.parse(safe.valuesJson) as Record<string, unknown>,
     },
@@ -846,7 +832,6 @@ app.get('/api/runs/:runId', (req, res) => {
             trigger: job.trigger,
             jobStatus: job.status,
             values: parseJobValues(job),
-            autoApprove: job.autoApprove === 1,
           }
         : intentValues
           ? { values: intentValues }
@@ -870,9 +855,7 @@ app.get('/api/runs/:runId', (req, res) => {
       trigger: job.trigger,
       jobStatus: job.status,
       values: parseJobValues(job),
-      autoApprove: job.autoApprove === 1,
       stages: [],
-      pendingApprovals: [],
     });
     return;
   }
@@ -919,7 +902,6 @@ app.get('/api/runs/:runId', (req, res) => {
           trigger: job.trigger,
           jobStatus: job.status,
           values: parseJobValues(job),
-          autoApprove: job.autoApprove === 1,
         }
       : intentValues
         ? { values: intentValues }
@@ -1045,39 +1027,6 @@ app.post('/api/runs/:runId/cancel', (req, res) => {
   res.json({ ok, runId, status: adminRunStore.get(runId)?.status });
 });
 
-app.post('/api/runs/:runId/approvals/:approvalId', (req, res) => {
-  const runId = req.params.runId;
-  const approvalId = req.params.approvalId;
-  const run = adminRunStore.get(runId);
-  if (!run) {
-    res.status(404).json({ error: `Unknown run: ${runId}` });
-    return;
-  }
-  const body = req.body as { decision?: string };
-  const decision =
-    body.decision === 'granted' || body.decision === 'denied'
-      ? body.decision
-      : undefined;
-  if (!decision) {
-    res.status(400).json({
-      ok: false,
-      error: `decision must be 'granted' or 'denied'`,
-    });
-    return;
-  }
-  const ok = adminRunStore.resolveApproval(runId, approvalId, decision);
-  if (!ok) {
-    res.status(404).json({
-      ok: false,
-      error: `Unknown or already resolved approval: ${approvalId}`,
-      runId,
-      approvalId,
-    });
-    return;
-  }
-  res.json({ ok: true, runId, approvalId, decision });
-});
-
 app.delete('/api/runs/:runId', (req, res) => {
   const runId = req.params.runId;
   const memory = adminRunStore.get(runId);
@@ -1199,9 +1148,9 @@ app.listen(port, () => {
   const ids = discoverAgents(currentDiscovery()).map((a) => a.id);
   console.log(`agent-env admin API on http://127.0.0.1:${port}`);
   console.log(`  host root: ${bootHost.root}`);
-  console.log(`  builtin agents: ${bootHost.builtinAgentsDir}`);
+  console.log(`  agents dir: ${bootHost.agentsDir}`);
   console.log(
-    `  plugin packs: ${bootHost.pluginPackDirs.length ? bootHost.pluginPackDirs.join(', ') : '(none)'}`,
+    `  packs: ${bootHost.packDirs.length ? bootHost.packDirs.join(', ') : '(none)'}`,
   );
   console.log(`  agents: ${ids.join(', ') || '(none)'}`);
   console.log(`  maxSlots: ${maxSlots}`);

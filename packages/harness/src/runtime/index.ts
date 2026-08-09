@@ -2,7 +2,7 @@
 
  * Runtime: state machine, events, budget, tool gateway.
 
- * Maps to research doc planes — see docs/ARCHITECTURE.md.
+ * Maps to research doc planes  Esee docs/ARCHITECTURE.md.
 
  */
 
@@ -43,24 +43,6 @@ export { createGuardedTool, type GuardedToolOptions } from './tool-gateway.js';
 
 export {
 
-  getToolApprovalPolicy,
-
-  resolveToolApproval,
-
-  runWithToolApproval,
-
-  type ToolApprovalDecision,
-
-  type ToolApprovalMode,
-
-  type ToolApprovalPolicy,
-
-  type ToolApprovalRequest,
-
-} from './tool-approval.js';
-
-export {
-
   applyToolRuntimePolicy,
 
   type AppliedToolPolicy,
@@ -74,8 +56,6 @@ export {
 } from './tool-runtime-policy.js';
 
 export {
-
-  emitApprovalProgress,
 
   emitToolProgress,
 

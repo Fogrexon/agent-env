@@ -4,20 +4,16 @@
 
 ## 構成
 
-このリポジトリは **実行環境**（ハーネス + admin + CLI）です。ワークフロー定義は builtin サンプルか `plugins/<pack>/` のパックとして読み込み、実行の主体は常にホスト側（`runDiscoveredAgent` → `executeAgentRun`）にあります。
+このリポジトリは **実行環境**（ハーネス + admin + CLI）です。ワークフロー定義は `agents/<pack>/` のパックとして読み込み、実行の主体は常にホスト側（`runDiscoveredAgent` → `executeAgentRun`）にあります。
 
 ```
-agents/                  # builtin サンプル + ホスト配線
-  <id>/                  # hello / harness-demo / code-exec など
+agents/                  # 定義パック + ホスト配線
+  <pack>/<id>/           # builtin / showcase / meta / personal など
     agent.ts             # export agentDefinition（必須）
     params.yaml          # 任意
   dev-env/               # discovery / .env bootstrap / host limits（@agent-env/repo-env）
-plugins/                 # ワークフロー定義パック（各直下が agents ルート）
-  showcase/              # 薄いデモ（character-chat / web-qa）— in-tree
-  personal/              # 個人自動化（別 git を clone。gitignore）
-  <pack>/<id>/agent.ts
 packages/
-  shared/                # Zod（ModelRef / AgentExecutionLimits / VerificationPlan / Connector meta）
+  shared/                # Zod（ModelRef / AgentExecutionLimits / Connector meta）
   llm/                   # provider ファクトリ・registry（env を読まない）
   harness/               # defineAgent / executeAgentRun / connectors（env を読まない）
 docs/                    # ARCHITECTURE + 研究レポート
@@ -33,16 +29,16 @@ npm install
 npm run build
 ```
 
-プラグインパックを足す場合:
+パックを足す場合:
 
 ```bash
-# 薄いデモは plugins/showcase に同梱
+# 薄いデモは agents/showcase に同梱
 # 個人自動化:
-git clone git@github.com:Fogrexon/agent-env-plugins-personal.git plugins/personal
+git clone git@github.com:Fogrexon/agent-env-plugins-personal.git agents/personal
 npm install
 ```
 
-詳細は [plugins/README.md](plugins/README.md)。
+詳細は [agents/README.md](agents/README.md)。
 
 Node.js **≥ 24.13** / npm **≥ 11.8** を想定しています。
 
@@ -51,7 +47,7 @@ Node.js **≥ 24.13** / npm **≥ 11.8** を想定しています。
 `@agent-env/llm` と `@agent-env/harness` は **env 名も `.env` も知りません**。  
 利用側が `create*Provider` / `create*Connector` にキーや URL を渡します。
 
-このリポジトリの実行環境ホストは `@agent-env/repo-env`（`agents/dev-env/`）から env を読んで渡します。ワークフロー定義パック（`plugins/`）は env を読まず、ホストが注入した context だけを使います。
+このリポジトリの実行環境ホストは `@agent-env/repo-env`（`agents/dev-env/`）から env を読んで渡します。ワークフロー定義パック（`agents/<pack>/`）は env を読まず、ホストが注入した context だけを使います。
 
 ## Provider の例
 
@@ -129,8 +125,8 @@ const execRoot = resolve(agentDir, 'exec');
 const runTsCode = createTsCodeRunnerTool({
   workRoot: execRoot,
   prepare: createExecEnvGuard({ moduleRoot: execRoot }),
-  approve: () => allowGeneratedCode, // T2: fail-closed without this
 });
+// 許可時だけ tools に載せる（例: AGENT_ENV_CODE_EXEC_ALLOW=1）
 ```
 
 ## Python スクリプト（YOLO 等の事前宣言パイプライン）
@@ -226,7 +222,7 @@ registerConnector(
 
 すべて **Cursor SDK が既定**（`CURSOR_API_KEY`。未設定時は Gemini にフォールバック）。ツール付きエージェントも `ProviderBackedLlm` → Cursor SDK `customTools` ブリッジで Cursor 上で動きます。
 
-### Builtin（`agents/`）
+### Builtin（`agents/builtin/`）
 
 | id | 内容 | 追加要件 |
 |----|------|----------|
@@ -234,19 +230,19 @@ registerConnector(
 | `harness-demo` | `limits` + guarded tools + typed result handoff | — |
 | `code-exec` | FunctionTool + 任意の TS code runner | — |
 
-### Showcase（`plugins/showcase/` — 薄いデモ）
+### Showcase（`agents/showcase/` — 薄いデモ）
 
 | id | 内容 | 追加要件 |
 |----|------|----------|
 | `character-chat` | キャラなりきり対話のみ（ツールなし） | — |
 | `web-qa` | Web 検索して答えるだけ | `TAVILY_API_KEY` または `BRAVE_API_KEY` |
 
-### Personal（別リポ → `plugins/personal/`）
+### Personal（別リポ → `agents/personal/`）
 
 個人自動化は [Fogrexon/agent-env-plugins-personal](https://github.com/Fogrexon/agent-env-plugins-personal)（private）を clone する。
 
 ```bash
-git clone git@github.com:Fogrexon/agent-env-plugins-personal.git plugins/personal
+git clone git@github.com:Fogrexon/agent-env-plugins-personal.git agents/personal
 npm install
 ```
 
@@ -268,10 +264,10 @@ npm run run -- deep-research "…"   # personal pack が必要
 npm run run -- knowledge-assistant "実行 limits はどこで定義しますか？"
 ```
 
-security-audit の書き込み系ツールは fail-closed の権限境界デモです:
+security-audit の書き込み系ツールは、エージェントが env / params でツールを載せるかどうかのデモです:
 
-- `write_fix`（T2）… `AGENT_ENV_AUDIT_ALLOW_WRITE=1` で許可
-- `create_pr`（T3）… `AGENT_ENV_AUDIT_ALLOW_PR=1` + push 権限で許可
+- `write_fix`… `AGENT_ENV_AUDIT_ALLOW_WRITE=1` のときだけ tools に載る
+- `create_pr`… `AGENT_ENV_AUDIT_ALLOW_PR=1` + push 権限のときだけ載る
 - 評価モデル上書き … `AGENT_ENV_AUDIT_EVALUATOR_MODEL=provider:model`
 
 ## 実行
@@ -283,19 +279,8 @@ npm run run -- parallel-pipeline "Remote work should be the default for small en
 # params.yaml と同形の values JSON（admin の { values } と同じ）:
 # npm run run -- security-audit --params ./my-audit.json
 # npm run run -- security-audit --params ./my-audit.json --input maxFindings=3 "上書きメッセージ"
-# T2 ツールをこの実行だけ自動承認（T3 は対象外）:
-# npm run run -- code-exec --auto-approve "ms で 1h をミリ秒にして"
 npm run smoke
 ```
-
-T2/T3 の承認:
-
-| 入口 | 既定 | 自動承認 |
-|------|------|----------|
-| CLI (`npm run run`) | deny（fail-closed） | `--auto-approve`（**T2 のみ**） |
-| admin UI | インタラクティブ（ツールごとに許可/拒否） | 「T2 を自動承認」チェック |
-
-エージェント固有の `approve` / env（例: `AGENT_ENV_CODE_EXEC_ALLOW=1`）は従来どおり事前許可のショートカットとして残ります。
 
 ## モデル指定（ModelRef）
 

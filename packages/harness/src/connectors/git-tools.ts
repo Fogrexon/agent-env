@@ -31,38 +31,16 @@ export interface CreateGitToolsOptions {
     name?: string;
     description?: string;
     contract?: Partial<ToolContractInput>;
-    /**
-     * T1 approval. Default: deny (fail closed).
-     */
-    approve?: (args: {
-      contract: { name: string; riskClass: string };
-      input: { workdir: string; paths: string[] };
-    }) => Promise<boolean> | boolean;
   };
   commit?: {
     name?: string;
     description?: string;
     contract?: Partial<ToolContractInput>;
-    /**
-     * T2 approval. Default: deny (fail closed).
-     */
-    approve?: (args: {
-      contract: { name: string; riskClass: string };
-      input: { workdir: string; message: string };
-    }) => Promise<boolean> | boolean;
   };
   push?: {
     name?: string;
     description?: string;
     contract?: Partial<ToolContractInput>;
-    /**
-     * T3 approval. Default: deny (fail closed).
-     * Never exposes --force; callers must not bypass this factory.
-     */
-    approve?: (args: {
-      contract: { name: string; riskClass: string };
-      input: { workdir: string; remote: string; branch?: string };
-    }) => Promise<boolean> | boolean;
   };
 }
 
@@ -77,7 +55,7 @@ export interface GitTools {
 /**
  * Git read/write tools backed by the `git` CLI.
  * Auth / remotes are whatever the worktree already has — this factory does not
- * read tokens from env. Agents inject resolveWorkdir + per-tool approve only.
+ * read tokens from env. Agents inject resolveWorkdir only.
  */
 export function createGitTools(options: CreateGitToolsOptions): GitTools {
   const gitBin = options.gitBin ?? 'git';
@@ -197,7 +175,7 @@ export function createGitTools(options: CreateGitToolsOptions): GitTools {
     },
     description:
       options.add?.description ??
-      'Stage paths with `git add` (T1 — requires approve).',
+      'Stage paths with `git add`.',
     parameters: z.object({
       workdir: z.string().describe('Git worktree directory (must be allowed)'),
       paths: z
@@ -205,9 +183,6 @@ export function createGitTools(options: CreateGitToolsOptions): GitTools {
         .min(1)
         .describe('Paths relative to workdir to stage'),
     }),
-    approve: options.add?.approve
-      ? (args) => options.add!.approve!(args)
-      : undefined,
     execute: async ({ workdir, paths }) => {
       const cwd = options.resolveWorkdir(workdir);
       await runGit(['add', '--', ...paths], cwd);
@@ -231,14 +206,11 @@ export function createGitTools(options: CreateGitToolsOptions): GitTools {
     },
     description:
       options.commit?.description ??
-      'Create a git commit with a message (T2 — requires approve).',
+      'Create a git commit with a message.',
     parameters: z.object({
       workdir: z.string().describe('Git worktree directory (must be allowed)'),
       message: z.string().min(8).describe('Commit message'),
     }),
-    approve: options.commit?.approve
-      ? (args) => options.commit!.approve!(args)
-      : undefined,
     execute: async ({ workdir, message }) => {
       const cwd = options.resolveWorkdir(workdir);
       const { stdout } = await runGit(
@@ -265,7 +237,7 @@ export function createGitTools(options: CreateGitToolsOptions): GitTools {
     },
     description:
       options.push?.description ??
-      'Push the current branch to a remote (T3 — requires approve; never uses --force).',
+      'Push the current branch to a remote (never uses --force).',
     parameters: z.object({
       workdir: z.string().describe('Git worktree directory (must be allowed)'),
       remote: z.string().default('origin').describe('Remote name'),
@@ -278,9 +250,6 @@ export function createGitTools(options: CreateGitToolsOptions): GitTools {
         .optional()
         .describe('Pass -u when pushing a new branch'),
     }),
-    approve: options.push?.approve
-      ? (args) => options.push!.approve!(args)
-      : undefined,
     execute: async ({ workdir, remote, branch, setUpstream }) => {
       const cwd = options.resolveWorkdir(workdir);
       const args = ['push'];

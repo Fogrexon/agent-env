@@ -1,6 +1,5 @@
 import {
   Button,
-  Checkbox,
   InlineLoading,
   InlineNotification,
   NumberInput,
@@ -42,6 +41,25 @@ function autonomousAgents(agents: AgentListItem[]): AgentListItem[] {
   return agents.filter((a) => (a.mode ?? 'autonomous') === 'autonomous');
 }
 
+/**
+ * Overlay past run values onto current defaults, but keep boolean gate fields
+ * on the schema defaults so old false (e.g. allowWrite) cannot crush a new true.
+ */
+function mergeValuesPreferBooleanDefaults(
+  defaults: Record<string, unknown>,
+  overlay: Record<string, unknown>,
+  fields: ParamsResponse['spec']['fields'],
+): Record<string, unknown> {
+  const booleanIds = new Set(
+    fields.filter((f) => f.type === 'boolean').map((f) => f.id),
+  );
+  const next = { ...defaults, ...overlay };
+  for (const id of booleanIds) {
+    if (defaults[id] !== undefined) next[id] = defaults[id];
+  }
+  return next;
+}
+
 export function JobsPage() {
   const { agentId } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -50,7 +68,6 @@ export function JobsPage() {
   const [agents, setAgents] = useState<AgentListItem[]>([]);
   const [params, setParams] = useState<ParamsResponse | null>(null);
   const [values, setValues] = useState<Record<string, unknown>>({});
-  const [autoApprove, setAutoApprove] = useState(true);
   const [priority, setPriority] = useState(0);
   const [listLoading, setListLoading] = useState(true);
   const [paramsLoading, setParamsLoading] = useState(false);
@@ -158,7 +175,6 @@ export function JobsPage() {
         if (cancelled) return;
         setParams(data);
         setValues(data.defaults);
-        setAutoApprove(true);
         setError(null);
         await refreshRecent(selectedId);
       } catch (err) {
@@ -185,10 +201,13 @@ export function JobsPage() {
         const snap = await getRun(fromRun);
         if (cancelled) return;
         if (snap.agentId === selectedId && snap.values) {
-          setValues({ ...defaults, ...snap.values });
-          if (typeof snap.autoApprove === 'boolean') {
-            setAutoApprove(snap.autoApprove);
-          }
+          setValues(
+            mergeValuesPreferBooleanDefaults(
+              defaults,
+              snap.values,
+              params.spec.fields,
+            ),
+          );
           setReusedFrom(fromRun);
           setGraphPreview(null);
         }
@@ -218,8 +237,17 @@ export function JobsPage() {
   }, []);
 
   const applyRecent = (item: RecentInputItem) => {
-    setValues((prev) => ({ ...prev, ...item.values }));
-    setAutoApprove(item.autoApprove);
+    if (!params) {
+      setValues((prev) => ({ ...prev, ...item.values }));
+    } else {
+      setValues(
+        mergeValuesPreferBooleanDefaults(
+          params.defaults,
+          item.values,
+          params.spec.fields,
+        ),
+      );
+    }
     setReusedFrom(item.runId);
     setGraphPreview(null);
   };
@@ -250,7 +278,6 @@ export function JobsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           values: payloadValues,
-          autoApprove,
           priority,
         }),
       });
@@ -352,12 +379,6 @@ export function JobsPage() {
               onChange={onFieldChange}
             />
             <div className="ops-inline-controls">
-              <Checkbox
-                id="jobs-auto-approve"
-                labelText="Auto-approve T2"
-                checked={autoApprove}
-                onChange={(_e, { checked }) => setAutoApprove(checked)}
-              />
               <div className="ops-priority-row">
                 <span className="muted">Priority</span>
                 <NumberInput

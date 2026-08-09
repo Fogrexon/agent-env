@@ -42,7 +42,6 @@ export function createWebhookHandler(options: {
       agentId: hook.agentId,
       values,
       cwd,
-      autoApprove: hook.autoApprove === 1,
       trigger: 'webhook',
       priority: typeof body?.priority === 'number' ? body.priority : 0,
       webhookTokenId: hook.id,

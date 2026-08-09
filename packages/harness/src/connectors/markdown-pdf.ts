@@ -17,13 +17,6 @@ export interface CreateMarkdownPdfToolOptions {
   description?: string;
   contract?: Partial<ToolContractInput>;
   /**
-   * Optional approval. Default: auto (T1 is auto-allowed by gateway).
-   */
-  approve?: (args: {
-    contract: { name: string; riskClass: string };
-    input: { markdownPath: string; pdfPath: string };
-  }) => Promise<boolean> | boolean;
-  /**
    * Inject md-to-pdf for tests. Defaults to dynamic import of `md-to-pdf`.
    */
   convert?: (input: {
@@ -91,9 +84,6 @@ export function createMarkdownPdfTool(
     publicConfig: {
       engine: 'md-to-pdf',
     },
-    approve: options.approve
-      ? (args) => options.approve!(args)
-      : undefined,
     execute: async ({ markdownPath, pdfPath }) => {
       const roots = normalizeRoots(options.roots);
       if (roots.length === 0) {

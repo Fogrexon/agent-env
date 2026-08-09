@@ -50,7 +50,6 @@ const extract = createTavilyExtractTool({
 });
 const fs = createWorkspaceFsTools({
   roots: () => [...workRoots],
-  write: { approve: () => allowWrite },
 });
 tools: [web.createTool(), extract, fs.listFiles, fs.readFile, fs.writeFile];
 ```

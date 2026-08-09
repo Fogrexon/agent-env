@@ -42,17 +42,6 @@ try {
 }
 assert(escaped, 'jail blocks escape');
 
-const denied = await callTool(
-  createTsCodeRunnerTool({ workRoot: root }),
-  { code: 'console.log(1)' },
-);
-assert(
-  denied &&
-    typeof denied === 'object' &&
-    (denied as { status?: string }).status === 'policy_denied',
-  'T2 denied without approve',
-);
-
 const genFake: ProcessRunner = async () => ({
   exitCode: 0,
   stdout: 'generated-ok\n',
@@ -64,7 +53,6 @@ const genOut = await callTool(
   createTsCodeRunnerTool({
     workRoot: root,
     runner: genFake,
-    approve: () => true,
   }),
   { code: 'console.log("generated-ok")' },
 );
@@ -72,7 +60,7 @@ assert(
   genOut &&
     typeof genOut === 'object' &&
     (genOut as { status?: string }).status === 'ok',
-  'approved generated ok',
+  'run_ts_code executes when present',
 );
 
 const live = await runGeneratedTsCode({

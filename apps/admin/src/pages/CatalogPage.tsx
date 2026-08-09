@@ -188,10 +188,9 @@ export function CatalogPage() {
 
         {pageRows.length === 0 && !loading ? (
           <p className="muted">
-            No agents. Add packs under <code>plugins/</code> or builtin{' '}
-            <code>agents/</code>. Meta tooling lives in{' '}
-            <code>plugins/meta/</code>（例: エージェント作成 /{' '}
-            <code>agent-author</code>）。See <Link to="/chat">Chat</Link> /{' '}
+            No agents. Add packs under <code>agents/&lt;pack&gt;/</code>（例:{' '}
+            <code>agents/meta/</code> のエージェント作成 /{' '}
+            <code>agents/personal/</code>）。See <Link to="/chat">Chat</Link> /{' '}
             <Link to="/jobs">Jobs</Link>.
           </p>
         ) : (

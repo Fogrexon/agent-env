@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { basename, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import type { FunctionTool } from '@google/adk';
-import type { ToolContract, ToolContractInput } from '@agent-env/shared';
+import type { ToolContractInput } from '@agent-env/shared';
 import { z } from 'zod';
 import { createGuardedTool } from './tool-gateway.js';
 import {
@@ -106,10 +106,6 @@ export interface CreatePythonScriptToolOptions<TSchema extends z.ZodObject<z.Zod
   toArgs?: (input: z.infer<TSchema>) => string[];
   /** When true (default), pass stringified input as stdin. */
   jsonStdin?: boolean;
-  approve?: (args: {
-    contract: ToolContract;
-    input: z.infer<TSchema>;
-  }) => Promise<boolean> | boolean;
   prepare?: () => Promise<unknown> | unknown;
   /** When not `false`, call ensurePythonEnv (uv venv + uv pip) before run. */
   ensureEnv?: EnsurePythonEnvOptions | false;
@@ -163,7 +159,6 @@ export function createPythonScriptTool<
       options.description ??
       `Run predeclared Python script ${options.script} in the agent python env.`,
     parameters: options.parameters,
-    approve: options.approve,
     execute: async (input) => {
       const pythonRoot =
         typeof options.pythonRoot === 'function'
@@ -234,10 +229,6 @@ export interface CreatePythonCodeRunnerToolOptions {
   description?: string;
   contract?: Partial<ToolContractInput>;
   riskClass?: 'T2' | 'T3';
-  approve?: (args: {
-    contract: ToolContract;
-    input: { code: string; args?: string[] };
-  }) => Promise<boolean> | boolean;
   prepare?: () => Promise<unknown> | unknown;
   /** When not `false`, call ensurePythonEnv (uv venv + uv pip) before run. */
   ensureEnv?: EnsurePythonEnvOptions | false;
@@ -277,7 +268,6 @@ export function createPythonCodeRunnerTool(
       code: z.string().min(1).describe('Python source to execute'),
       args: z.array(z.string()).optional().describe('sys.argv[1:]'),
     }),
-    approve: options.approve,
     execute: async ({ code, args }) => {
       const pythonRoot = resolve(options.pythonRoot);
       if (options.ensureEnv !== false) {

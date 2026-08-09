@@ -1,5 +1,4 @@
-{
-  "name": "@agent-env/plugins-meta",
+  "name": "@agent-env/agents-meta",
   "version": "0.1.0",
   "private": true,
   "description": "Meta workflow agents for agent-env (agent authoring, scaffolding)",

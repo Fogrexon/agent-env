@@ -30,7 +30,6 @@ export interface ControlJob {
   priority: number;
   valuesJson: string;
   modelJson: string | null;
-  autoApprove: number;
   messagePreview: string | null;
   scheduleId: string | null;
   webhookTokenId: string | null;
@@ -48,7 +47,6 @@ export interface ControlSchedule {
   cron: string;
   valuesJson: string;
   modelJson: string | null;
-  autoApprove: number;
   enabled: number;
   nextRunAt: string | null;
   lastJobId: string | null;
@@ -62,7 +60,6 @@ export interface ControlWebhookToken {
   agentId: string;
   valuesJson: string;
   modelJson: string | null;
-  autoApprove: number;
   tokenHash: string;
   tokenPrefix: string;
   enabled: number;
@@ -111,7 +108,6 @@ export interface ControlStore {
     values: Record<string, unknown>;
     /** Legacy column; new rows should pass null. */
     model?: unknown | null;
-    autoApprove?: boolean;
     trigger: JobTrigger;
     priority?: number;
     messagePreview?: string;
@@ -148,7 +144,6 @@ export interface ControlStore {
     values: Record<string, unknown>;
     /** Legacy column; new rows should omit / pass null. */
     model?: unknown | null;
-    autoApprove?: boolean;
     enabled?: boolean;
     nextRunAt?: string | null;
   }): ControlSchedule;
@@ -158,7 +153,6 @@ export interface ControlStore {
       cron: string;
       values: Record<string, unknown>;
       model: unknown | null;
-      autoApprove: boolean;
       enabled: boolean;
       nextRunAt: string | null;
       lastJobId: string | null;
@@ -174,7 +168,6 @@ export interface ControlStore {
     values: Record<string, unknown>;
     /** Legacy column; new rows should omit / pass null. */
     model?: unknown | null;
-    autoApprove?: boolean;
     rawToken?: string;
   }): { token: ControlWebhookToken; rawToken: string };
   findWebhookByRawToken(rawToken: string): ControlWebhookToken | undefined;
@@ -219,7 +212,6 @@ function rowToJob(row: Record<string, unknown>): ControlJob {
     priority: Number(row['priority'] ?? 0),
     valuesJson: String(row['values_json'] ?? '{}'),
     modelJson: (row['model_json'] as string | null) ?? null,
-    autoApprove: Number(row['auto_approve'] ?? 0),
     messagePreview: (row['message_preview'] as string | null) ?? null,
     scheduleId: (row['schedule_id'] as string | null) ?? null,
     webhookTokenId: (row['webhook_token_id'] as string | null) ?? null,
@@ -239,7 +231,6 @@ function rowToSchedule(row: Record<string, unknown>): ControlSchedule {
     cron: String(row['cron']),
     valuesJson: String(row['values_json'] ?? '{}'),
     modelJson: (row['model_json'] as string | null) ?? null,
-    autoApprove: Number(row['auto_approve'] ?? 0),
     enabled: Number(row['enabled'] ?? 1),
     nextRunAt: (row['next_run_at'] as string | null) ?? null,
     lastJobId: (row['last_job_id'] as string | null) ?? null,
@@ -255,7 +246,6 @@ function rowToWebhook(row: Record<string, unknown>): ControlWebhookToken {
     agentId: String(row['agent_id']),
     valuesJson: String(row['values_json'] ?? '{}'),
     modelJson: (row['model_json'] as string | null) ?? null,
-    autoApprove: Number(row['auto_approve'] ?? 0),
     tokenHash: String(row['token_hash']),
     tokenPrefix: String(row['token_prefix']),
     enabled: Number(row['enabled'] ?? 1),
@@ -275,7 +265,6 @@ function migrate(db: DatabaseSync): void {
       priority INTEGER NOT NULL DEFAULT 0,
       values_json TEXT NOT NULL,
       model_json TEXT,
-      auto_approve INTEGER NOT NULL DEFAULT 0,
       message_preview TEXT,
       schedule_id TEXT,
       webhook_token_id TEXT,
@@ -296,7 +285,6 @@ function migrate(db: DatabaseSync): void {
       cron TEXT NOT NULL,
       values_json TEXT NOT NULL,
       model_json TEXT,
-      auto_approve INTEGER NOT NULL DEFAULT 0,
       enabled INTEGER NOT NULL DEFAULT 1,
       next_run_at TEXT,
       last_job_id TEXT,
@@ -310,7 +298,6 @@ function migrate(db: DatabaseSync): void {
       agent_id TEXT NOT NULL,
       values_json TEXT NOT NULL,
       model_json TEXT,
-      auto_approve INTEGER NOT NULL DEFAULT 0,
       token_hash TEXT NOT NULL UNIQUE,
       token_prefix TEXT NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 1,
@@ -360,10 +347,10 @@ export function createControlStore(repoRoot: string): ControlStore {
       db.prepare(
         `INSERT INTO jobs (
           job_id, run_id, agent_id, status, trigger, priority,
-          values_json, model_json, auto_approve, message_preview,
+          values_json, model_json, message_preview,
           schedule_id, webhook_token_id, error,
           created_at, updated_at, claimed_at, started_at, finished_at
-        ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, NULL)`,
+        ) VALUES (?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, NULL, NULL, NULL)`,
       ).run(
         jobId,
         runId,
@@ -372,7 +359,6 @@ export function createControlStore(repoRoot: string): ControlStore {
         input.priority ?? 0,
         JSON.stringify(input.values ?? {}),
         input.model != null ? JSON.stringify(input.model) : null,
-        input.autoApprove ? 1 : 0,
         input.messagePreview ?? null,
         input.scheduleId ?? null,
         input.webhookTokenId ?? null,
@@ -587,16 +573,15 @@ export function createControlStore(repoRoot: string): ControlStore {
       const id = randomUUID();
       db.prepare(
         `INSERT INTO schedules (
-          id, agent_id, cron, values_json, model_json, auto_approve,
+          id, agent_id, cron, values_json, model_json,
           enabled, next_run_at, last_job_id, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
       ).run(
         id,
         input.agentId,
         input.cron,
         JSON.stringify(input.values ?? {}),
         input.model != null ? JSON.stringify(input.model) : null,
-        input.autoApprove ? 1 : 0,
         input.enabled === false ? 0 : 1,
         input.nextRunAt ?? null,
         ts,
@@ -621,12 +606,6 @@ export function createControlStore(repoRoot: string): ControlStore {
           : patch.model !== undefined
             ? JSON.stringify(patch.model)
             : cur.modelJson;
-      const autoApprove =
-        patch.autoApprove !== undefined
-          ? patch.autoApprove
-            ? 1
-            : 0
-          : cur.autoApprove;
       const enabled =
         patch.enabled !== undefined ? (patch.enabled ? 1 : 0) : cur.enabled;
       const nextRunAt =
@@ -635,13 +614,12 @@ export function createControlStore(repoRoot: string): ControlStore {
         patch.lastJobId !== undefined ? patch.lastJobId : cur.lastJobId;
       db.prepare(
         `UPDATE schedules SET cron = ?, values_json = ?, model_json = ?,
-         auto_approve = ?, enabled = ?, next_run_at = ?, last_job_id = ?,
+         enabled = ?, next_run_at = ?, last_job_id = ?,
          updated_at = ? WHERE id = ?`,
       ).run(
         cron,
         valuesJson,
         modelJson,
-        autoApprove,
         enabled,
         nextRunAt,
         lastJobId,
@@ -689,16 +667,15 @@ export function createControlStore(repoRoot: string): ControlStore {
       const tokenPrefix = rawToken.slice(0, 8);
       db.prepare(
         `INSERT INTO webhook_tokens (
-          id, name, agent_id, values_json, model_json, auto_approve,
+          id, name, agent_id, values_json, model_json,
           token_hash, token_prefix, enabled, created_at, last_used_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, NULL)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, NULL)`,
       ).run(
         id,
         input.name,
         input.agentId,
         JSON.stringify(input.values ?? {}),
         input.model != null ? JSON.stringify(input.model) : null,
-        input.autoApprove ? 1 : 0,
         tokenHash,
         tokenPrefix,
         ts,
@@ -880,7 +857,6 @@ export function jobPublic(job: ControlJob) {
     claimedAt: job.claimedAt,
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
-    autoApprove: job.autoApprove === 1,
   };
 }
 

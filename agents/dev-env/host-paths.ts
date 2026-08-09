@@ -1,24 +1,25 @@
 /**
- * Resolve execution-environment paths: one host root, builtin samples, plugin packs.
+ * Resolve execution-environment paths: one host root and agent packs under agents/.
  *
  * Env (optional):
- * - AGENT_ENV_ROOT — host root (.env / .runs / plugins). Default: cwd or provided fallback.
- * - AGENT_ENV_PLUGIN_DIRS — extra plugin pack roots (path.delimiter-separated).
+ * - AGENT_ENV_ROOT — host root (.env / .runs / agents). Default: cwd or provided fallback.
+ * - AGENT_ENV_PLUGIN_DIRS — extra pack roots (path.delimiter-separated), each containing <id>/agent.ts.
  */
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { basename, delimiter, join, resolve, sep } from 'node:path';
+import { basename, delimiter, join, resolve } from 'node:path';
 import type { DiscoverAgentsOptions } from './catalog.js';
 
+/** Host-only dirs under agents/ that are not packs. */
+const SKIP_PACK_NAMES = new Set(['dev-env', 'node_modules', 'dist']);
+
 export interface HostPaths {
-  /** Execution environment root (.env, .runs, agents/, plugins/). */
+  /** Execution environment root (.env, .runs, agents/). */
   root: string;
-  /** Builtin sample agents directory ({root}/agents). */
-  builtinAgentsDir: string;
-  /** Plugin packs parent ({root}/plugins). */
-  pluginsDir: string;
+  /** Agents parent ({root}/agents) — packs live one level down. */
+  agentsDir: string;
   /** Each entry is an agents-root (contains <id>/agent.ts). */
-  pluginPackDirs: readonly string[];
-  /** All agents roots for discovery: builtin + plugin packs. */
+  packDirs: readonly string[];
+  /** All agents roots for discovery (= packDirs). */
   agentsDirs: readonly string[];
 }
 
@@ -31,13 +32,13 @@ export interface ResolveHostPathsOptions {
   env?: NodeJS.ProcessEnv;
 }
 
-function listPluginPackDirs(pluginsDir: string): string[] {
-  if (!existsSync(pluginsDir) || !statSync(pluginsDir).isDirectory()) {
+function listPackDirs(agentsDir: string): string[] {
+  if (!existsSync(agentsDir) || !statSync(agentsDir).isDirectory()) {
     return [];
   }
-  return readdirSync(pluginsDir)
-    .filter((name) => !name.startsWith('.'))
-    .map((name) => join(pluginsDir, name))
+  return readdirSync(agentsDir)
+    .filter((name) => !name.startsWith('.') && !SKIP_PACK_NAMES.has(name))
+    .map((name) => join(agentsDir, name))
     .filter((dir) => {
       try {
         return statSync(dir).isDirectory();
@@ -48,7 +49,7 @@ function listPluginPackDirs(pluginsDir: string): string[] {
     .sort();
 }
 
-function parseExtraPluginDirs(
+function parseExtraPackDirs(
   raw: string | undefined,
   root: string,
 ): string[] {
@@ -69,19 +70,16 @@ export function resolveHostPaths(
   const env = options.env ?? process.env;
   const fallback = options.fallbackRoot ?? process.cwd();
   const root = resolve(env['AGENT_ENV_ROOT']?.trim() || fallback);
-  const builtinAgentsDir = join(root, 'agents');
-  const pluginsDir = join(root, 'plugins');
-  const fromPluginsTree = listPluginPackDirs(pluginsDir);
-  const fromEnv = parseExtraPluginDirs(env['AGENT_ENV_PLUGIN_DIRS'], root);
-  const pluginPackDirs = [...fromPluginsTree, ...fromEnv];
-  const agentsDirs = [builtinAgentsDir, ...pluginPackDirs];
+  const agentsDir = join(root, 'agents');
+  const fromTree = listPackDirs(agentsDir);
+  const fromEnv = parseExtraPackDirs(env['AGENT_ENV_PLUGIN_DIRS'], root);
+  const packDirs = [...fromTree, ...fromEnv];
 
   return {
     root,
-    builtinAgentsDir,
-    pluginsDir,
-    pluginPackDirs,
-    agentsDirs,
+    agentsDir,
+    packDirs,
+    agentsDirs: packDirs,
   };
 }
 
@@ -98,7 +96,7 @@ export function discoveryFromHostPaths(
 /**
  * Resolve host paths then discovery options.
  * Long-lived processes (admin API) must call this per request — do not
- * snapshot `agentsDirs` at boot or newly added plugin packs stay invisible.
+ * snapshot `agentsDirs` at boot or newly added packs stay invisible.
  */
 export function resolveDiscoveryOptions(
   options: ResolveHostPathsOptions = {},
@@ -120,39 +118,16 @@ const PACK_GROUP_LABELS = {
 } as const;
 
 /**
- * Map a discovered agents root (`agents/` or `plugins/<pack>/`) to pack metadata.
+ * Map a discovered agents root (`agents/<pack>/`) to pack metadata.
  * Extra roots from AGENT_ENV_PLUGIN_DIRS use their directory basename.
  */
 export function deriveAgentPackInfo(
   agentsRoot: string,
-  repoRoot: string,
+  _repoRoot: string,
 ): AgentPackInfo {
-  const root = resolve(repoRoot);
-  const agentsDir = resolve(agentsRoot);
-  const builtinAgentsDir = join(root, 'agents');
-
-  if (agentsDir === builtinAgentsDir) {
-    return { pack: 'builtin', group: PACK_GROUP_LABELS.builtin };
-  }
-
-  const pluginsDir = join(root, 'plugins');
-  if (
-    agentsDir === pluginsDir ||
-    agentsDir.startsWith(pluginsDir + sep)
-  ) {
-    const pack =
-      agentsDir === pluginsDir
-        ? 'plugins'
-        : basename(agentsDir);
-    return {
-      pack,
-      group: PACK_GROUP_LABELS[pack as keyof typeof PACK_GROUP_LABELS] ?? pack,
-    };
-  }
-
-  const fallback = basename(agentsDir);
+  const pack = basename(resolve(agentsRoot));
   return {
-    pack: fallback,
-    group: PACK_GROUP_LABELS[fallback as keyof typeof PACK_GROUP_LABELS] ?? fallback,
+    pack,
+    group: PACK_GROUP_LABELS[pack as keyof typeof PACK_GROUP_LABELS] ?? pack,
   };
 }

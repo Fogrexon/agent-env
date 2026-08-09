@@ -16,16 +16,8 @@ apps/admin/playwright-report/
 apps/admin/blob-report/
 apps/admin/storybook-static/
 
-# Cloned packs stay local; in-tree showcase + meta are tracked
-plugins/*
-!plugins/README.md
-!plugins/showcase/
-!plugins/showcase/**
-!plugins/meta/
-!plugins/meta/**
-plugins/showcase/**/dist/
-plugins/showcase/**/node_modules/
-plugins/showcase/**/.venv/
-plugins/meta/**/dist/
-plugins/meta/**/node_modules/
-plugins/meta/**/.venv/
+# Cloned personal pack stays local; in-tree packs under agents/ are tracked
+agents/personal/
+agents/**/dist/
+agents/**/node_modules/
+agents/**/.venv/

@@ -226,13 +226,18 @@ export function applyAgentParams(
     const coerced = coerceFieldValue(field, values[field.id], issues);
     if (coerced === undefined) {
       // Keep optional keys stable for ADK instruction templates.
+      // Prefer the field default (e.g. allowWrite: true) over a hardcoded empty.
       if (!field.required) {
         const empty =
-          field.type === 'files' || field.type === 'images'
-            ? []
-            : field.type === 'boolean'
-              ? false
-              : '';
+          field.default !== undefined
+            ? field.default
+            : field.type === 'files' || field.type === 'images'
+              ? []
+              : field.type === 'boolean'
+                ? false
+                : field.type === 'number'
+                  ? (field.min ?? 0)
+                  : '';
         inputs[field.id] = empty;
       }
       continue;

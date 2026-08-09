@@ -1,6 +1,5 @@
 import {
   Button,
-  Checkbox,
   InlineNotification,
   Select,
   SelectItem,
@@ -48,7 +47,6 @@ export function SettingsPage() {
     name: '',
     agentId: '',
     message: '',
-    autoApprove: true,
   });
   const [auditPage, setAuditPage] = useState(1);
   const auditPageSize = 20;
@@ -88,7 +86,6 @@ export function SettingsPage() {
           name: form.name || `${form.agentId}-hook`,
           agentId: form.agentId,
           values: { message: form.message },
-          autoApprove: form.autoApprove,
         }),
       });
       const data = (await res.json()) as {
@@ -227,14 +224,6 @@ export function SettingsPage() {
             value={form.message}
             onChange={(e) =>
               setForm((f) => ({ ...f, message: e.target.value }))
-            }
-          />
-          <Checkbox
-            id="hook-auto-approve"
-            labelText="T2 auto-approve"
-            checked={form.autoApprove}
-            onChange={(_e, { checked }) =>
-              setForm((f) => ({ ...f, autoApprove: checked }))
             }
           />
           <div>

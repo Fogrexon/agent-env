@@ -10,7 +10,6 @@ const TRANSITIONS: Record<RunState, readonly RunState[]> = {
   PROVISIONING: ['RUNNING', 'FAILED_INFRA', 'CANCELLED'],
   RUNNING: [
     'WAITING_TOOL',
-    'WAITING_APPROVAL',
     'CHECKPOINTING',
     'COMPLETED',
     'BUDGET_EXHAUSTED',
@@ -26,14 +25,12 @@ const TRANSITIONS: Record<RunState, readonly RunState[]> = {
     'CANCELLED',
     'BUDGET_EXHAUSTED',
   ],
-  WAITING_APPROVAL: ['RUNNING', 'APPROVAL_EXPIRED', 'CANCELLED', 'POLICY_DENIED'],
   CHECKPOINTING: ['RUNNING', 'FAILED_INFRA', 'CANCELLED'],
   COMPLETED: [],
   FAILED: [],
   FAILED_INFRA: [],
   BUDGET_EXHAUSTED: [],
   POLICY_DENIED: [],
-  APPROVAL_EXPIRED: [],
   CANCELLED: [],
   UNKNOWN_EXTERNAL_EFFECT: [],
 };
@@ -52,7 +49,6 @@ export function phaseForState(state: RunState): RunPhase {
   if (isTerminalRunState(state)) return 'terminated';
   switch (state) {
     case 'WAITING_TOOL':
-    case 'WAITING_APPROVAL':
       return 'waiting';
     case 'CHECKPOINTING':
     case 'PROVISIONING':

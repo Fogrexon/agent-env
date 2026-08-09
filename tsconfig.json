@@ -5,12 +5,12 @@
     { "path": "packages/llm" },
     { "path": "packages/harness" },
     { "path": "agents/dev-env" },
-    { "path": "agents/hello" },
-    { "path": "agents/harness-demo" },
-    { "path": "agents/code-exec" },
-    { "path": "plugins/showcase/character-chat" },
-    { "path": "plugins/showcase/web-qa" },
-    { "path": "plugins/meta/agent-author" },
+    { "path": "agents/builtin/hello" },
+    { "path": "agents/builtin/harness-demo" },
+    { "path": "agents/builtin/code-exec" },
+    { "path": "agents/showcase/character-chat" },
+    { "path": "agents/showcase/web-qa" },
+    { "path": "agents/meta/agent-author" },
     { "path": "scripts" }
   ]
 }

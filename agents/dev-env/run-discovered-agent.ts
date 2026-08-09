@@ -20,7 +20,6 @@ import {
   type AgentDefinition,
   type ExecuteAgentRunResult,
   type RunHistoryWriter,
-  type ToolApprovalPolicy,
 } from '@agent-env/harness';
 import type {
   AgentProgressEvent,
@@ -52,11 +51,6 @@ export interface RunDiscoveredAgentOptions {
   onProgress?: AgentProgressSink;
   /** Skip writing run history (tests). */
   history?: boolean;
-  /**
-   * Per-run T2/T3 approval policy.
-   * Default deny (CLI). Admin passes interactive or auto.
-   */
-  toolApproval?: ToolApprovalPolicy;
 }
 
 export interface RunDiscoveredAgentResult extends ExecuteAgentRunResult {
@@ -235,7 +229,6 @@ export async function runDiscoveredAgent(
     cwd: host.root,
     runId,
     abortSignal: options.abortSignal,
-    toolApproval: options.toolApproval,
     onProgress: options.onProgress
       ? writer
         ? (event: AgentProgressEvent) => {

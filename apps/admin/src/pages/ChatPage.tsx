@@ -1,4 +1,4 @@
-import { Add, Bot, Code, Link as LinkIcon, Send, Tools, TrashCan } from '@carbon/icons-react';
+import { Add, Bot, Code, Send, Tools, TrashCan } from '@carbon/icons-react';
 import type { AgentProgressEvent } from '@agent-env/shared';
 import {
   Button,
@@ -28,6 +28,7 @@ import {
   type ParamsResponse,
 } from '../api/types.js';
 import { MarkdownView } from '../components/MarkdownView.js';
+import { ParamForm } from '../components/ParamForm.js';
 import { AgentSelect } from '../ui/AgentSelect.js';
 import { OpsPanel } from '../ui/OpsPanel.js';
 import { PageShell } from '../ui/PageShell.js';
@@ -75,12 +76,6 @@ type TurnSegment =
       live?: boolean;
     }
   | {
-      type: 'approval';
-      key: string;
-      label: string;
-      live: boolean;
-    }
-  | {
       type: 'note';
       key: string;
       label: string;
@@ -97,7 +92,9 @@ function newSessionId(): string {
 
 function leanTurns(turns: SessionTurn[]): ChatSessionTurn[] {
   return turns
-    .filter((t) => !t.pending)
+    // Keep an in-flight assistant turn once it has a run id. On page return,
+    // hydrateEvents can recover its current/final state from durable run data.
+    .filter((t) => !t.pending || Boolean(t.runId))
     .map((t) => {
       const row: ChatSessionTurn = {
         id: t.id,
@@ -242,7 +239,7 @@ function segmentsFromEvents(events: AgentProgressEvent[]): {
       streaming = false;
       error = event.message ?? 'Run failed';
       for (const seg of segments) {
-        if (seg.type === 'text' || seg.type === 'approval' || seg.type === 'tool') {
+        if (seg.type === 'text' || seg.type === 'tool') {
           seg.live = false;
         }
         if (seg.type === 'note') seg.live = false;
@@ -255,41 +252,10 @@ function segmentsFromEvents(events: AgentProgressEvent[]): {
         finalText = event.payload['finalText'];
       }
       for (const seg of segments) {
-        if (seg.type === 'text' || seg.type === 'approval' || seg.type === 'tool') {
+        if (seg.type === 'text' || seg.type === 'tool') {
           seg.live = false;
         }
         if (seg.type === 'note') seg.live = false;
-      }
-      continue;
-    }
-    if (event.kind === 'approval.requested') {
-      const tool = String(event.payload?.['tool'] ?? 'tool');
-      segments.push({
-        type: 'approval',
-        key: `approval:${event.payload?.['approvalId'] ?? event.sequence}`,
-        label: `Awaiting approval · ${tool}`,
-        live: true,
-      });
-      continue;
-    }
-    if (event.kind === 'approval.resolved') {
-      const id = String(event.payload?.['approvalId'] ?? '');
-      const key = id ? `approval:${id}` : `approval-done:${event.sequence}`;
-      const idx = segments.findIndex((s) => s.key === key);
-      if (idx >= 0 && segments[idx]?.type === 'approval') {
-        segments[idx] = {
-          type: 'approval',
-          key,
-          label: 'Approval resolved',
-          live: false,
-        };
-      } else {
-        segments.push({
-          type: 'approval',
-          key,
-          label: 'Approval resolved',
-          live: false,
-        });
       }
       continue;
     }
@@ -403,7 +369,12 @@ function segmentsFromEvents(events: AgentProgressEvent[]): {
     streaming = false;
   }
 
-  return { segments, text, streaming, error };
+  return {
+    segments,
+    text,
+    streaming,
+    error,
+  };
 }
 
 function waitForRunStart(
@@ -577,22 +548,6 @@ function renderSegment(seg: TurnSegment): React.ReactNode {
       </details>
     );
   }
-  if (seg.type === 'approval') {
-    return (
-      <div
-        key={seg.key}
-        className={`ops-agent-step is-approval${seg.live ? ' is-live' : ''}`}
-      >
-        {seg.live ? (
-          <span className="event-thinking-pulse" aria-hidden />
-        ) : (
-          <LinkIcon size={14} />
-        )}
-        <span className="ops-agent-step-kind">approval</span>
-        <code className="ops-agent-step-label">{seg.label}</code>
-      </div>
-    );
-  }
   return (
     <div
       key={seg.key}
@@ -620,11 +575,13 @@ function TurnTranscript({
   streaming?: boolean;
   error?: string;
 }) {
-  const visible = streaming
-    ? segments
-    : segments.map((seg) =>
-        'live' in seg && seg.live ? { ...seg, live: false } : seg,
-      );
+  const visible = segments.map((seg) => {
+    if (!streaming && 'live' in seg && seg.live) {
+      return { ...seg, live: false };
+    }
+    return seg;
+  });
+  const openMode = Boolean(streaming);
 
   if (error && visible.length === 0 && !fallbackText.trim()) {
     return <MarkdownView content={assistantMarkdownContent(error)} />;
@@ -642,11 +599,13 @@ function TurnTranscript({
     return null;
   }
 
-  // While streaming: chronological (live markdown). After: tuck progress away,
-  // keep the final answer as the primary readable surface.
-  if (streaming) {
+  // While streaming: chronological (live markdown).
+  // After: tuck progress away, keep the final answer as the primary surface.
+  if (openMode) {
     return (
-      <div className="ops-agent-transcript-segs">{visible.map(renderSegment)}</div>
+      <div className="ops-agent-transcript-segs">
+        {visible.map((seg) => renderSegment(seg))}
+      </div>
     );
   }
 
@@ -678,7 +637,7 @@ function TurnTranscript({
             Progress · {progress.length} step{progress.length === 1 ? '' : 's'}
           </summary>
           <div className="ops-agent-progress-body">
-            {progress.map(renderSegment)}
+            {progress.map((seg) => renderSegment(seg))}
           </div>
         </details>
       ) : null}
@@ -699,6 +658,8 @@ export function ChatPage() {
   const navigate = useNavigate();
   const [agents, setAgents] = useState<AgentListItem[]>([]);
   const [params, setParams] = useState<ParamsResponse | null>(null);
+  /** Non-objective param values (gates etc.) — seeded from defaults, user-editable. */
+  const [gateValues, setGateValues] = useState<Record<string, unknown>>({});
   const [turns, setTurns] = useState<SessionTurn[]>([]);
   const [sessions, setSessions] = useState<ChatSessionSummary[]>([]);
   const [sessionId, setSessionId] = useState(newSessionId);
@@ -728,6 +689,11 @@ export function ChatPage() {
       ? agentId
       : undefined;
 
+  const gateFields = useMemo(() => {
+    if (!params) return [];
+    return params.spec.fields.filter((f) => f.id !== params.spec.objectiveField);
+  }, [params]);
+
   const refreshSessions = async (agent: string) => {
     const list = await listChatSessions(agent);
     setSessions(list);
@@ -749,7 +715,11 @@ export function ChatPage() {
     await refreshSessions(agent);
   };
 
-  const hydrateEvents = (mapped: SessionTurn[]) => {
+  const hydrateEvents = (
+    mapped: SessionTurn[],
+    agent: string,
+    activeSessionId: string,
+  ) => {
     const gen = ++hydrateGenRef.current;
     for (const turn of mapped) {
       if (turn.role !== 'assistant' || !turn.runId) continue;
@@ -758,13 +728,129 @@ export function ChatPage() {
       void getRun(runId)
         .then((snap) => {
           if (hydrateGenRef.current !== gen) return;
-          setTurns((prev) =>
-            prev.map((row) =>
+          const events = snap.events ?? [];
+          const active = !isTerminalRunStatus(snap.status);
+          const view = segmentsFromEvents(events);
+          setTurns((prev) => {
+            const hydrated = prev.map((row) =>
               row.id === turnId
-                ? { ...row, events: snap.events ?? [] }
+                ? {
+                    ...row,
+                    events,
+                    pending: active,
+                    streaming: active,
+                    text:
+                      active
+                        ? view.text || row.text
+                        : snap.result?.finalText?.trim() ||
+                          view.text ||
+                          row.text,
+                    error: snap.error ?? snap.result?.error ?? row.error,
+                  }
                 : row,
-            ),
-          );
+            );
+            if (!active) {
+              void persistSession(agent, activeSessionId, hydrated).catch(
+                (err) => {
+                  setError(err instanceof Error ? err.message : String(err));
+                },
+              );
+            }
+            return hydrated;
+          });
+
+          // Resume an in-flight run after navigation.
+          const isLatestAssistant =
+            [...mapped]
+              .reverse()
+              .find((t) => t.role === 'assistant' && t.runId)?.id === turnId;
+          if (!active || !isLatestAssistant) return;
+          if (abortRef.current && !abortRef.current.signal.aborted) {
+            // Another resume/send already owns the stream.
+            return;
+          }
+          const ac = new AbortController();
+          abortRef.current = ac;
+          setSending(true);
+          let folded = events.slice();
+          const after = folded.at(-1)?.sequence ?? -1;
+          const onEvent = (event: AgentProgressEvent) => {
+            folded = upsertEvent(folded, event);
+            const next = segmentsFromEvents(folded);
+            setTurns((prev) =>
+              prev.map((row) =>
+                row.id === turnId
+                  ? {
+                      ...row,
+                      runId,
+                      pending: true,
+                      streaming: next.streaming,
+                      text: next.text || row.text,
+                      events: folded,
+                      error: next.error,
+                    }
+                  : row,
+              ),
+            );
+          };
+          void followRunEvents(runId, after, onEvent, ac.signal)
+            .then((result) => {
+              if (hydrateGenRef.current !== gen) return;
+              const merged = preferRicherEvents(result.events, folded);
+              const done = segmentsFromEvents(merged);
+              const reply =
+                result.finalText?.trim() ||
+                done.text.trim() ||
+                result.error ||
+                done.error ||
+                `(run ${result.status})`;
+              setTurns((prev) => {
+                const finalTurns = prev.map((row) =>
+                  row.id === turnId
+                    ? {
+                        ...row,
+                        pending: false,
+                        streaming: false,
+                        runId,
+                        text: reply,
+                        events: merged,
+                        error: result.error ?? done.error,
+                      }
+                    : row,
+                );
+                void persistSession(agent, activeSessionId, finalTurns).catch(
+                  (err) => {
+                    setError(
+                      err instanceof Error ? err.message : String(err),
+                    );
+                  },
+                );
+                return finalTurns;
+              });
+            })
+            .catch((err) => {
+              if (err instanceof DOMException && err.name === 'AbortError') {
+                return;
+              }
+              if (hydrateGenRef.current !== gen) return;
+              const msg = err instanceof Error ? err.message : String(err);
+              setTurns((prev) =>
+                prev.map((row) =>
+                  row.id === turnId
+                    ? {
+                        ...row,
+                        pending: false,
+                        streaming: false,
+                        error: msg,
+                        text: row.text || msg,
+                      }
+                    : row,
+                ),
+              );
+            })
+            .finally(() => {
+              if (hydrateGenRef.current === gen) setSending(false);
+            });
         })
         .catch(() => {
           /* tool history is optional */
@@ -858,11 +944,20 @@ export function ChatPage() {
         ]);
         if (cancelled) return;
         setParams(data);
+        const gates: Record<string, unknown> = {};
+        for (const field of data.spec.fields) {
+          if (field.id === data.spec.objectiveField) continue;
+          if (data.defaults[field.id] !== undefined) {
+            gates[field.id] = data.defaults[field.id];
+          }
+        }
+        setGateValues(gates);
         setSessions(history);
         setError(null);
       } catch (err) {
         if (!cancelled) {
           setParams(null);
+          setGateValues({});
           setSessions([]);
           setError(err instanceof Error ? err.message : String(err));
         }
@@ -908,7 +1003,7 @@ export function ChatPage() {
       setSessionId(session.id);
       setTurns(mapped);
       setDraft('');
-      hydrateEvents(mapped);
+      hydrateEvents(mapped, selectedId, session.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     }
@@ -985,14 +1080,23 @@ export function ChatPage() {
     };
 
     try {
+      // Persist the user's turn before enqueueing. A navigation during the
+      // request must not roll the visible conversation back to the last
+      // completed assistant turn.
+      await persistSession(selectedId, activeSessionId, nextHistory);
+
+      // Refresh defaults so a long-lived tab cannot keep stale allow* = false.
+      const fresh = await getAgentParams(selectedId);
+      setParams(fresh);
       const values = {
-        ...params.defaults,
-        ...buildTurnMessage(nextHistory, text, params.spec.objectiveField),
+        ...fresh.defaults,
+        ...gateValues,
+        ...buildTurnMessage(nextHistory, text, fresh.spec.objectiveField),
       };
       const res = await fetch(`/api/agents/${selectedId}/runs`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ values, autoApprove: false, priority: 0 }),
+        body: JSON.stringify({ values, priority: 0 }),
         signal: ac.signal,
       });
       const data = (await res.json()) as {
@@ -1012,6 +1116,12 @@ export function ChatPage() {
 
       const runId = data.runId;
       patchPending({ runId });
+      // Persist the run association immediately. The assistant body can be
+      // reconstructed from run events even if this page is now closed.
+      await persistSession(selectedId, activeSessionId, [
+        ...nextHistory,
+        { ...pending, runId },
+      ]);
 
       const started = await waitForRunStart(runId, ac.signal);
       if (isTerminalRunStatus(started.status)) {
@@ -1237,6 +1347,7 @@ export function ChatPage() {
                     turn.role === 'assistant' && turn.events
                       ? segmentsFromEvents(turn.events)
                       : null;
+                  const segments = view?.segments ?? [];
                   return (
                     <article
                       key={turn.id}
@@ -1267,13 +1378,13 @@ export function ChatPage() {
                       <div className="ops-agent-turn-body">
                         {turn.role === 'user' ? (
                           <pre className="ops-agent-prompt">{turn.text}</pre>
-                        ) : turn.error && !view?.segments.length ? (
+                        ) : turn.error && !segments.length ? (
                           <MarkdownView
                             content={assistantMarkdownContent(turn.error)}
                           />
                         ) : (
                           <TurnTranscript
-                            segments={view?.segments ?? []}
+                            segments={segments}
                             fallbackText={turn.text}
                             streaming={turn.streaming}
                             error={turn.error}
@@ -1288,6 +1399,18 @@ export function ChatPage() {
             </div>
 
             <footer className="ops-agent-composer">
+              {gateFields.length > 0 ? (
+                <div className="ops-agent-composer-gates">
+                  <ParamForm
+                    fields={gateFields}
+                    values={gateValues}
+                    onChange={(id, value) =>
+                      setGateValues((prev) => ({ ...prev, [id]: value }))
+                    }
+                    disabled={!params || sending}
+                  />
+                </div>
+              ) : null}
               <TextArea
                 id="ops-agent-composer-input"
                 labelText="Instruct the agent"
@@ -1307,9 +1430,6 @@ export function ChatPage() {
                 }}
               />
               <div className="ops-agent-composer-bar">
-                <span className="ops-agent-composer-hint muted">
-                  T2/T3 approvals surface on the run page.
-                </span>
                 <Button
                   kind="primary"
                   renderIcon={Send}

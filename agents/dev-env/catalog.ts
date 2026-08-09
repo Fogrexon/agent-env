@@ -17,7 +17,7 @@ export interface DiscoverAgentsOptions {
    * Ignored when `agentsDirs` is non-empty.
    */
   agentsDir?: string;
-  /** Multiple agents roots (builtin samples + plugin packs). */
+  /** Multiple agents roots (packs under agents/<pack>/). */
   agentsDirs?: readonly string[];
   /** Host root for relative entry/paramsFile paths. */
   repoRoot?: string;
@@ -123,7 +123,7 @@ function resolvePackagesInDir(
 
 /**
  * Discover agents by filesystem convention across one or more agents roots
- * (builtin `agents/` + `plugins/<pack>/`). Never scans packages/*.
+ * (packs under `agents/<pack>/`). Never scans packages/*.
  * Directories without `agent.ts` are skipped. `params.yaml` is optional.
  * Duplicate agent ids across roots throw.
  */
@@ -179,7 +179,10 @@ export async function loadAgentDefinition(
   cwd: string = process.cwd(),
 ): Promise<AgentDefinition> {
   const absolute = resolve(cwd, entry);
-  const mod = (await import(pathToFileURL(absolute).href)) as {
+  // Bust Node ESM cache so long-lived admin/CLI pick up agent.ts edits.
+  const bust = statSync(absolute).mtimeMs;
+  const href = `${pathToFileURL(absolute).href}?t=${bust}`;
+  const mod = (await import(href)) as {
     agentDefinition?: AgentDefinition;
   };
   if (!mod.agentDefinition) {

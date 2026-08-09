@@ -1,6 +1,6 @@
 /**
  * Execution-environment host wiring (discovery, env bootstrap, run entry).
- * Workflow definition packs under plugins/ only export agentDefinition —
+ * Workflow definition packs under agents/<pack>/ only export agentDefinition —
  * they do not own the run loop.
  */
 export {

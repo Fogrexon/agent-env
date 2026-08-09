@@ -12,22 +12,21 @@ alwaysApply: true
 | 層 | 場所 | 役割 |
 |----|------|------|
 | Execution host | `agents/dev-env` + `scripts/` + `apps/admin` | **実行の主体**（discovery / bootstrap / `executeAgentRun` / UI） |
-| Builtin samples | `agents/<id>/` | 最小サンプル定義（必須 `agent.ts`。任意 `params.yaml`） |
-| Workflow packs | `plugins/<pack>/<id>/` | 目的別ワークフロー定義（ホストが読んで実行。独自ランループなし） |
+| Agent packs | `agents/<pack>/<id>/` | ワークフロー定義（必須 `agent.ts`。任意 `params.yaml`）。in-tree: builtin / showcase / meta |
 | Libraries | `packages/*` | 汎用ランタイム・Zod（エージェント非依存） |
 | Docs | `docs/` | ARCHITECTURE + 研究レポート |
 
 ## 必須ルール
 
 - 秘密情報・接続設定の取得は実行環境の責務。`packages/*` は `process.env` を読まない。env 配線は `agents/dev-env` のみ
-- **エージェント固有の設定・一覧・default id は定義側（`agents/<id>/` または `plugins/<pack>/<id>/`）に閉じる。`packages/*` にも `scripts/` にも入れない**（`layer-boundaries.mdc`）
-- 定義追加は pack を `plugins/` に置くか builtin を `agents/<id>/agent.ts` に置く。ルート `package.json` に per-agent script を増やさない
+- **エージェント固有の設定・一覧・default id は定義側（`agents/<pack>/<id>/`）に閉じる。`packages/*` にも `scripts/` にも入れない**（`layer-boundaries.mdc`）
+- 定義追加は pack を `agents/<pack>/` に置く。ルート `package.json` に per-agent script を増やさない
 - OpenAI 互換は `createOpenaiCompatibleProvider({ id, baseUrl, apiKey? })` を **id ごとに複数**登録してよい
 - Gemini / Anthropic は API key または Vertex ADC（`vertex: { project, location|region }`）をファクトリに注入
 - モデルは `agentDefinition` 内で `provider:model` 文字列（例 `cursor:auto`）を ADK LLMRegistry に渡すだけでよい。明示的な `BaseLlm` が要るときだけ `resolveModel({ provider, model })`（登録済み provider id）。run 単位のモデル上書きはない
 - デモの既定は Cursor SDK。FunctionTools も Cursor で動く（`ProviderBackedLlm` が SDK customTools にブリッジ）。Gemini はフォールバック / ADK ネイティブ
 - 実行制限は `agentDefinition.limits` に置く。計測可能な実行は `executeAgentRun` / `runDiscoveredAgent`
-- ツール引数は Zod。権限境界は `createGuardedTool`（T0–T3）
+- ツール引数は Zod。ツールは `createGuardedTool`（`riskClass` T0–T3 はメタデータ。人間承認ゲートはない）
 - **既存コネクタを再実装しないだけでなく、コネクタ向きの能力をエージェント内の自前関数にしない**（`reuse-existing.mdc`）。例: 検索は `createWebSearchConnector`、抽出は `createTavilyExtractTool`
 - **管理画面・グラフ・複雑な UI は自前再発明よりライブラリ優先**（`prefer-libraries.mdc`）。例: エージェントグラフは `@xyflow/react` + dagre
 - 並列分岐の `outputKey` は一意

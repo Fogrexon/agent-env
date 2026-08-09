@@ -94,6 +94,12 @@ export {
   type GitTools,
 } from './git-tools.js';
 export {
+  createAdminControlTools,
+  type AdminControlBasicAuth,
+  type AdminControlTools,
+  type CreateAdminControlToolsOptions,
+} from './admin-control.js';
+export {
   createGrokBuildXSearchConnector,
   extractGrokPlainText,
   isGrokBuildAvailable,

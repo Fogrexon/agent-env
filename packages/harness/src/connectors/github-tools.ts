@@ -21,19 +21,6 @@ export interface CreateGithubToolsOptions {
     name?: string;
     description?: string;
     contract?: Partial<ToolContractInput>;
-    /**
-     * T3 approval. Default: deny (fail closed).
-     * Return true to allow branch / commit / push / `gh pr create`.
-     */
-    approve?: (args: {
-      contract: { name: string; riskClass: string };
-      input: {
-        workdir: string;
-        branch: string;
-        title: string;
-        body: string;
-      };
-    }) => Promise<boolean> | boolean;
   };
 }
 
@@ -45,7 +32,7 @@ export interface GithubTools {
 /**
  * GitHub write/ops tools backed by `git` + `gh` CLI.
  * Auth is whatever `gh` / remotes already have — this factory does not read
- * tokens from env. Agents inject resolveWorkdir + per-tool approve only.
+ * tokens from env. Agents inject resolveWorkdir only.
  *
  * Search remains `createGithubGhConnector` (read path). This factory covers
  * mutating GitHub workflows (PR open today; extend here as needed).
@@ -91,7 +78,7 @@ export function createGithubTools(
     },
     description:
       options.createPr?.description ??
-      'Branch, commit, push, and open a GitHub PR via `gh pr create` (T3 — requires approve and push rights).',
+      'Branch, commit, push, and open a GitHub PR via `gh pr create`.',
     parameters: z.object({
       workdir: z.string().describe('Git worktree directory (must be allowed)'),
       branch: z
@@ -101,9 +88,6 @@ export function createGithubTools(
       title: z.string().min(8).describe('PR title / commit message'),
       body: z.string().min(20).describe('PR body'),
     }),
-    approve: options.createPr?.approve
-      ? (args) => options.createPr!.approve!(args)
-      : undefined,
     execute: async ({ workdir, branch, title, body }) => {
       const cwd = options.resolveWorkdir(workdir);
       await runOk(gitBin, ['checkout', '-b', branch], cwd);

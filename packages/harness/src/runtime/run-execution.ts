@@ -17,10 +17,6 @@ import { BudgetManager } from './budget.js';
 import { InMemoryEventStore } from './event-store.js';
 import { RUN_WORKSPACE_STATE_KEY } from './run-history.js';
 import { canTransition, RunStateMachine } from './state-machine.js';
-import {
-  runWithToolApproval,
-  type ToolApprovalPolicy,
-} from './tool-approval.js';
 import { applyToolRuntimePolicy } from './tool-runtime-policy.js';
 
 export interface ExecuteAgentRunOptions {
@@ -34,7 +30,6 @@ export interface ExecuteAgentRunOptions {
   cwd?: string;
   runId?: string;
   abortSignal?: AbortSignal;
-  toolApproval?: ToolApprovalPolicy;
   onProgress?: AgentProgressSink;
   eventStore?: InMemoryEventStore;
   onEvent?: (event: ReturnType<InMemoryEventStore['append']>) => void;
@@ -229,64 +224,37 @@ export async function executeAgentRun(
     changeState('RUNNING');
     emit('run.started', {});
 
-    const baseApproval: ToolApprovalPolicy = options.toolApproval ?? {
-      mode: 'deny',
-    };
-    const approvalPolicy: ToolApprovalPolicy = {
-      ...baseApproval,
-      onWaitingChange: (waiting, request) => {
-        baseApproval.onWaitingChange?.(waiting, request);
-        if (waiting) {
-          if (canTransition(sm.state, 'WAITING_APPROVAL')) {
-            changeState(
-              'WAITING_APPROVAL',
-              request
-                ? `approval required: ${request.contract.name}`
-                : 'approval required',
-            );
-          }
-        } else if (sm.state === 'WAITING_APPROVAL') {
-          if (canTransition(sm.state, 'RUNNING')) {
-            changeState('RUNNING', 'approval resolved');
-          }
-        }
-      },
-    };
+    emit('model.requested', {});
 
-    await runWithToolApproval(approvalPolicy, async () => {
-      emit('model.requested', {});
+    const agentResult = await runAgent({
+      agent: options.agent,
+      message: objective,
+      appName: `agent-${options.agentId}`,
+      runId,
+      stateDelta: inputState,
+      attachments: options.attachments,
+      cwd: options.cwd,
+      abortSignal: controller.signal,
+      onProgress: forwardAgentProgress,
+    });
 
-      const agentResult = await runAgent({
-        agent: options.agent,
-        message: objective,
-        appName: `agent-${options.agentId}`,
-        runId,
-        stateDelta: inputState,
-        attachments: options.attachments,
-        cwd: options.cwd,
-        abortSignal: controller.signal,
-        onProgress: forwardAgentProgress,
-      });
-
-      if (agentResult.status === 'error') {
-        if (stopReason?.kind === 'budget') {
-          error = stopReason.detail;
-          changeState('BUDGET_EXHAUSTED', error);
-        } else if (stopReason?.kind === 'maxSteps') {
-          error = stopReason.detail;
-          emit('model.failed', { error });
-          changeState('FAILED', error);
-        } else if (options.abortSignal?.aborted) {
-          error = agentResult.error ?? 'Run aborted';
-          changeState('CANCELLED', error);
-        } else {
-          error = agentResult.error ?? 'agent error';
-          emit('model.failed', { error });
-          changeState('FAILED', error);
-        }
-        return;
+    if (agentResult.status === 'error') {
+      if (stopReason?.kind === 'budget') {
+        error = stopReason.detail;
+        changeState('BUDGET_EXHAUSTED', error);
+      } else if (stopReason?.kind === 'maxSteps') {
+        error = stopReason.detail;
+        emit('model.failed', { error });
+        changeState('FAILED', error);
+      } else if (options.abortSignal?.aborted) {
+        error = agentResult.error ?? 'Run aborted';
+        changeState('CANCELLED', error);
+      } else {
+        error = agentResult.error ?? 'agent error';
+        emit('model.failed', { error });
+        changeState('FAILED', error);
       }
-
+    } else {
       finalText = agentResult.finalText;
       for (const model of agentResult.modelsUsed ?? []) {
         modelsUsed.add(formatModelRef(model));
@@ -303,17 +271,13 @@ export async function executeAgentRun(
         } else {
           changeState('FAILED', error);
         }
-        return;
-      }
-
-      if (budget.exhausted) {
+      } else if (budget.exhausted) {
         error = `budget exhausted: ${budget.exhaustionReason()}`;
         changeState('BUDGET_EXHAUSTED', error);
-        return;
+      } else {
+        changeState('COMPLETED');
       }
-
-      changeState('COMPLETED');
-    });
+    }
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
     if (stopReason) error = stopReason.detail;

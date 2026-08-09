@@ -21,7 +21,7 @@ export function repoRoot(cwd: string = process.cwd()): string {
 }
 
 export function agentsDir(cwd: string = process.cwd()): string {
-  return hostPaths(cwd).builtinAgentsDir;
+  return hostPaths(cwd).agentsDir;
 }
 
 export function discoveryOptions(

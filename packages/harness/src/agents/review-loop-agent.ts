@@ -59,7 +59,7 @@ function defaultReadReview(state: Record<string, unknown>, key: string): unknown
 
 /**
  * Same-session producer → reviewer → (optional reviser) loop.
- * Shares the outer ADK invocation budget, abort, and tool approval.
+ * Shares the outer ADK invocation budget and abort.
  * Does not nest `runAgent()`.
  */
 export function createReviewLoopAgent<TReview>(
