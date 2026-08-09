@@ -1,27 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import type { AgentProgressEvent } from '@agent-env/shared';
-import {
-  Alert,
-  Button,
-  Col,
-  Descriptions,
-  Row,
-  Space,
-  Timeline,
-  Typography,
-} from 'antd';
+import { Button, InlineNotification } from '@carbon/react';
 import { getRun, upsertEvent } from '../api/client.js';
 import type { RunSnapshot, RunStage } from '../api/types.js';
 import {
   isTerminalRunStatus,
-  verificationLabel,
 } from '../api/types.js';
 import { AgentGraphPanel } from '../components/AgentGraphPanel.js';
 import { MarkdownReportReader } from '../components/ReportReader.js';
 import { RunArtifactsPanel } from '../components/RunArtifactsPanel.js';
 import { TimelineEventRow } from '../components/TimelineEventRow.js';
 import { PageShell } from '../ui/PageShell.js';
+import { OpsPanel } from '../ui/OpsPanel.js';
 import { StatusTag } from '../ui/StatusTag.js';
 
 function pendingApprovalsFromEvents(events: AgentProgressEvent[]) {
@@ -200,9 +191,7 @@ export function RunDetailPage() {
 
   const stages = snap?.stages ?? [];
   const budget = snap?.budgetConsumed;
-  const verification = snap?.verification;
   const recordState = snap?.recordState ?? snap?.result?.recordState;
-  const verifyLabel = verificationLabel(recordState);
   const graph = snap?.observedGraph ?? snap?.effectiveGraph ?? undefined;
   const graphIsObserved = Boolean(snap?.observedGraph);
 
@@ -218,193 +207,143 @@ export function RunDetailPage() {
         { title: 'Run' },
       ]}
       extra={
-        <Space wrap>
+        <div className="ops-inline-gap ops-wrap">
           {status ? <StatusTag status={status} /> : null}
-          {verifyLabel ? (
-            <Typography.Text
-              type={recordState === 'SUCCEEDED' ? 'success' : 'secondary'}
-              strong
-            >
-              {verifyLabel}
-            </Typography.Text>
-          ) : null}
           {active ? (
-            <Button danger onClick={() => void onCancel()}>
+            <Button kind="danger" size="sm" onClick={() => void onCancel()}>
               Cancel
             </Button>
           ) : null}
-          <Link to={`/jobs/${snap?.agentId ?? ''}`}>Rebuild job</Link>
-        </Space>
+          {snap?.agentId ? (
+            <Link to={`/jobs/${snap.agentId}?fromRun=${encodeURIComponent(runId)}`}>
+              Reuse on Jobs
+            </Link>
+          ) : (
+            <Link to={`/jobs/${snap?.agentId ?? ''}`}>Rebuild job</Link>
+          )}
+        </div>
       }
     >
       {error ? (
-        <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
+        <InlineNotification
+          kind="error"
+          lowContrast
+          hideCloseButton
+          title={error}
+          className="ops-inline-alert"
+        />
       ) : null}
 
-      {verifyLabel ? (
-        <Typography.Text type="secondary" style={{ display: 'block', marginBottom: 12 }}>
-          Verification: {verifyLabel}
-        </Typography.Text>
+      {snap?.values ? (
+        <OpsPanel title="Inputs" className="ops-stack-gap">
+          <pre className="event-json">
+            {JSON.stringify(snap.values, null, 2)}
+          </pre>
+          {snap.agentId ? (
+            <div className="ops-action-row" style={{ marginTop: 8 }}>
+              <Link
+                to={`/jobs/${snap.agentId}?fromRun=${encodeURIComponent(runId)}`}
+              >
+                Reuse on Jobs
+              </Link>
+            </div>
+          ) : null}
+        </OpsPanel>
       ) : null}
 
       {stages.length > 0 ? (
-        <div className="ops-panel" style={{ marginBottom: 16 }}>
-          <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-            Stages
-          </Typography.Text>
-          <Timeline
-            items={stages.map((s: RunStage, i: number) => ({
-              key: `${s.state}-${s.at}-${i}`,
-              children: (
-                <>
-                  <Typography.Text strong>{s.state}</Typography.Text>
-                  {s.phase ? ` / ${s.phase}` : ''}
-                  <Typography.Text type="secondary">
-                    {' '}
-                    {new Date(s.at).toLocaleTimeString()}
-                  </Typography.Text>
-                </>
-              ),
-            }))}
-          />
-        </div>
+        <OpsPanel title="Stages" className="ops-stack-gap">
+          <ol className="ops-stages">
+            {stages.map((s: RunStage, i: number) => (
+              <li key={`${s.state}-${s.at}-${i}`}>
+                <strong>{s.state}</strong>
+                {s.phase ? ` / ${s.phase}` : ''}
+                <span className="muted">
+                  {' '}
+                  {new Date(s.at).toLocaleTimeString()}
+                </span>
+              </li>
+            ))}
+          </ol>
+        </OpsPanel>
       ) : null}
 
-      <Row gutter={[12, 12]} style={{ marginBottom: 16 }}>
-        <Col xs={24} md={12}>
-          <div className="ops-panel">
-            <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-              Verification
-            </Typography.Text>
-            {verification ? (
-              <>
-                <Space style={{ marginBottom: 8 }}>
-                  <StatusTag
-                    status={verification.passed ? 'succeeded' : 'failed'}
-                  />
-                  <Typography.Text type="secondary">
-                    {verification.graderVersion}
-                  </Typography.Text>
-                </Space>
-                <ul className="ops-check-list">
-                  {verification.checks.map(
-                    (c: {
-                      criterion: string;
-                      passed: boolean;
-                      detail?: string;
-                    }) => (
-                      <li key={c.criterion}>
-                        {c.passed ? '[ok]' : '[ng]'} {c.criterion}
-                        {c.detail ? (
-                          <Typography.Text type="secondary">
-                            {' '}
-                            — {c.detail}
-                          </Typography.Text>
-                        ) : null}
-                      </li>
-                    ),
-                  )}
-                </ul>
-              </>
-            ) : (
-              <Typography.Text type="secondary">
-                {snap?.verificationPassed === true
-                  ? 'passed'
-                  : snap?.verificationPassed === false
-                    ? 'failed'
-                    : '—'}
-              </Typography.Text>
-            )}
-          </div>
-        </Col>
-        <Col xs={24} md={12}>
-          <div className="ops-panel">
-            <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-              Budget
-            </Typography.Text>
-            {budget ? (
-              <Descriptions size="small" column={1}>
-                <Descriptions.Item label="toolCalls">
-                  {budget.toolCalls}
-                </Descriptions.Item>
-                <Descriptions.Item label="tokens">
-                  {budget.tokens}
-                </Descriptions.Item>
-                <Descriptions.Item label="wall">
-                  {budget.wallSeconds.toFixed(1)}s
-                </Descriptions.Item>
-                <Descriptions.Item label="cost">
-                  ${budget.costUsd.toFixed(4)}
-                </Descriptions.Item>
-              </Descriptions>
-            ) : (
-              <Typography.Text type="secondary">—</Typography.Text>
-            )}
-            {snap?.recordState || snap?.result?.recordState ? (
-              <Typography.Text type="secondary">
-                recordState: {snap.recordState ?? snap.result?.recordState}
-                {verifyLabel ? ` (${verifyLabel})` : ''}
-              </Typography.Text>
-            ) : null}
-          </div>
-        </Col>
-      </Row>
+      <OpsPanel title="Budget" className="ops-stack-gap">
+        {budget ? (
+          <dl className="ops-desc">
+            <div>
+              <dt>toolCalls</dt>
+              <dd>{budget.toolCalls}</dd>
+            </div>
+            <div>
+              <dt>tokens</dt>
+              <dd>{budget.tokens}</dd>
+            </div>
+            <div>
+              <dt>wall</dt>
+              <dd>{budget.wallSeconds.toFixed(1)}s</dd>
+            </div>
+            <div>
+              <dt>cost</dt>
+              <dd>${budget.costUsd.toFixed(4)}</dd>
+            </div>
+          </dl>
+        ) : (
+          <p className="muted">—</p>
+        )}
+        {recordState ? (
+          <p className="muted">recordState: {recordState}</p>
+        ) : null}
+      </OpsPanel>
 
       {graph ? (
-        <div className="ops-panel" style={{ marginBottom: 16 }}>
-          <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-            Graph
-          </Typography.Text>
+        <OpsPanel title="Graph" className="ops-stack-gap">
           <AgentGraphPanel graph={graph} observed={graphIsObserved} />
-        </div>
+        </OpsPanel>
       ) : null}
 
       {pending.length > 0 ? (
-        <div className="ops-panel" style={{ marginBottom: 16 }}>
-          <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-            Approvals
-          </Typography.Text>
+        <OpsPanel title="Approvals" className="ops-stack-gap">
           {pending.map((a) => (
             <div key={a.approvalId} className="ops-approval">
-              <Typography.Paragraph>
-                <Typography.Text strong>{a.tool}</Typography.Text> /{' '}
-                {a.riskClass}
+              <p>
+                <strong>{a.tool}</strong> / {a.riskClass}
                 {a.sideEffect ? ` / ${a.sideEffect}` : ''}
-              </Typography.Paragraph>
+              </p>
               <pre className="event-json">
                 {JSON.stringify(a.input, null, 2)}
               </pre>
-              <Space>
+              <div className="ops-action-row">
                 <Button
-                  type="primary"
-                  loading={deciding === a.approvalId}
+                  kind="primary"
+                  size="sm"
+                  disabled={deciding === a.approvalId}
                   onClick={() => void onDecide(a.approvalId, 'granted')}
                 >
-                  Grant
+                  {deciding === a.approvalId ? '…' : 'Grant'}
                 </Button>
                 <Button
-                  loading={deciding === a.approvalId}
+                  kind="secondary"
+                  size="sm"
+                  disabled={deciding === a.approvalId}
                   onClick={() => void onDecide(a.approvalId, 'denied')}
                 >
                   Deny
                 </Button>
-              </Space>
+              </div>
             </div>
           ))}
-        </div>
+        </OpsPanel>
       ) : null}
 
-      <div className="ops-panel" style={{ marginBottom: 16 }}>
-        <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-          Console
-        </Typography.Text>
+      <OpsPanel title="Console" className="ops-stack-gap">
         <div className="timeline" ref={timelineRef}>
           {events.length === 0 ? (
-            <Typography.Text type="secondary">
+            <p className="muted">
               {status === 'queued'
                 ? 'Waiting in queue for a free slot…'
                 : 'No events'}
-            </Typography.Text>
+            </p>
           ) : (
             events.map((ev) => (
               <TimelineEventRow
@@ -415,24 +354,18 @@ export function RunDetailPage() {
             ))
           )}
         </div>
-      </div>
+      </OpsPanel>
 
       {finalText && isTerminalRunStatus(status ?? '') ? (
-        <div className="ops-panel" style={{ marginBottom: 16 }}>
-          <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-            Output
-          </Typography.Text>
+        <OpsPanel title="Output" className="ops-stack-gap">
           <MarkdownReportReader title="final" content={finalText} />
-        </div>
+        </OpsPanel>
       ) : null}
 
       {runId ? (
-        <div className="ops-panel">
-          <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-            Artifacts
-          </Typography.Text>
+        <OpsPanel title="Artifacts" className="ops-stack-gap">
           <RunArtifactsPanel runId={runId} />
-        </div>
+        </OpsPanel>
       ) : null}
     </PageShell>
   );

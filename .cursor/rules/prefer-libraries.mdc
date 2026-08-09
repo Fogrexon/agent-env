@@ -19,7 +19,7 @@ alwaysApply: true
 
 | 用途 | 推奨 | 備考 |
 |------|------|------|
-| 汎用 UI kit（admin） | `antd` + `@ant-design/icons` | control plane シェル / Table / Form。テーマは `apps/admin/src/ui/theme.tsx` |
+| 汎用 UI kit（admin） | `@carbon/react` + `@carbon/icons-react` | control plane シェル / Table / Form。テーマは `apps/admin/src/ui/theme.tsx`（Carbon g10）+ `carbon.scss` |
 | エージェントグラフ | `@xyflow/react` + `@dagrejs/dagre`（または ELK） | 自前 SVG + Sugiyama は避ける |
 | ルーティング | `react-router-dom` | 採用済み |
 | Markdown | `react-markdown` / `@uiw/react-md-editor` | 採用済み |

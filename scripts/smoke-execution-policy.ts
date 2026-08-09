@@ -3,8 +3,7 @@
  *   - applyToolRuntimePolicy gateway (gate / deny / restore)
  *   - limits.maxToolCalls → hard stop at the tool gateway (BUDGET_EXHAUSTED)
  *   - limits.maxSteps → bounded agent loop (FAILED)
- *   - limits.maxRepairs → verify → repair → re-run loop (SUCCEEDED)
- *   - empty / advisory verification → COMPLETED (not-gated)
+ *   - successful agent completion → COMPLETED
  *   - describeAgentGraph / assertGraphModelsResolvable
  *   - ADK provider:model routing via registerAdkLlmRouting
  *
@@ -25,7 +24,6 @@ import {
   createGuardedTool,
   describeAgentGraph,
   executeAgentRun,
-  verify,
 } from '@agent-env/harness';
 import {
   clearAdkLlmRouting,
@@ -97,27 +95,20 @@ function baseLimits(
     maxSteps: overrides.maxSteps ?? 20,
     maxToolCalls: overrides.maxToolCalls ?? 40,
     maxWallSeconds: overrides.maxWallSeconds ?? 120,
-    maxRepairs: overrides.maxRepairs ?? 0,
     maxSubagentDepth: overrides.maxSubagentDepth ?? 3,
   };
 }
-
-const containsVerified = {
-  checks: [verify.contains({ text: 'verified' })],
-};
 
 function runSmoke(options: {
   agent: BaseAgent;
   agentId: string;
   limits: AgentExecutionLimits;
-  verification?: { checks: ReturnType<typeof verify.contains>[] };
 }): Promise<Awaited<ReturnType<typeof executeAgentRun>>> {
   return executeAgentRun({
     agent: options.agent,
     agentId: options.agentId,
     objective: 'offline smoke objective',
     limits: options.limits,
-    verification: options.verification ?? containsVerified,
   });
 }
 
@@ -211,7 +202,7 @@ function eventTypes(events: readonly RunEvent[]): string[] {
     name: 'scripted',
     script: async function* (self, ctx) {
       for (let i = 0; i < 5; i += 1) {
-        yield textEvent(self.name, ctx.invocationId, `step ${i} … verified`);
+        yield textEvent(self.name, ctx.invocationId, `step ${i}`);
       }
     },
   });
@@ -233,75 +224,29 @@ function eventTypes(events: readonly RunEvent[]): string[] {
   console.log('✓ limits.maxSteps bounded loop');
 }
 
-// --- 4. limits.maxRepairs: verify → repair → re-run ---------------------------
+// --- 4. successful completion → COMPLETED -------------------------------------
 {
-  let attempt = 0;
-  let repairMessageSeen = false;
   const agent = new ScriptedAgent({
     name: 'scripted',
     script: async function* (self, ctx) {
-      attempt += 1;
-      const userText = JSON.stringify(ctx.userContent ?? {});
-      if (attempt > 1 && userText.includes('failed independent verification')) {
-        repairMessageSeen = true;
-      }
-      yield textEvent(
-        self.name,
-        ctx.invocationId,
-        attempt === 1 ? 'first draft (incomplete)' : 'fixed — verified',
-      );
+      yield textEvent(self.name, ctx.invocationId, 'done');
     },
   });
 
   const result = await runSmoke({
     agent,
-    agentId: 'repair',
-    limits: baseLimits({ maxRepairs: 1 }),
-  });
-
-  assert(
-    result.record.state === 'SUCCEEDED',
-    `repair run: ${result.record.state} (${result.record.error})`,
-  );
-  assert(attempt === 2, `agent should run twice, ran ${attempt}`);
-  assert(repairMessageSeen, 'repair attempt should receive failed checks');
-  assert(result.record.verification?.passed === true, 'verification passed');
-  const states = result.events
-    .filter((e) => e.eventType === 'run.state_changed')
-    .map((e) => e.payload['to']);
-  assert(states.includes('REPAIRING'), 'REPAIRING state visited');
-  console.log('✓ limits.maxRepairs repair loop');
-}
-
-// --- 5. not-gated verification → COMPLETED ------------------------------------
-{
-  const agent = new ScriptedAgent({
-    name: 'scripted',
-    script: async function* (self, ctx) {
-      yield textEvent(self.name, ctx.invocationId, 'done without gates');
-    },
-  });
-
-  const result = await executeAgentRun({
-    agent,
     agentId: 'completed',
-    objective: 'finish without required verification',
     limits: baseLimits(),
-    verification: { checks: [] },
   });
 
   assert(
     result.record.state === 'COMPLETED',
-    `not-gated run: ${result.record.state} (${result.record.error})`,
+    `completed run: ${result.record.state} (${result.record.error})`,
   );
-  assert(
-    result.record.verification?.outcome === 'not-gated',
-    'verification outcome not-gated',
-  );
-  console.log('✓ empty verification → COMPLETED');
+  console.log('✓ successful agent completion → COMPLETED');
 }
 
-// --- 6. graph helpers ---------------------------------------------------------
+// --- 5. graph helpers ---------------------------------------------------------
 {
   const agent = new ScriptedAgent({
     name: 'graph_agent',
@@ -320,7 +265,7 @@ function eventTypes(events: readonly RunEvent[]): string[] {
   console.log('✓ describeAgentGraph / assertGraphModelsResolvable');
 }
 
-// --- 7. materializeAgentModel + ADK provider:model routing --------------------
+// --- 6. materializeAgentModel + ADK provider:model routing --------------------
 {
   registerAdkLlmRouting();
   const wired = formatModelRef({

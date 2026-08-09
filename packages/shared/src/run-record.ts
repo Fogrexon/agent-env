@@ -1,12 +1,10 @@
 import { z } from 'zod';
-import { verificationResultSchema } from './verification.js';
 
 /**
  * Run state machine.
  * Terminal states are immutable; retries create a new run_id / attempt_id.
  *
- * - SUCCEEDED: required verification passed (or host required checks passed)
- * - COMPLETED: finished without required gates (no verification / advisory only)
+ * - COMPLETED: agent finished without infrastructure/policy/budget failure
  */
 export const runStateSchema = z.enum([
   'QUEUED',
@@ -15,9 +13,6 @@ export const runStateSchema = z.enum([
   'WAITING_TOOL',
   'WAITING_APPROVAL',
   'CHECKPOINTING',
-  'VERIFYING',
-  'REPAIRING',
-  'SUCCEEDED',
   'COMPLETED',
   'FAILED',
   'FAILED_INFRA',
@@ -30,7 +25,6 @@ export const runStateSchema = z.enum([
 export type RunState = z.infer<typeof runStateSchema>;
 
 export const TERMINAL_RUN_STATES = [
-  'SUCCEEDED',
   'COMPLETED',
   'FAILED',
   'FAILED_INFRA',
@@ -42,7 +36,6 @@ export const TERMINAL_RUN_STATES = [
 ] as const satisfies readonly RunState[];
 
 export const SUCCESSFUL_RUN_STATES = [
-  'SUCCEEDED',
   'COMPLETED',
 ] as const satisfies readonly RunState[];
 
@@ -59,16 +52,15 @@ export const runPhaseSchema = z.enum([
   'reasoning',
   'acting',
   'waiting',
-  'verifying',
   'terminated',
 ]);
 export type RunPhase = z.infer<typeof runPhaseSchema>;
 
 export const agentExecutionLimitsSchema = z.object({
   maxSteps: z.number().int().positive().default(200),
-  maxToolCalls: z.number().int().positive().default(200),
+  /** 0 = no tool calls allowed (e.g. chat-only agents). */
+  maxToolCalls: z.number().int().nonnegative().default(200),
   maxWallSeconds: z.number().int().positive().default(1800),
-  maxRepairs: z.number().int().nonnegative().default(3),
   maxSubagentDepth: z.number().int().nonnegative().default(3),
 });
 export type AgentExecutionLimits = z.infer<typeof agentExecutionLimitsSchema>;
@@ -102,9 +94,6 @@ export const runEventTypeSchema = z.enum([
   'checkpoint.requested',
   'checkpoint.completed',
   'artifact.created',
-  'artifact.verified',
-  'verification.started',
-  'verification.result',
 ]);
 export type RunEventType = z.infer<typeof runEventTypeSchema>;
 
@@ -121,7 +110,7 @@ export const runEventSchema = z.object({
   sequence: z.number().int().nonnegative(),
   actor: z
     .object({
-      type: z.enum(['system', 'agent', 'human', 'verifier']),
+      type: z.enum(['system', 'agent', 'human']),
       id: z.string(),
       version: z.string().optional(),
     })
@@ -149,7 +138,6 @@ export const runRecordSchema = z.object({
     wallSeconds: z.number().nonnegative().default(0),
     costUsd: z.number().nonnegative().default(0),
   }),
-  verification: verificationResultSchema.optional(),
   eventCount: z.number().int().nonnegative().default(0),
   /** Models observed during the run (provider:model strings). */
   modelsUsed: z.array(z.string().min(1)).default([]),
@@ -165,6 +153,5 @@ export const agentRunIntentSchema = z.object({
   inputs: z.record(z.string(), z.unknown()).default({}),
   attachmentPaths: z.array(z.string()).default([]),
   limits: agentExecutionLimitsSchema,
-  verificationPlanId: z.string().optional(),
 });
 export type AgentRunIntent = z.infer<typeof agentRunIntentSchema>;

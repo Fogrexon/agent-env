@@ -12,7 +12,7 @@ const TRANSITIONS: Record<RunState, readonly RunState[]> = {
     'WAITING_TOOL',
     'WAITING_APPROVAL',
     'CHECKPOINTING',
-    'VERIFYING',
+    'COMPLETED',
     'BUDGET_EXHAUSTED',
     'POLICY_DENIED',
     'FAILED',
@@ -28,15 +28,6 @@ const TRANSITIONS: Record<RunState, readonly RunState[]> = {
   ],
   WAITING_APPROVAL: ['RUNNING', 'APPROVAL_EXPIRED', 'CANCELLED', 'POLICY_DENIED'],
   CHECKPOINTING: ['RUNNING', 'FAILED_INFRA', 'CANCELLED'],
-  VERIFYING: [
-    'SUCCEEDED',
-    'COMPLETED',
-    'REPAIRING',
-    'FAILED_INFRA',
-    'FAILED',
-  ],
-  REPAIRING: ['RUNNING', 'BUDGET_EXHAUSTED', 'FAILED', 'CANCELLED'],
-  SUCCEEDED: [],
   COMPLETED: [],
   FAILED: [],
   FAILED_INFRA: [],
@@ -63,10 +54,7 @@ export function phaseForState(state: RunState): RunPhase {
     case 'WAITING_TOOL':
     case 'WAITING_APPROVAL':
       return 'waiting';
-    case 'VERIFYING':
-      return 'verifying';
     case 'CHECKPOINTING':
-    case 'REPAIRING':
     case 'PROVISIONING':
     case 'QUEUED':
       return 'acting';

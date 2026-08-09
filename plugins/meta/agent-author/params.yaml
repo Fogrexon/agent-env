@@ -1,0 +1,24 @@
+apiVersion: agent-env/v1
+kind: AgentParams
+agentId: agent-author
+title: エージェント作成
+description: 新しいエージェント定義（agent.ts / params.yaml）を plugins/ または agents/ に作成する。
+objectiveField: message
+fields:
+  - id: message
+    type: text
+    label: 依頼内容
+    required: true
+    default: "新しいエージェントの要件を書いてください（目的・ツール・パック希望など）。"
+  - id: allowWrite
+    type: boolean
+    label: ファイル書き込みを許可
+    default: false
+  - id: allowGitCommit
+    type: boolean
+    label: git add / commit を許可
+    default: false
+  - id: allowGitPush
+    type: boolean
+    label: git push を許可（リモート設定済み・確認後のみ）
+    default: false

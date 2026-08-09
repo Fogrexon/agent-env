@@ -1,10 +1,23 @@
-import { ReloadOutlined } from '@ant-design/icons';
-import { Alert, Button, Col, Row, Space, Statistic, Table, Typography } from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+import { Renew } from '@carbon/icons-react';
+import {
+  Button,
+  Column,
+  Grid,
+  InlineNotification,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  Tag,
+  Tile,
+} from '@carbon/react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getControlStats, listRuns } from '../api/client.js';
 import type { ControlStats, RunSummary } from '../api/types.js';
+import { OpsPanel } from '../ui/OpsPanel.js';
 import { PageShell } from '../ui/PageShell.js';
 import { StatusTag } from '../ui/StatusTag.js';
 
@@ -37,165 +50,160 @@ export function DashboardPage() {
     (r) => r.status === 'running' || r.status === 'queued',
   );
 
-  const columns: ColumnsType<RunSummary> = [
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      width: 110,
-      render: (s: string) => <StatusTag status={s} />,
-    },
-    {
-      title: 'Agent',
-      dataIndex: 'agentId',
-      render: (id: string, row) => (
-        <Link to={`/runs/${row.runId}`}>
-          <Typography.Text code>{id}</Typography.Text>
-        </Link>
-      ),
-    },
-    {
-      title: 'Trigger',
-      dataIndex: 'trigger',
-      width: 100,
-      render: (t?: string) => t ?? '—',
-    },
-    {
-      title: 'When',
-      dataIndex: 'createdAt',
-      width: 180,
-      render: (t: string) => new Date(t).toLocaleString(),
-    },
-    {
-      title: 'Preview',
-      ellipsis: true,
-      render: (_, row) =>
-        row.messagePreview ?? row.finalTextPreview ?? row.runId.slice(0, 8),
-    },
-  ];
-
   return (
     <PageShell
       title="Dashboard"
       subtitle="Executor slots, queue depth, recent builds"
       crumbs={[{ title: 'Dashboard' }]}
       extra={
-        <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
+        <Button
+          kind="tertiary"
+          size="sm"
+          renderIcon={Renew}
+          onClick={() => void refresh()}
+        >
           Refresh
         </Button>
       }
     >
       {error ? (
-        <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
+        <InlineNotification
+          kind="error"
+          lowContrast
+          hideCloseButton
+          title={error}
+          className="ops-inline-alert"
+        />
       ) : null}
 
-      <Row gutter={[12, 12]} className="ops-metrics">
-        <Col xs={12} sm={8} md={6}>
-          <div className="ops-metric">
-            <Statistic
-              title="Slots in use"
-              value={stats ? `${stats.running} / ${stats.maxSlots}` : '—'}
-              loading={loading && !stats}
-            />
-          </div>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <div className="ops-metric">
-            <Statistic
-              title="Queue depth"
-              value={stats?.queueDepth ?? '—'}
-              loading={loading && !stats}
-            />
-          </div>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <div className="ops-metric">
-            <Statistic
-              title="Failure rate"
-              value={
-                stats?.failureRate
-                  ? Math.round(stats.failureRate.rate * 100)
-                  : '—'
-              }
-              suffix={stats?.failureRate ? '%' : undefined}
-              loading={loading && !stats}
-            />
+      <Grid className="ops-metrics" condensed narrow>
+        <Column sm={4} md={4} lg={4}>
+          <Tile className="ops-metric">
+            <div className="ops-metric-label">Slots in use</div>
+            <div className="ops-metric-value">
+              {loading && !stats
+                ? '…'
+                : stats
+                  ? `${stats.running} / ${stats.maxSlots}`
+                  : '—'}
+            </div>
+          </Tile>
+        </Column>
+        <Column sm={4} md={4} lg={4}>
+          <Tile className="ops-metric">
+            <div className="ops-metric-label">Queue depth</div>
+            <div className="ops-metric-value">
+              {loading && !stats ? '…' : (stats?.queueDepth ?? '—')}
+            </div>
+          </Tile>
+        </Column>
+        <Column sm={4} md={4} lg={4}>
+          <Tile className="ops-metric">
+            <div className="ops-metric-label">Failure rate</div>
+            <div className="ops-metric-value">
+              {loading && !stats
+                ? '…'
+                : stats?.failureRate
+                  ? `${Math.round(stats.failureRate.rate * 100)}%`
+                  : '—'}
+            </div>
             {stats?.failureRate ? (
-              <Typography.Text type="secondary" className="ops-metric-hint">
+              <span className="ops-metric-hint">
                 {stats.failureRate.failed}/{stats.failureRate.total} recent
-              </Typography.Text>
+              </span>
             ) : null}
-          </div>
-        </Col>
-        <Col xs={12} sm={8} md={6}>
-          <div className="ops-metric">
-            <Statistic title="Active builds" value={active.length} />
-          </div>
-        </Col>
-      </Row>
+          </Tile>
+        </Column>
+        <Column sm={4} md={4} lg={4}>
+          <Tile className="ops-metric">
+            <div className="ops-metric-label">Active builds</div>
+            <div className="ops-metric-value">{active.length}</div>
+          </Tile>
+        </Column>
+      </Grid>
 
       {stats?.triggers24h ? (
-        <div className="ops-panel" style={{ marginTop: 16 }}>
-          <Typography.Text strong>Triggers (24h)</Typography.Text>
-          <Space wrap size={[8, 8]} style={{ marginTop: 8, display: 'flex' }}>
+        <OpsPanel title="Triggers (24h)" className="ops-stack-gap">
+          <div className="ops-chip-row">
             {Object.entries(stats.triggers24h).map(([k, v]) => (
-              <Typography.Text key={k} code>
+              <Tag key={k} size="sm" type="gray">
                 {k}: {Number(v)}
-              </Typography.Text>
+              </Tag>
             ))}
-          </Space>
-        </div>
+          </div>
+        </OpsPanel>
       ) : null}
 
-      <div className="ops-panel" style={{ marginTop: 16 }}>
-        <FlexHead
-          title="Running / queued"
-          link={{ to: '/queue', label: 'Open queue' }}
-        />
-        <Table
-          size="small"
-          rowKey="runId"
-          pagination={false}
-          locale={{ emptyText: 'No active builds' }}
-          dataSource={active}
-          columns={columns}
-        />
-      </div>
+      <OpsPanel
+        title="Running / queued"
+        actions={<Link to="/queue">Open queue</Link>}
+        className="ops-stack-gap"
+      >
+        <RunsTable rows={active} empty="No active builds" loading={false} />
+      </OpsPanel>
 
-      <div className="ops-panel" style={{ marginTop: 16 }}>
-        <FlexHead
-          title="Recent builds"
-          link={{ to: '/jobs', label: 'Job definitions' }}
-        />
-        <Table
-          size="small"
-          rowKey="runId"
-          pagination={false}
+      <OpsPanel
+        title="Recent builds"
+        actions={<Link to="/jobs">Job definitions</Link>}
+        className="ops-stack-gap"
+      >
+        <RunsTable
+          rows={runs}
+          empty="No builds yet"
           loading={loading && runs.length === 0}
-          dataSource={runs}
-          columns={columns}
         />
-      </div>
+      </OpsPanel>
     </PageShell>
   );
 }
 
-function FlexHead({
-  title,
-  link,
+function RunsTable({
+  rows,
+  empty,
+  loading,
 }: {
-  title: string;
-  link: { to: string; label: string };
+  rows: RunSummary[];
+  empty: string;
+  loading: boolean;
 }) {
+  if (loading) {
+    return <p className="muted">Loading…</p>;
+  }
+  if (rows.length === 0) {
+    return <p className="muted">{empty}</p>;
+  }
   return (
-    <Space
-      style={{
-        width: '100%',
-        justifyContent: 'space-between',
-        marginBottom: 12,
-      }}
-    >
-      <Typography.Text strong>{title}</Typography.Text>
-      <Link to={link.to}>{link.label}</Link>
-    </Space>
+    <Table size="sm">
+      <TableHead>
+        <TableRow>
+          <TableHeader>Status</TableHeader>
+          <TableHeader>Agent</TableHeader>
+          <TableHeader>Trigger</TableHeader>
+          <TableHeader>When</TableHeader>
+          <TableHeader>Preview</TableHeader>
+        </TableRow>
+      </TableHead>
+      <TableBody>
+        {rows.map((row) => (
+          <TableRow key={row.runId}>
+            <TableCell>
+              <StatusTag status={row.status} />
+            </TableCell>
+            <TableCell>
+              <Link to={`/runs/${row.runId}`}>
+                <code>{row.agentId}</code>
+              </Link>
+            </TableCell>
+            <TableCell>{row.trigger ?? '—'}</TableCell>
+            <TableCell>{new Date(row.createdAt).toLocaleString()}</TableCell>
+            <TableCell className="ops-ellipsis">
+              {row.messagePreview ??
+                row.finalTextPreview ??
+                row.runId.slice(0, 8)}
+            </TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
   );
 }

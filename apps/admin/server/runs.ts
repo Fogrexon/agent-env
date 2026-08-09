@@ -96,7 +96,6 @@ export interface ExecuteOutcome {
   error?: string;
   historyDir?: string;
   recordState?: string;
-  verificationPassed?: boolean;
 }
 
 /**
@@ -154,7 +153,6 @@ export async function executeQueuedRun(input: {
     const state = fromSpec.record.state as RunState;
     const success = isSuccessfulRunState(state);
     const cancelled = state === 'CANCELLED';
-    const verification = fromSpec.record.verification;
     const summary: AdminRunResultSummary = {
       status: success ? 'finished' : 'error',
       finalText: fromSpec.agentFinalText ?? fromSpec.record.finalText,
@@ -164,20 +162,7 @@ export async function executeQueuedRun(input: {
       startedAt,
       finishedAt,
       recordState: state,
-      verificationPassed: verification?.passed,
       budgetConsumed: fromSpec.record.budgetConsumed,
-      verification: verification
-        ? {
-            passed: verification.passed,
-            graderVersion: verification.planId,
-            checks: verification.checks.map((c) => ({
-              criterion: c.id,
-              passed: c.passed,
-              ...(c.detail ? { detail: c.detail } : {}),
-            })),
-            evidenceRefs: verification.evidenceRefs,
-          }
-        : undefined,
     };
 
     const live = adminRunStore.get(input.runId);
@@ -211,7 +196,6 @@ export async function executeQueuedRun(input: {
       error: fromSpec.record.error,
       historyDir: fromSpec.historyDir,
       recordState: state,
-      verificationPassed: verification?.passed,
     };
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);

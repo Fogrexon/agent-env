@@ -1,22 +1,34 @@
-import { Tag } from 'antd';
+import { Tag } from '@carbon/react';
 
-const STATUS_COLOR: Record<string, string> = {
-  queued: 'default',
-  pending: 'default',
-  claimed: 'processing',
-  running: 'processing',
-  completed: 'success',
-  succeeded: 'success',
-  failed: 'error',
-  cancelled: 'warning',
-  verifying: 'geekblue',
-  repairing: 'orange',
+type CarbonTagType =
+  | 'red'
+  | 'magenta'
+  | 'purple'
+  | 'blue'
+  | 'cyan'
+  | 'teal'
+  | 'green'
+  | 'gray'
+  | 'cool-gray'
+  | 'warm-gray';
+
+const STATUS_TYPE: Record<string, CarbonTagType> = {
+  queued: 'gray',
+  pending: 'gray',
+  claimed: 'blue',
+  running: 'blue',
+  completed: 'green',
+  succeeded: 'green',
+  failed: 'red',
+  cancelled: 'warm-gray',
+  verifying: 'purple',
+  repairing: 'teal',
 };
 
 export function StatusTag({ status }: { status: string }) {
-  const color = STATUS_COLOR[status.toLowerCase()] ?? 'default';
+  const type = STATUS_TYPE[status.toLowerCase()] ?? 'cool-gray';
   return (
-    <Tag color={color} style={{ marginInlineEnd: 0, fontFamily: 'var(--ant-font-family-code, monospace)' }}>
+    <Tag size="sm" type={type} className="ops-status-tag">
       {status}
     </Tag>
   );

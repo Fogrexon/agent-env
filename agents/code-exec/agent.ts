@@ -8,7 +8,6 @@ import {
   defineAgent,
   isProviderConfigured,
   shapeObservation,
-  verify,
   type AgentBuildContext,
 } from '@agent-env/harness';
 import { z } from 'zod';
@@ -31,10 +30,6 @@ export const agentDefinition = defineAgent({
     maxSteps: 20,
     maxToolCalls: 20,
     maxWallSeconds: 300,
-    maxRepairs: 0,
-  },
-  verification: {
-    checks: [verify.nonEmpty({ severity: 'advisory' })],
   },
   createAgent(context: AgentBuildContext) {
     const prepareExecEnv = createExecEnvGuard({ moduleRoot: execRoot });

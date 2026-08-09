@@ -1,18 +1,22 @@
-import { ReloadOutlined } from '@ant-design/icons';
+import { Renew } from '@carbon/icons-react';
 import {
-  Alert,
   Button,
+  InlineNotification,
   Select,
-  Space,
+  SelectItem,
   Table,
-  Typography,
-} from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@carbon/react';
 import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listQueue, listRuns } from '../api/client.js';
 import type { QueueJob, RunSummary } from '../api/types.js';
 import { isTerminalRunStatus } from '../api/types.js';
+import { OpsPanel } from '../ui/OpsPanel.js';
 import { PageShell } from '../ui/PageShell.js';
 import { StatusTag } from '../ui/StatusTag.js';
 
@@ -22,6 +26,8 @@ export function QueuePage() {
   const [meta, setMeta] = useState({ maxSlots: 0, running: 0, queueDepth: 0 });
   const [filter, setFilter] = useState({ agent: '', status: '', trigger: '' });
   const [error, setError] = useState<string | null>(null);
+  const [histPage, setHistPage] = useState(1);
+  const pageSize = 25;
 
   const refresh = async () => {
     try {
@@ -70,89 +76,12 @@ export function QueuePage() {
     [runs],
   );
 
-  const jobColumns: ColumnsType<QueueJob> = [
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      width: 110,
-      render: (s: string) => <StatusTag status={s} />,
-    },
-    {
-      title: 'Agent',
-      dataIndex: 'agentId',
-      render: (id: string, row) => (
-        <Link to={`/runs/${row.runId}`}>
-          <Typography.Text code>{id}</Typography.Text>
-        </Link>
-      ),
-    },
-    { title: 'Trigger', dataIndex: 'trigger', width: 100 },
-    { title: 'Pri', dataIndex: 'priority', width: 60 },
-    {
-      title: 'Preview',
-      ellipsis: true,
-      render: (_, j) => j.messagePreview ?? j.runId.slice(0, 8),
-    },
-    {
-      title: '',
-      width: 100,
-      render: (_, j) =>
-        j.status === 'pending' ||
-        j.status === 'claimed' ||
-        j.status === 'running' ? (
-          <Button
-            danger
-            size="small"
-            onClick={() => void onCancelJob(j.jobId)}
-          >
-            Cancel
-          </Button>
-        ) : null,
-    },
-  ];
-
-  const historyColumns: ColumnsType<RunSummary> = [
-    {
-      title: 'Status',
-      dataIndex: 'status',
-      width: 110,
-      render: (s: string) => <StatusTag status={s} />,
-    },
-    {
-      title: 'Agent',
-      dataIndex: 'agentId',
-      render: (id: string, row) => (
-        <Link to={`/runs/${row.runId}`}>
-          <Typography.Text code>{id}</Typography.Text>
-        </Link>
-      ),
-    },
-    {
-      title: 'Trigger',
-      dataIndex: 'trigger',
-      width: 100,
-      render: (t?: string) => t ?? '—',
-    },
-    {
-      title: 'When',
-      dataIndex: 'createdAt',
-      width: 180,
-      render: (t: string) => new Date(t).toLocaleString(),
-    },
-    {
-      title: 'Preview',
-      ellipsis: true,
-      render: (_, r) => {
-        const base =
-          r.messagePreview ?? r.finalTextPreview ?? r.runId.slice(0, 8);
-        const err =
-          isTerminalRunStatus(r.status) && r.error
-            ? ` / ${r.error.slice(0, 60)}`
-            : '';
-        return `${base}${err}`;
-      },
-    },
-  ];
+  const histPages = Math.max(1, Math.ceil(filteredHistory.length / pageSize));
+  const safeHistPage = Math.min(histPage, histPages);
+  const histRows = filteredHistory.slice(
+    (safeHistPage - 1) * pageSize,
+    safeHistPage * pageSize,
+  );
 
   return (
     <PageShell
@@ -160,83 +89,201 @@ export function QueuePage() {
       subtitle={`slots ${meta.running}/${meta.maxSlots} · pending ${meta.queueDepth}`}
       crumbs={[{ title: 'Jobs', path: '/jobs' }, { title: 'Queue' }]}
       extra={
-        <Button icon={<ReloadOutlined />} onClick={() => void refresh()}>
+        <Button
+          kind="tertiary"
+          size="sm"
+          renderIcon={Renew}
+          onClick={() => void refresh()}
+        >
           Refresh
         </Button>
       }
     >
       {error ? (
-        <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
+        <InlineNotification
+          kind="error"
+          lowContrast
+          hideCloseButton
+          title={error}
+          className="ops-inline-alert"
+        />
       ) : null}
 
-      <div className="ops-panel">
-        <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-          Active queue
-        </Typography.Text>
-        <Table
-          size="small"
-          rowKey="jobId"
-          pagination={false}
-          locale={{ emptyText: 'Queue is empty' }}
-          dataSource={jobs}
-          columns={jobColumns}
-        />
-      </div>
+      <OpsPanel title="Active queue">
+        {jobs.length === 0 ? (
+          <p className="muted">Queue is empty</p>
+        ) : (
+          <Table size="sm">
+            <TableHead>
+              <TableRow>
+                <TableHeader>Status</TableHeader>
+                <TableHeader>Agent</TableHeader>
+                <TableHeader>Trigger</TableHeader>
+                <TableHeader>Pri</TableHeader>
+                <TableHeader>Preview</TableHeader>
+                <TableHeader />
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {jobs.map((j) => (
+                <TableRow key={j.jobId}>
+                  <TableCell>
+                    <StatusTag status={j.status} />
+                  </TableCell>
+                  <TableCell>
+                    <Link to={`/runs/${j.runId}`}>
+                      <code>{j.agentId}</code>
+                    </Link>
+                  </TableCell>
+                  <TableCell>{j.trigger}</TableCell>
+                  <TableCell>{j.priority}</TableCell>
+                  <TableCell className="ops-ellipsis">
+                    {j.messagePreview ?? j.runId.slice(0, 8)}
+                  </TableCell>
+                  <TableCell>
+                    {j.status === 'pending' ||
+                    j.status === 'claimed' ||
+                    j.status === 'running' ? (
+                      <Button
+                        kind="danger--tertiary"
+                        size="sm"
+                        onClick={() => void onCancelJob(j.jobId)}
+                      >
+                        Cancel
+                      </Button>
+                    ) : null}
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </OpsPanel>
 
-      <div className="ops-panel" style={{ marginTop: 16 }}>
-        <Space
-          wrap
-          style={{
-            width: '100%',
-            justifyContent: 'space-between',
-            marginBottom: 12,
-          }}
-        >
-          <Typography.Text strong>Build history</Typography.Text>
-          <Space wrap>
+      <OpsPanel
+        title="Build history"
+        actions={
+          <div className="ops-filter-row">
             <Select
-              allowClear
-              placeholder="All agents"
-              style={{ minWidth: 140 }}
-              value={filter.agent || undefined}
-              onChange={(v) => setFilter((f) => ({ ...f, agent: v ?? '' }))}
-              options={agents.map((a) => ({ value: a, label: a }))}
-            />
+              id="queue-filter-agent"
+              labelText="Agent"
+              hideLabel
+              size="sm"
+              value={filter.agent}
+              onChange={(e) => {
+                setFilter((f) => ({ ...f, agent: e.target.value }));
+                setHistPage(1);
+              }}
+            >
+              <SelectItem value="" text="All agents" />
+              {agents.map((a) => (
+                <SelectItem key={a} value={a} text={a} />
+              ))}
+            </Select>
             <Select
-              allowClear
-              placeholder="All status"
-              style={{ minWidth: 130 }}
-              value={filter.status || undefined}
-              onChange={(v) => setFilter((f) => ({ ...f, status: v ?? '' }))}
-              options={[
+              id="queue-filter-status"
+              labelText="Status"
+              hideLabel
+              size="sm"
+              value={filter.status}
+              onChange={(e) => {
+                setFilter((f) => ({ ...f, status: e.target.value }));
+                setHistPage(1);
+              }}
+            >
+              <SelectItem value="" text="All status" />
+              {[
                 'queued',
                 'running',
                 'completed',
                 'failed',
                 'cancelled',
-              ].map((s) => ({ value: s, label: s }))}
-            />
+              ].map((s) => (
+                <SelectItem key={s} value={s} text={s} />
+              ))}
+            </Select>
             <Select
-              allowClear
-              placeholder="All triggers"
-              style={{ minWidth: 130 }}
-              value={filter.trigger || undefined}
-              onChange={(v) => setFilter((f) => ({ ...f, trigger: v ?? '' }))}
-              options={['manual', 'schedule', 'webhook'].map((t) => ({
-                value: t,
-                label: t,
-              }))}
-            />
-          </Space>
-        </Space>
-        <Table
-          size="small"
-          rowKey="runId"
-          pagination={{ pageSize: 25, size: 'small' }}
-          dataSource={filteredHistory}
-          columns={historyColumns}
-        />
-      </div>
+              id="queue-filter-trigger"
+              labelText="Trigger"
+              hideLabel
+              size="sm"
+              value={filter.trigger}
+              onChange={(e) => {
+                setFilter((f) => ({ ...f, trigger: e.target.value }));
+                setHistPage(1);
+              }}
+            >
+              <SelectItem value="" text="All triggers" />
+              {['manual', 'schedule', 'webhook'].map((t) => (
+                <SelectItem key={t} value={t} text={t} />
+              ))}
+            </Select>
+          </div>
+        }
+        className="ops-stack-gap"
+      >
+        <Table size="sm">
+          <TableHead>
+            <TableRow>
+              <TableHeader>Status</TableHeader>
+              <TableHeader>Agent</TableHeader>
+              <TableHeader>Trigger</TableHeader>
+              <TableHeader>When</TableHeader>
+              <TableHeader>Preview</TableHeader>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {histRows.map((r) => {
+              const base =
+                r.messagePreview ?? r.finalTextPreview ?? r.runId.slice(0, 8);
+              const err =
+                isTerminalRunStatus(r.status) && r.error
+                  ? ` / ${r.error.slice(0, 60)}`
+                  : '';
+              return (
+                <TableRow key={r.runId}>
+                  <TableCell>
+                    <StatusTag status={r.status} />
+                  </TableCell>
+                  <TableCell>
+                    <Link to={`/runs/${r.runId}`}>
+                      <code>{r.agentId}</code>
+                    </Link>
+                  </TableCell>
+                  <TableCell>{r.trigger ?? '—'}</TableCell>
+                  <TableCell>
+                    {new Date(r.createdAt).toLocaleString()}
+                  </TableCell>
+                  <TableCell className="ops-ellipsis">{`${base}${err}`}</TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+        {filteredHistory.length > pageSize ? (
+          <div className="ops-pager">
+            <Button
+              kind="ghost"
+              size="sm"
+              disabled={safeHistPage <= 1}
+              onClick={() => setHistPage((p) => Math.max(1, p - 1))}
+            >
+              Prev
+            </Button>
+            <span className="muted">
+              {safeHistPage} / {histPages}
+            </span>
+            <Button
+              kind="ghost"
+              size="sm"
+              disabled={safeHistPage >= histPages}
+              onClick={() => setHistPage((p) => Math.min(histPages, p + 1))}
+            >
+              Next
+            </Button>
+          </div>
+        ) : null}
+      </OpsPanel>
     </PageShell>
   );
 }

@@ -20,11 +20,11 @@
  *
  * ## 契約の要点
  * - モデルは `agentDefinition` 内で `provider:model` 文字列（例 `cursor:auto` / `gemini:gemini-3.1-pro`）を ADK LLMRegistry に渡すだけ。run 単位のモデル上書きはない
- * - 実行制限は `agentDefinition.limits`、成功判定は `agentDefinition.verification`（`verify.*` factories）。host 側 execution-policy とマージ（agent 値が min）
- * - 終了状態は `COMPLETED`（検証チェックなし/advisory のみ = 成功扱い）/ `SUCCEEDED`（required 検証が合格）/ `FAILED`
+ * - 実行制限は `agentDefinition.limits`。host 側 execution-policy とマージ（agent 値が min）
+ * - 終了状態: 正常終了は `COMPLETED`、失敗は `FAILED` / `BUDGET_EXHAUSTED` 等（`isSuccessfulRunState` は `COMPLETED` のみ）
  *
  * ## 実装者向け仕様
- * - docs/AGENT_PACKAGE.md … パッケージ規約・params / limits / verification / CLI
+ * - docs/AGENT_PACKAGE.md … パッケージ規約・params / limits / CLI
  * - docs/ARCHITECTURE.md … 五 plane・ハーネス全体
  * - plugins/README.md … プラグインパック（showcase in-tree / personal は別リポ）
  * - 廃止した機能の互換レイヤは残さない（.cursor/rules/no-compat-leftovers.mdc）

@@ -27,9 +27,11 @@ export {
   DEFAULT_HOST_EXECUTION_LIMITS,
 } from './execution-policy.js';
 export {
+  deriveAgentPackInfo,
   discoveryFromHostPaths,
   resolveDiscoveryOptions,
   resolveHostPaths,
+  type AgentPackInfo,
   type HostPaths,
   type ResolveHostPathsOptions,
 } from './host-paths.js';

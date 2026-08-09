@@ -1,4 +1,4 @@
-import { defineAgent, isProviderConfigured, verify } from '@agent-env/harness';
+import { defineAgent, isProviderConfigured } from '@agent-env/harness';
 import { LlmAgent } from '@google/adk';
 
 /**
@@ -14,10 +14,6 @@ export const agentDefinition = defineAgent({
     maxSteps: 16,
     maxToolCalls: 0,
     maxWallSeconds: 180,
-    maxRepairs: 0,
-  },
-  verification: {
-    checks: [verify.nonEmpty({ severity: 'advisory' })],
   },
   createAgent() {
     const model = isProviderConfigured('cursor')

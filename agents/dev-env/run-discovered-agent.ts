@@ -1,7 +1,7 @@
 /**
  * Single invocation path for CLI / admin / API.
  * Resolves a discovered agent package, builds the ADK graph, merges host
- * execution policy + agent verification, then runs via executeAgentRun.
+ * execution policy, then runs via executeAgentRun.
  */
 import { randomUUID } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
@@ -26,12 +26,8 @@ import type {
   AgentProgressEvent,
   AgentProgressSink,
   AgentRunRequest,
-  VerificationPlan,
 } from '@agent-env/shared';
-import {
-  agentRunRequestSchema,
-  verificationPlanSchema,
-} from '@agent-env/shared';
+import { agentRunRequestSchema } from '@agent-env/shared';
 import { bootstrapProvidersFromEnv, loadDotEnv } from './bootstrap.js';
 import {
   getResolvedAgentPackage,
@@ -61,8 +57,6 @@ export interface RunDiscoveredAgentOptions {
    * Default deny (CLI). Admin passes interactive or auto.
    */
   toolApproval?: ToolApprovalPolicy;
-  /** Optional host verification appended after the agent's plan. */
-  hostVerification?: VerificationPlan;
 }
 
 export interface RunDiscoveredAgentResult extends ExecuteAgentRunResult {
@@ -128,27 +122,6 @@ function createBuildContext(options: {
       );
     },
   };
-}
-
-async function resolveVerificationPlan(
-  definition: AgentDefinition,
-  context: AgentBuildContext,
-  hostVerification?: VerificationPlan,
-): Promise<VerificationPlan> {
-  let agentRaw: unknown = { checks: [] };
-  if (definition.verification !== undefined) {
-    agentRaw =
-      typeof definition.verification === 'function'
-        ? await definition.verification(context)
-        : definition.verification;
-  }
-  const agentPlan = verificationPlanSchema.parse(agentRaw);
-  const hostPlan = verificationPlanSchema.parse(
-    hostVerification ?? { checks: [] },
-  );
-  return verificationPlanSchema.parse({
-    checks: [...agentPlan.checks, ...hostPlan.checks],
-  });
 }
 
 /**
@@ -220,11 +193,6 @@ export async function runDiscoveredAgent(
   const effectiveGraph = describeAgentGraph(agent, { agentId: pkg.id });
   assertGraphModelsResolvable(effectiveGraph);
 
-  const verification = await resolveVerificationPlan(
-    definition,
-    context,
-    options.hostVerification,
-  );
   const limits = mergeExecutionLimits(
     DEFAULT_HOST_EXECUTION_LIMITS,
     definition.limits,
@@ -242,11 +210,6 @@ export async function runDiscoveredAgent(
       runMode: 'agent',
       message: request.objective,
     });
-    writeFileSync(
-      join(writer.dir, 'verification-plan.json'),
-      `${JSON.stringify(verification, null, 2)}\n`,
-      'utf8',
-    );
     writeFileSync(
       join(writer.dir, 'effective-graph.json'),
       `${JSON.stringify(effectiveGraph, null, 2)}\n`,
@@ -267,7 +230,6 @@ export async function runDiscoveredAgent(
     objective: request.objective,
     inputs: request.inputs,
     limits,
-    verification,
     stateDelta,
     attachments: request.attachments,
     cwd: host.root,
@@ -288,11 +250,6 @@ export async function runDiscoveredAgent(
     writeFileSync(
       join(writer.dir, 'intent.json'),
       `${JSON.stringify(result.intent, null, 2)}\n`,
-      'utf8',
-    );
-    writeFileSync(
-      join(writer.dir, 'verification-plan.json'),
-      `${JSON.stringify(result.effectiveVerification, null, 2)}\n`,
       'utf8',
     );
     const observed = buildObservedGraph(

@@ -14,6 +14,10 @@ import type {
   RunSummary,
   ScheduleItem,
   WebhookTokenItem,
+  RecentInputItem,
+  ChatSession,
+  ChatSessionSummary,
+  ChatSessionTurn,
 } from './types.js';
 
 export async function fetchJson<T>(
@@ -67,6 +71,73 @@ export async function listProviders(): Promise<ProviderMediaInfo[]> {
 
 export async function getAgentParams(id: string): Promise<ParamsResponse> {
   return fetchJson<ParamsResponse>(`/api/agents/${encodeURIComponent(id)}/params`);
+}
+
+export async function listRecentInputs(
+  agentId: string,
+  limit = 20,
+): Promise<RecentInputItem[]> {
+  const data = await fetchJson<{ inputs: RecentInputItem[] }>(
+    `/api/agents/${encodeURIComponent(agentId)}/recent-inputs?limit=${encodeURIComponent(String(limit))}`,
+  );
+  return data.inputs;
+}
+
+export async function listChatSessions(
+  agentId: string,
+): Promise<ChatSessionSummary[]> {
+  const data = await fetchJson<{ sessions: ChatSessionSummary[] }>(
+    `/api/agents/${encodeURIComponent(agentId)}/chat-sessions`,
+  );
+  return data.sessions;
+}
+
+export async function getChatSession(sessionId: string): Promise<ChatSession> {
+  const data = await fetchJson<{ session: ChatSession }>(
+    `/api/chat-sessions/${encodeURIComponent(sessionId)}`,
+  );
+  return data.session;
+}
+
+export async function saveChatSession(input: {
+  sessionId?: string;
+  agentId: string;
+  title?: string;
+  turns: ChatSessionTurn[];
+}): Promise<ChatSession> {
+  if (input.sessionId) {
+    const data = await fetchJson<{ session: ChatSession }>(
+      `/api/chat-sessions/${encodeURIComponent(input.sessionId)}`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId: input.agentId,
+          title: input.title,
+          turns: input.turns,
+        }),
+      },
+    );
+    return data.session;
+  }
+  const data = await fetchJson<{ session: ChatSession }>(
+    `/api/agents/${encodeURIComponent(input.agentId)}/chat-sessions`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        title: input.title,
+        turns: input.turns,
+      }),
+    },
+  );
+  return data.session;
+}
+
+export async function deleteChatSession(sessionId: string): Promise<void> {
+  await fetchJson(`/api/chat-sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'DELETE',
+  });
 }
 
 export async function previewAgentGraph(

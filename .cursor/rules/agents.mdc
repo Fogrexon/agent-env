@@ -6,10 +6,10 @@ alwaysApply: false
 
 # Agent definitions
 
-エージェント固有のすべて（コード・入力・実行ポリシー・検証）は **`agents/<id>/`（builtin）または `plugins/<pack>/<id>/`（パック）に閉じる**。必須ファイルは `agent.ts` のみ。`params.yaml` は任意。ホストが import して実行する定義であり、独自の run ループは持たない。
+エージェント固有のすべて（コード・入力・実行ポリシー）は **`agents/<id>/`（builtin）または `plugins/<pack>/<id>/`（パック）に閉じる**。必須ファイルは `agent.ts` のみ。`params.yaml` は任意。ホストが import して実行する定義であり、独自の run ループは持たない。
 
 ```typescript
-import { defineAgent, verify } from '@agent-env/harness';
+import { defineAgent } from '@agent-env/harness';
 import { LlmAgent } from '@google/adk';
 
 export const agentDefinition = defineAgent({
@@ -21,10 +21,6 @@ export const agentDefinition = defineAgent({
     maxSteps: 20,
     maxToolCalls: 20,
     maxWallSeconds: 300,
-    maxRepairs: 1,
-  },
-  verification: {
-    checks: [verify.nonEmpty({ severity: 'advisory' })],
   },
   createAgent() {
     return new LlmAgent({
@@ -41,7 +37,7 @@ export const agentDefinition = defineAgent({
 - `agents/<id>/agent.ts` または `plugins/<pack>/<id>/agent.ts` — **必須**。`export const agentDefinition`
 - 同ディレクトリの `params.yaml` — **任意**。あれば `agentId` はディレクトリ名と一致（呼出し入力のみ）。無ければ discovery が既定の単一 `message` フィールドを合成する
 
-実行ポリシーは `agentDefinition.limits`、成功判定は `agentDefinition.verification` に持つ。
+実行ポリシーは `agentDefinition.limits` に持つ。
 
 ファイル / 画像フィールド:
 
@@ -63,11 +59,10 @@ export const agentDefinition = defineAgent({
 - 秘密情報・コネクタ設定は `createAgent` 内で用意し、ファクトリ引数に渡す（モジュール先頭で env bootstrap しない — `runDiscoveredAgent` / admin が行う）
 - `@agent-env/llm` / `@agent-env/harness` に `*FromEnv` や固定 env 名前提を置かない
 
-## 実行制限・検証
+## 実行制限
 
 - `limits`（省略可）は `AgentExecutionLimits` の部分集合。host 既定（`agents/dev-env/execution-policy.ts`）とフィールドごとに **min** マージされる（緩められない）
-- `verification`（省略可）は `{ checks: [...] }` または `(context) => {...}`。`@agent-env/harness` の `verify.*`（`nonEmpty` / `contains` / `artifact` / `document` / `jsonSchema` / `command` / `custom` / `agent`）で組み立てる
-- 終了状態: required check が全合格なら `SUCCEEDED`、required check が 0 件なら `COMPLETED`（advisory only / ゲートなし成功）、それ以外は `FAILED`
+- 正常終了は `RunRecord.state === 'COMPLETED'`（`isSuccessfulRunState`）。budget / maxSteps 超過などは `FAILED` / `BUDGET_EXHAUSTED`
 
 ## コネクタ / ツール
 
@@ -78,7 +73,7 @@ export const agentDefinition = defineAgent({
 ## チェック
 
 - [ ] `export const agentDefinition`（`agent.ts` は必須。`params.yaml` は任意）
-- [ ] `limits` / `verification` は `agentDefinition` に持たせた
+- [ ] `limits` は `agentDefinition` に持たせた
 - [ ] コネクタ向きの能力をエージェント内の自前 HTTP 関数にしていない
 - [ ] `packages/*` / `scripts/` にこのエージェント向けの定数・default・分岐を追加していない
 - [ ] ルート `package.json` に per-agent script を追加していない

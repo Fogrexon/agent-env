@@ -4,6 +4,11 @@
 export {
   createControlStore,
   jobPublic,
+  jobPublicWithValues,
+  parseJobValues,
+  type ChatSession,
+  type ChatSessionSummary,
+  type ChatSessionTurn,
   type ControlJob,
   type ControlStore,
   type ControlSchedule,

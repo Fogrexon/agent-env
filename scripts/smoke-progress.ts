@@ -117,4 +117,67 @@ assert(events[3]?.kind === 'run.completed', 'terminal');
   assertEq(rebuilt.get('agentB::'), 2, 'rebuild B index');
 }
 
+// --- fold: same-author functionCall must not clobber streamed text ---
+{
+  const folded: AgentProgressEvent[] = [];
+  const streamRows = new Map<string, number>();
+  const runId = 'fold-2';
+  let seq = 0;
+  const push = (event: Omit<AgentProgressEvent, 'runId' | 'sequence' | 'timestamp'>) => {
+    const full: AgentProgressEvent = {
+      ...event,
+      runId,
+      sequence: seq++,
+      timestamp: new Date().toISOString(),
+    };
+    const result = appendFoldedProgressEvent(folded, streamRows, full);
+    folded.length = 0;
+    folded.push(...result.events);
+  };
+
+  push({
+    kind: 'agent.event',
+    author: 'agentA',
+    message: 'thinking…',
+    agentEvent: {
+      author: 'agentA',
+      isFinal: false,
+      partial: true,
+      text: 'thinking…',
+    },
+  });
+  push({
+    kind: 'agent.event',
+    author: 'agentA',
+    message: 'call search',
+    agentEvent: {
+      author: 'agentA',
+      isFinal: true,
+      functionCalls: [{ name: 'search', args: { q: 'x' } }],
+    },
+  });
+  assertEq(folded.length, 2, 'text + tool kept');
+  assertEq(folded[0]?.agentEvent?.text, 'thinking…', 'streamed text kept');
+  assertEq(folded[0]?.agentEvent?.partial, undefined, 'text finalized');
+  assertEq(
+    folded[1]?.agentEvent?.functionCalls?.[0]?.name,
+    'search',
+    'tool row kept',
+  );
+
+  push({
+    kind: 'agent.event',
+    author: 'agentA',
+    message: 'answer…',
+    agentEvent: {
+      author: 'agentA',
+      isFinal: false,
+      partial: true,
+      text: 'answer…',
+    },
+  });
+  assertEq(folded.length, 3, 'follow-up text appended');
+  assertEq(folded[2]?.agentEvent?.text, 'answer…', 'follow-up streams');
+}
+
 console.log('✓ smoke-progress passed');

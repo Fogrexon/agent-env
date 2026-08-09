@@ -3,8 +3,6 @@ import type {
   AgentExecutionLimits,
   AgentExecutionLimitsInput,
   AgentMode,
-  VerificationPlan,
-  VerificationPlanInput,
 } from '@agent-env/shared';
 
 /**
@@ -48,19 +46,6 @@ export interface AgentDefinition {
   mode?: AgentMode;
   /** Soft limits; host policy takes the min per field. */
   limits?: Partial<AgentExecutionLimitsInput>;
-  /**
-   * Post-run verification plan (not an ADK tool).
-   * May be a static plan or built from context.
-   */
-  verification?:
-    | VerificationPlan
-    | VerificationPlanInput
-    | ((
-        context: AgentBuildContext,
-      ) =>
-        | VerificationPlan
-        | VerificationPlanInput
-        | Promise<VerificationPlan | VerificationPlanInput>);
   createAgent(context: AgentBuildContext): BaseAgent | Promise<BaseAgent>;
 }
 
@@ -90,7 +75,6 @@ export function mergeExecutionLimits(
       host.maxWallSeconds,
       agent.maxWallSeconds ?? host.maxWallSeconds,
     ),
-    maxRepairs: Math.min(host.maxRepairs, agent.maxRepairs ?? host.maxRepairs),
     maxSubagentDepth: Math.min(
       host.maxSubagentDepth,
       agent.maxSubagentDepth ?? host.maxSubagentDepth,

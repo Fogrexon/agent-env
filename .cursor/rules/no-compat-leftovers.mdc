@@ -24,7 +24,7 @@ type RunHistoryMode = 'agent' | 'runspec';
 type RunHistoryMode = 'agent';
 
 // ❌ ドキュメントに「旧 RunSpec は廃止。互換レイヤなし」と長く残す
-// ✅ 現行契約（agentDefinition.limits / verification）だけ書く
+// ✅ 現行契約（agentDefinition.limits）だけ書く
 ```
 
 ## チェック

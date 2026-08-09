@@ -5,7 +5,6 @@ import {
   defineAgent,
   isProviderConfigured,
   shapeObservation,
-  verify,
   type AgentBuildContext,
 } from '@agent-env/harness';
 import { z } from 'zod';
@@ -28,20 +27,12 @@ export const agentDefinition = defineAgent({
   id: 'harness-demo',
   name: 'Harness Demo',
   description:
-    'limits + verifier + guarded tools + typed result handoff + bounded observations.',
+    'limits + guarded tools + typed result handoff + bounded observations.',
   mode: 'autonomous',
   limits: {
     maxSteps: 12,
     maxToolCalls: 20,
     maxWallSeconds: 180,
-    maxRepairs: 1,
-  },
-  verification: {
-    checks: [
-      verify.jsonSchema({
-        schemaRef: 'agents/harness-demo/schemas/result.schema.json',
-      }),
-    ],
   },
   createAgent(_context: AgentBuildContext) {
     const echoNote = createGuardedTool({
@@ -92,10 +83,10 @@ export const agentDefinition = defineAgent({
     const emitResult = createEmitHandoffTool({
       name: 'emit_result_handoff',
       fromAgent: 'harness_demo',
-      toAgent: 'verifier',
+      toAgent: 'reviewer',
       outputSchema: RESULT_SCHEMA_ID,
       payloadSchema: resultPayloadSchema,
-      defaultObjective: 'Typed final result for verification',
+      defaultObjective: 'Typed final result',
       doneCriteria: [
         'status is verified',
         'summary mentions propose_publish outcome',
@@ -111,7 +102,7 @@ export const agentDefinition = defineAgent({
       name: 'harness_demo',
       model,
       description:
-        'Harness demo: bounded observations, T2 guard, typed result handoff, JSON Schema verify.',
+        'Harness demo: bounded observations, T2 guard, typed result handoff.',
       instruction: `You are a concise demo agent for agent-env (execution harness + working-environment contracts).
 1. Call echo_note once with a short note about the user's objective.
 2. Call propose_publish once (T2). Without host approval it returns policy_denied — expected; report it.

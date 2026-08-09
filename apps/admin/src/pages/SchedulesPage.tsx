@@ -1,21 +1,24 @@
 import {
-  Alert,
   Button,
   Checkbox,
-  Form,
-  Input,
+  InlineNotification,
   Select,
-  Space,
-  Switch,
+  SelectItem,
   Table,
-  Typography,
-} from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TextInput,
+  Toggle,
+} from '@carbon/react';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { listAgents, listSchedules } from '../api/client.js';
 import type { AgentListItem, ScheduleItem } from '../api/types.js';
 import { PageShell } from '../ui/PageShell.js';
+import { OpsPanel } from '../ui/OpsPanel.js';
 
 export function SchedulesPage() {
   const [schedules, setSchedules] = useState<ScheduleItem[]>([]);
@@ -95,58 +98,6 @@ export function SchedulesPage() {
     void refresh();
   };
 
-  const columns: ColumnsType<ScheduleItem> = [
-    {
-      title: 'Agent',
-      dataIndex: 'agentId',
-      render: (id: string, row) => (
-        <Space>
-          <Link to={`/jobs/${id}`}>
-            <Typography.Text code>{id}</Typography.Text>
-          </Link>
-          {!row.enabled ? <Typography.Text type="secondary">off</Typography.Text> : null}
-        </Space>
-      ),
-    },
-    {
-      title: 'Cron',
-      dataIndex: 'cron',
-      render: (c: string) => <Typography.Text code>{c}</Typography.Text>,
-    },
-    {
-      title: 'Next',
-      dataIndex: 'nextRunAt',
-      render: (t?: string) => (t ? new Date(t).toLocaleString() : '—'),
-    },
-    {
-      title: 'Last job',
-      dataIndex: 'lastJobId',
-      render: (id?: string) =>
-        id ? <Typography.Text code>{id.slice(0, 8)}</Typography.Text> : '—',
-    },
-    {
-      title: 'Enabled',
-      dataIndex: 'enabled',
-      width: 90,
-      render: (enabled: boolean, row) => (
-        <Switch
-          size="small"
-          checked={enabled}
-          onChange={(v) => void toggle(row.id, v)}
-        />
-      ),
-    },
-    {
-      title: '',
-      width: 90,
-      render: (_, row) => (
-        <Button danger size="small" onClick={() => void onDelete(row.id)}>
-          Delete
-        </Button>
-      ),
-    },
-  ];
-
   return (
     <PageShell
       title="Schedules"
@@ -154,87 +105,155 @@ export function SchedulesPage() {
       crumbs={[{ title: 'Jobs', path: '/jobs' }, { title: 'Schedules' }]}
     >
       {error ? (
-        <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
+        <InlineNotification
+          kind="error"
+          lowContrast
+          hideCloseButton
+          title={error}
+          className="ops-inline-alert"
+        />
       ) : null}
 
-      <div className="ops-panel">
-        <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-          New schedule
-        </Typography.Text>
-        <Form layout="vertical" style={{ maxWidth: 720 }}>
-          <Space wrap size="middle" style={{ width: '100%' }} align="start">
-            <Form.Item label="Agent" style={{ minWidth: 200, marginBottom: 12 }}>
-              <Select
-                value={form.agentId || undefined}
-                onChange={(v) => setForm((f) => ({ ...f, agentId: v }))}
-                options={agents.map((a) => ({
-                  value: a.id,
-                  label: a.title ?? a.id,
-                }))}
-                style={{ minWidth: 200 }}
-              />
-            </Form.Item>
-            <Form.Item label="Cron" style={{ minWidth: 160, marginBottom: 12 }}>
-              <Input
-                value={form.cron}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, cron: e.target.value }))
-                }
-                placeholder="0 * * * *"
-              />
-            </Form.Item>
-          </Space>
-          <Form.Item label="Message (objective)">
-            <Input
-              value={form.message}
+      <OpsPanel title="New schedule">
+        <div className="ops-form" style={{ maxWidth: 720 }}>
+          <div className="ops-form-row">
+            <Select
+              id="schedule-agent"
+              labelText="Agent"
+              size="sm"
+              value={form.agentId}
               onChange={(e) =>
-                setForm((f) => ({ ...f, message: e.target.value }))
+                setForm((f) => ({ ...f, agentId: e.target.value }))
+              }
+            >
+              {agents.map((a) => (
+                <SelectItem
+                  key={a.id}
+                  value={a.id}
+                  text={a.title ?? a.id}
+                />
+              ))}
+            </Select>
+            <TextInput
+              id="schedule-cron"
+              labelText="Cron"
+              size="sm"
+              value={form.cron}
+              placeholder="0 * * * *"
+              onChange={(e) =>
+                setForm((f) => ({ ...f, cron: e.target.value }))
               }
             />
-          </Form.Item>
-          <Space wrap style={{ marginBottom: 12 }}>
+          </div>
+          <TextInput
+            id="schedule-message"
+            labelText="Message (objective)"
+            size="sm"
+            value={form.message}
+            onChange={(e) =>
+              setForm((f) => ({ ...f, message: e.target.value }))
+            }
+          />
+          <div className="ops-inline-controls">
             <Checkbox
+              id="schedule-auto-approve"
+              labelText="T2 auto-approve"
               checked={form.autoApprove}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, autoApprove: e.target.checked }))
+              onChange={(_e, { checked }) =>
+                setForm((f) => ({ ...f, autoApprove: checked }))
               }
-            >
-              T2 auto-approve
-            </Checkbox>
+            />
             <Checkbox
+              id="schedule-enabled"
+              labelText="Enabled"
               checked={form.enabled}
-              onChange={(e) =>
-                setForm((f) => ({ ...f, enabled: e.target.checked }))
+              onChange={(_e, { checked }) =>
+                setForm((f) => ({ ...f, enabled: checked }))
               }
-            >
-              Enabled
-            </Checkbox>
-          </Space>
+            />
+          </div>
           <div>
             <Button
-              type="primary"
-              loading={submitting}
+              kind="primary"
+              size="sm"
+              disabled={submitting}
               onClick={() => void onCreate()}
             >
-              Create
+              {submitting ? 'Creating…' : 'Create'}
             </Button>
           </div>
-        </Form>
-      </div>
+        </div>
+      </OpsPanel>
 
-      <div className="ops-panel" style={{ marginTop: 16 }}>
-        <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-          Configured
-        </Typography.Text>
-        <Table
-          size="small"
-          rowKey="id"
-          pagination={false}
-          locale={{ emptyText: 'No schedules' }}
-          dataSource={schedules}
-          columns={columns}
-        />
-      </div>
+      <OpsPanel title="Configured" className="ops-stack-gap">
+        {schedules.length === 0 ? (
+          <p className="muted">No schedules</p>
+        ) : (
+          <Table size="sm">
+            <TableHead>
+              <TableRow>
+                <TableHeader>Agent</TableHeader>
+                <TableHeader>Cron</TableHeader>
+                <TableHeader>Next</TableHeader>
+                <TableHeader>Last job</TableHeader>
+                <TableHeader>Enabled</TableHeader>
+                <TableHeader />
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {schedules.map((row) => (
+                <TableRow key={row.id}>
+                  <TableCell>
+                    <span className="ops-inline-gap">
+                      <Link to={`/jobs/${row.agentId}`}>
+                        <code>{row.agentId}</code>
+                      </Link>
+                      {!row.enabled ? (
+                        <span className="muted">off</span>
+                      ) : null}
+                    </span>
+                  </TableCell>
+                  <TableCell>
+                    <code>{row.cron}</code>
+                  </TableCell>
+                  <TableCell>
+                    {row.nextRunAt
+                      ? new Date(row.nextRunAt).toLocaleString()
+                      : '—'}
+                  </TableCell>
+                  <TableCell>
+                    {row.lastJobId ? (
+                      <code>{row.lastJobId.slice(0, 8)}</code>
+                    ) : (
+                      '—'
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <Toggle
+                      id={`sched-toggle-${row.id}`}
+                      size="sm"
+                      hideLabel
+                      labelA="Off"
+                      labelB="On"
+                      toggled={row.enabled}
+                      onToggle={(checked) => void toggle(row.id, checked)}
+                    />
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      kind="danger--tertiary"
+                      size="sm"
+                      onClick={() => void onDelete(row.id)}
+                    >
+                      Delete
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+      </OpsPanel>
     </PageShell>
   );
 }

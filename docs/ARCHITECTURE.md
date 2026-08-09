@@ -10,11 +10,10 @@
 
 | Plane | 研究上の責務 | 本リポの置き場（現状） |
 |-------|--------------|------------------------|
-| Specification | エージェントの実行ポリシー・成功条件 | `agents/<id>/agent.ts` の `agentDefinition.limits` / `.verification`（`@agent-env/shared` の `AgentExecutionLimits` / `VerificationPlan`） |
+| Specification | エージェントの実行ポリシー | `agents/<id>/agent.ts` の `agentDefinition.limits`（`@agent-env/shared` の `AgentExecutionLimits`） |
 | Control | state machine、budget、orchestrator | `packages/harness/src/runtime/`（`executeAgentRun`） |
 | Execution | model / typed tool gateway | `@agent-env/llm` + `createGuardedTool` + ADK tools |
 | State & evidence | append-only events、artifact | `InMemoryEventStore`（実行中エビデンス）+ **file-backed run history**（`.runs/runs/<agentId>/<stamp>-<runId8>/`：progress.jsonl / result / final.md / workspace） |
-| Evaluation | 独立 verifier | `executeVerificationPlan`（agent 発言を成功としない） |
 
 実行基盤の五 plane に加え、作業環境（Loop / Connection / Data）の薄い契約も `packages/harness` に段階導入する。
 
@@ -33,10 +32,9 @@ ADK FunctionTools の実行経路は provider により 2 系統ある:
 
 ## エージェント定義の契約（Specification plane）
 
-`agents/<id>/agent.ts` が `export const agentDefinition = defineAgent({ id, name, description, limits?, verification?, createAgent })` を持つのが唯一の必須ファイル。`params.yaml` は任意（無ければ discovery が既定の単一 `message` フィールドを合成する）。
+`agents/<id>/agent.ts` が `export const agentDefinition = defineAgent({ id, name, description, limits?, createAgent })` を持つのが唯一の必須ファイル。`params.yaml` は任意（無ければ discovery が既定の単一 `message` フィールドを合成する）。
 
-- **`limits`**（`Partial<AgentExecutionLimits>`）: `maxSteps` / `maxToolCalls` / `maxWallSeconds` / `maxRepairs` / `maxSubagentDepth`。host 既定（`agents/dev-env/execution-policy.ts` の `DEFAULT_HOST_EXECUTION_LIMITS`: steps/tools 200・wall 1800s・repairs 3・subagentDepth 3）と `mergeExecutionLimits` でフィールドごとに **min** マージされる。agent は host より緩められない
-- **`verification`**（`VerificationPlan` または `(context) => VerificationPlan`）: `@agent-env/harness` の `verify.*` ファクトリで組み立てた `VerificationCheck[]`。host が追加検証を持つ場合はその後ろに連結される
+- **`limits`**（`Partial<AgentExecutionLimits>`）: `maxSteps` / `maxToolCalls` / `maxWallSeconds` / `maxSubagentDepth`。host 既定（`agents/dev-env/execution-policy.ts` の `DEFAULT_HOST_EXECUTION_LIMITS`: steps/tools 2000・wall 7200s・subagentDepth 3）と `mergeExecutionLimits` でフィールドごとに **min** マージされる。agent は host より緩められない
 - **モデル**: `provider:model` 文字列（例 `cursor:auto` / `gemini:gemini-3.1-pro`）を ADK `LlmAgent.model` に渡すだけで ADK の LLMRegistry ルーティングに乗る。明示的な `BaseLlm` が要る場合のみ `resolveModel({ provider, model })`（`@agent-env/llm`）。**run 単位のモデル上書きはない**
 
 安全境界は `agentDefinition.limits`（host 既定との min マージ、agent 自身は緩められない）と `createGuardedTool` の T0–T3 fail-closed ガードが担う。
@@ -48,23 +46,22 @@ flowchart LR
   CLI["npm run run / admin"] --> RDA["runDiscoveredAgent"]
   RDA --> Disc["discover agents/*/"]
   RDA --> Build["agentDefinition.createAgent"]
-  RDA --> Merge["limits + verification を host policy とマージ"]
+  RDA --> Merge["limits を host policy とマージ"]
   Merge --> Exec["executeAgentRun"]
   Exec --> Agent["ADK agent loop"]
-  Exec --> Ver["verify.* checks"]
 ```
 
-`executeAgentRun`（`packages/harness/src/runtime/run-execution.ts`）が state machine（`QUEUED → PROVISIONING → RUNNING → VERIFYING → (REPAIRING → RUNNING)* → SUCCEEDED|COMPLETED|FAILED|...`）・budget enforcement・tool gateway・verification 実行をまとめて担う。単一エントリは [`agents/dev-env/run-discovered-agent.ts`](../agents/dev-env/run-discovered-agent.ts) の `runDiscoveredAgent`。CLI（[`scripts/run.ts`](../scripts/run.ts)）も admin もここ経由。定義は builtin `agents/<id>/` と `plugins/<pack>/<id>/` から discovery される（実行の主体は常にホスト）。
+`executeAgentRun`（`packages/harness/src/runtime/run-execution.ts`）が state machine（`QUEUED → PROVISIONING → RUNNING → COMPLETED|FAILED|...`）・budget enforcement・tool gateway をまとめて担う。単一エントリは [`agents/dev-env/run-discovered-agent.ts`](../agents/dev-env/run-discovered-agent.ts) の `runDiscoveredAgent`。CLI（[`scripts/run.ts`](../scripts/run.ts)）も admin もここ経由。定義は builtin `agents/<id>/` と `plugins/<pack>/<id>/` から discovery される（実行の主体は常にホスト）。
 
 ### 終了状態
 
 | 状態 | 条件 |
 |------|------|
-| `SUCCEEDED` | required check が 1 つ以上あり、すべて合格（`verification.outcome === 'passed'`） |
-| `COMPLETED` | required check が 0 件（advisory のみ／checks 空）で正常終了（`'not-gated'`）。ゲートなしの成功扱い |
-| `FAILED` | required check が失敗（`maxRepairs` 使い切り後）、または budget / maxSteps 超過など |
+| `COMPLETED` | エージェントが正常終了（budget / maxSteps / policy で落ちていない） |
+| `FAILED` | エージェントエラー、maxSteps 超過など |
+| `BUDGET_EXHAUSTED` | tool / wall budget 超過 |
 
-`SUCCEEDED` と `COMPLETED` はいずれも成功として扱う（`isSuccessfulRunState`、`@agent-env/shared`）。admin UI は `COMPLETED` = Unverified、`SUCCEEDED` = Verified と表示する。
+`COMPLETED` のみ `isSuccessfulRunState`（`@agent-env/shared`）。
 
 ### グラフ（effective / observed）
 
@@ -79,7 +76,7 @@ flowchart LR
 
 ### Phase A（実装済み骨格）— 測れる一実行
 
-- [x] `AgentExecutionLimits` + `VerificationPlan`（Zod, `@agent-env/shared`）
+- [x] `AgentExecutionLimits`（Zod, `@agent-env/shared`）
 - [x] Run state machine（遷移検証）
 - [x] Append-only event log（in-memory 実行中エビデンス + file-backed `progress.jsonl` via `createRunHistoryStore`）
 - [x] Durable per-run history（CLI / admin 共通: `run.json` / `result.json` / `final.md` / `workspace/`）
@@ -87,10 +84,8 @@ flowchart LR
 - [x] Budget をツール gateway で enforce（`maxToolCalls` 超過は呼び出し拒否 → `BUDGET_EXHAUSTED`）
 - [x] Tool risk T0–T3 + fail-closed T2/T3（`createGuardedTool` + 実行単位 `toolApproval`: deny / auto / interactive）
 - [x] `limits.maxSteps`（非 partial エージェントイベントを step として計数、超過で中断 → `FAILED`）
-- [x] `limits.maxRepairs`（verifier 失敗時に failed checks をフィードバックして再実行: `VERIFYING → REPAIRING → RUNNING`）
 - [x] AI 生成 TS 実行: `createTsCodeRunnerTool` + エージェント単位 `exec/` npm 環境（`ensureExecEnv`）
 - [x] エージェント局所 Python: **uv** 管理の `ensurePythonEnv` + `createPythonScriptTool`（事前宣言 scripts）+ `createPythonCodeRunnerTool`（生成コード T2）
-- [x] Independent verifier（`agentDefinition.verification` + `verify.*` deterministic checks + custom/agent SPI）
 - [x] サンプル: `agents/harness-demo` + `npm run run -- harness-demo`
 - [x] サンプル: `agents/code-exec`（固定処理は FunctionTool、生成 TS は `exec/`）
 - [x] サンプル: `plugins/personal/python-vision`（`python/scripts/detect.py` mock YOLO → 判断）
@@ -106,25 +101,6 @@ flowchart LR
 - [x] Agent memory store — propose→validate→accept + ADD/UPDATE/DELETE/NOOP（`createAgentMemoryStore` / `createAgentMemoryTools`）
 - [x] Knowledge / RAG — local hybrid index（BM25 + optional embeddings + RRF/MMR）、差分 sync、citation、bounded agentic search（`packages/harness/src/knowledge/`）
 - [ ] GraphRAG / 外部 vector DB / A2A / 学習型 memory policy（意図的に後回し。KnowledgeStore SPI で外部 DB へ差し替え可能）
-
-### 成功判定（`verify.*` + `VerificationPlan`）
-
-成功は agent の完了文ではなく postcondition。`agentDefinition.verification` が `VerificationCheck[]` を持つ `VerificationPlan` を返し、host 既定 execution policy の追加検証（あれば）と連結してから実行される。**インライン成功文字列や agent の自己申告は成功条件にしない**。
-
-| `verify.*` ファクトリ | 見るもの | 強さ |
-|------|---------|------|
-| `verify.command({ bin, args, expectExitCode? })` | 固定 argv の終了コード（+ 任意の出力部分一致） | ★★★ |
-| `verify.artifact({ artifactId, mediaTypes, minBytes })` | 成果物契約（mediaTypes / minBytes） | ★★☆ |
-| `verify.document({ sections, ... })` | MD/HTML 見出しなど文書契約 | ★★☆ |
-| `verify.jsonSchema({ schemaRef, ... })` | JSON 成果物または finalText の構造 | ★★☆ |
-| `verify.contains({ text })` | 最終メッセージの部分文字列 | ☆☆☆ |
-| `verify.nonEmpty()` | 最終メッセージ非空 | ☆☆☆ |
-| `verify.custom({ verifierId })` / `verify.agent({ graderId })` | 実行時に注入される custom 関数 / 別モデル rubric（SPI） | 実装依存 |
-
-- **レポート形式はエージェント（`verify.artifact` / `verify.document` の対象）が決める**。ハーネスは MD 専用にしない
-- `contains` / `nonEmpty` は整形強制用途に留め、タスク成功のゲートには `command` / `artifact` / `jsonSchema` を使う
-- `ExecuteVerificationContext` には `workspaceDir` と append-only な `events` が渡る
-- `command` は `agentDefinition`（= 信頼された設定）が argv を決める。モデルが組み立てた文字列は渡らない
 
 ### データソース収集オーケストレーション（優先プロダクト方向）
 
@@ -211,14 +187,13 @@ npm run admin
 ```
 
 ```ts
-import { defineAgent, executeAgentRun, verify } from '@agent-env/harness';
+import { defineAgent, executeAgentRun } from '@agent-env/harness';
 
 export const agentDefinition = defineAgent({
   id: 'demo',
   name: 'Demo',
   description: '…',
-  limits: { maxSteps: 20, maxToolCalls: 20, maxWallSeconds: 300, maxRepairs: 1 },
-  verification: { checks: [verify.nonEmpty()] },
+  limits: { maxSteps: 20, maxToolCalls: 20, maxWallSeconds: 300 },
   createAgent(_ctx) {
     return /* LlmAgent / SequentialAgent … */;
   },
@@ -234,17 +209,16 @@ const result = await executeAgentRun({
   objective: '…',
   inputs: {},
   limits: mergeExecutionLimits(hostLimits, agentDefinition.limits),
-  verification: { checks: [] }, // 実際は resolveVerificationPlan で agent + host を連結
 });
 ```
 
 ## AgentParams YAML + admin
 
-エージェントの**呼出し入力**は任意の `agents/<id>/params.yaml` で型付き定義する（スキーマ型だけ `@agent-env/shared`）。無ければ discovery が既定の単一 `message` フィールドを合成する。実行ポリシー・成功判定は `agent.ts` の `agentDefinition.limits` / `.verification`。
+エージェントの**呼出し入力**は任意の `agents/<id>/params.yaml` で型付き定義する（スキーマ型だけ `@agent-env/shared`）。無ければ discovery が既定の単一 `message` フィールドを合成する。実行ポリシーは `agent.ts` の `agentDefinition.limits`。
 
 | 層 | 役割 |
 |----|------|
-| `agents/<id>/` | `agent.ts`（`agentDefinition`。`limits` / `verification` を内包）+ 任意 `params.yaml` |
+| `agents/<id>/` | `agent.ts`（`agentDefinition`。`limits` を内包）+ 任意 `params.yaml` |
 | `@agent-env/repo-env` `discoverAgents` / `runDiscoveredAgent` | スキャンと単一実行経路 |
 | `packages/*` | 汎用 loader / `executeAgentRun` / `AgentProgressEvent`（エージェント非依存） |
 | `scripts/` / `apps/admin` | 汎用エントリ（argv / ディスカバリ駆動。固有 default id なし） |
@@ -300,7 +274,7 @@ const result = await executeAgentRun({
 - ハーネス: `runAgent` / `executeAgentRun` の `onProgress` が正規化済み `AgentProgressEvent` を連番付きで通知
 - admin: `POST /api/agents/:id/runs` → 即 `runId`、`GET /api/runs/:runId/events` が SSE（ライブはプロセス内。再接続リプレイも同一プロセス内）
 - **永続履歴**（CLI / admin 共通）: `createRunHistoryStore` が `.runs/runs/<agentId>/<stamp>-<runId8>/` に `progress.jsonl` / `result.json` / `final.md` / `workspace/` を書く。エージェント定義の変更は不要。`GET /api/runs` はメモリ + ディスクをマージ
-- `progress.jsonl` はマイルストーンのみ（`run.*` / 非 partial の `agent.event` / `verification`）。ストリーム中の `partial` チャンクはライブ SSE 専用でディスクには書かない（累積テキストの全履歴は不要）
+- `progress.jsonl` はマイルストーンのみ（`run.*` / 非 partial の `agent.event`）。ストリーム中の `partial` チャンクはライブ SSE 専用でディスクには書かない（累積テキストの全履歴は不要）
 - ワークスペース絶対パスは `stateDelta.runWorkspaceDir`（`RUN_WORKSPACE_STATE_KEY`）として注入。エージェントが `createWorkspaceFsTools` / `createHttpDownloadTool` / `createMarkdownPdfTool` の roots に含めるかは任意
 - **成果物 API**（admin）: `GET /api/runs/:runId/files` で履歴ディレクトリ配下を一覧、`GET /api/runs/:runId/files/*` で path-jail 付き配信（`?download=1` で attachment）。UI は MD/画像プレビューと DL リンクを表示
 - **グラフ API**（admin）: `POST /api/agents/:id/graph` がフォーム値を適用して `describeAgentGraph` を実行なしで返す（Preview）。run 完了後は `GET /api/runs/:runId` の `effectiveGraph` / `observedGraph` で比較できる
@@ -309,4 +283,4 @@ const result = await executeAgentRun({
 
 ## 作らないもの（研究 §1.4）
 
-自由 spawn する swarm、全 tool/secret 共有、self-declared completion のみの成功判定、無制限 shell、conversation だけの「checkpoint」、公開 benchmark 単一最適化、LLM-as-judge 単独の release gate。
+自由 spawn する swarm、全 tool/secret 共有、無制限 shell、conversation だけの「checkpoint」、公開 benchmark 単一最適化。

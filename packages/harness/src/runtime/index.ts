@@ -1,6 +1,6 @@
 /**
 
- * Runtime: state machine, events, budget, verification, tool gateway.
+ * Runtime: state machine, events, budget, tool gateway.
 
  * Maps to research doc planes — see docs/ARCHITECTURE.md.
 
@@ -21,13 +21,9 @@ export {
 
   executeAgentRun,
 
-  terminalFromVerification,
-
   type ExecuteAgentRunOptions,
 
   type ExecuteAgentRunResult,
-
-  type HostExecutionPolicy,
 
 } from './run-execution.js';
 

@@ -7,14 +7,14 @@ Web 管理ツール置き場。ランタイムは TypeScript 一択（エージ�
 | 置く場所 | 置いてよいもの |
 |----------|----------------|
 | `packages/*` | 汎用ランタイム・Zod スキーマ・loader・進捗イベント（**具体エージェント名なし**） |
-| `agents/<id>/` | `agent.ts`（`agentDefinition`。`limits` / `verification` を内包）+ 任意 `params.yaml`（詳細は [docs/AGENT_PACKAGE.md](../docs/AGENT_PACKAGE.md)） |
+| `agents/<id>/` | `agent.ts`（`agentDefinition`。`limits` を内包）+ 任意 `params.yaml`（詳細は [docs/AGENT_PACKAGE.md](../docs/AGENT_PACKAGE.md)） |
 | `agents/dev-env` (`@agent-env/repo-env`) | このリポの env 配線 + **agents/*/ ディスカバリ** + `runDiscoveredAgent` |
 | `scripts/` | 汎用 CLI のみ（ディスカバリ + argv。**固有 id / params を持たない**） |
 | `apps/admin` | **Control Plane**（キュー / スロット / スケジュール / webhook / 認証）+ UI（同上・固有 agent id なし） |
 
 ## `@agent-env/admin` — Control Plane
 
-Jenkins 風のローカル管理コンソール。実行本体は常に `runDiscoveredAgent`（agent 自身の `limits` / `verification` + host execution policy をマージして実行、五 plane）。Control Plane は「いつ・いくつ・誰が起動するか」だけを担う。実行時モデルは agent.ts が解決する — run 単位のモデル上書きはない。
+Jenkins 風のローカル管理コンソール。実行本体は常に `runDiscoveredAgent`（agent 自身の `limits` + host execution policy をマージして実行、五 plane）。Control Plane は「いつ・いくつ・誰が起動するか」だけを担う。実行時モデルは agent.ts が解決する — run 単位のモデル上書きはない。
 
 ```bash
 npm run admin
@@ -45,7 +45,7 @@ npm run admin
 
 ### エージェント追加
 
-1. `agents/<id>/agent.ts`（`export const agentDefinition`。`limits` / `verification` を含む）
+1. `agents/<id>/agent.ts`（`export const agentDefinition`。`limits` を含む）
 2. 任意で `agents/<id>/params.yaml`（無ければ既定の単一 `message` フィールド）
 3. 完了 — `packages/*` もルート `package.json` も触らない
 
@@ -71,7 +71,7 @@ npm run admin
 | GET/POST/PATCH/DELETE | `/api/hooks/tokens` | webhook トークン（作成時のみ rawToken 返却） |
 | POST | `/api/hooks/:token` | 外部トリガ enqueue（Basic 対象外） |
 | GET | `/api/runs` | メモリ + キュー pending + `.runs` 履歴（`trigger` 付き） |
-| GET | `/api/runs/:runId` | スナップショット（stages / verification / budget / `effectiveGraph` / `observedGraph`） |
+| GET | `/api/runs/:runId` | スナップショット（stages / budget / `effectiveGraph` / `observedGraph`） |
 | GET | `/api/runs/:runId/events?after=N` | SSE（実行開始後） |
 | GET | `/api/runs/:runId/files` | 成果物一覧 |
 | GET | `/api/runs/:runId/files/*?download=1` | 成果物配信 |
@@ -100,11 +100,11 @@ UI/webhook/cron → enqueue (SQLite) → WorkerPool (maxSlots)
 
 ハーネスが発行する汎用 `AgentProgressEvent`（`@agent-env/shared`）:
 
-- `run.started` / `agent.event` / `run.state` / `verification` / `approval.*` / `run.completed` / `run.failed`
+- `run.started` / `agent.event` / `run.state` / `approval.*` / `run.completed` / `run.failed`
 - `sequence` は run 内単調増加。SSE 再接続時は `after` でリプレイ
 
 ライブ SSE はプロセス内 `AdminRunStore`。永続ジョブの正本は SQLite + 完了後の `.runs/runs/`。
 
 ### 成功判定
 
-`RunRecord.state` の `SUCCEEDED`（検証あり合格） / `COMPLETED`（検証なしで正常終了）はどちらも成功として扱う（`isSuccessfulRunState`、`@agent-env/shared`）。UI は `COMPLETED` = Unverified、`SUCCEEDED` = Verified と表示する。
+`RunRecord.state` の `COMPLETED` が正常終了（`isSuccessfulRunState`、`@agent-env/shared`）。

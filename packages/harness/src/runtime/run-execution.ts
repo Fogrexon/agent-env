@@ -11,14 +11,8 @@ import {
   type AgentProgressSink,
   type AgentRunIntent,
   type RunRecord,
-  type VerificationPlan,
-  type VerificationResult,
 } from '@agent-env/shared';
 import { runAgent } from '../runner.js';
-import {
-  executeVerificationPlan,
-  type ExecuteVerificationContext,
-} from '../verification/execute.js';
 import { BudgetManager } from './budget.js';
 import { InMemoryEventStore } from './event-store.js';
 import { RUN_WORKSPACE_STATE_KEY } from './run-history.js';
@@ -29,23 +23,12 @@ import {
 } from './tool-approval.js';
 import { applyToolRuntimePolicy } from './tool-runtime-policy.js';
 
-/**
- * Host-side execution policy. Limits are hard caps; verification is appended
- * after the agent plan (required host checks cannot be removed by the agent).
- */
-export interface HostExecutionPolicy {
-  limits: AgentExecutionLimits;
-  verification?: VerificationPlan;
-}
-
 export interface ExecuteAgentRunOptions {
   agent: BaseAgent;
   agentId: string;
   objective: string;
   inputs?: Record<string, unknown>;
   limits: AgentExecutionLimits;
-  /** Already-merged agent + host verification plan. */
-  verification: VerificationPlan;
   stateDelta?: Record<string, unknown>;
   attachments?: readonly AgentAttachment[];
   cwd?: string;
@@ -56,10 +39,6 @@ export interface ExecuteAgentRunOptions {
   eventStore?: InMemoryEventStore;
   onEvent?: (event: ReturnType<InMemoryEventStore['append']>) => void;
   tenantId?: string;
-  verifyContext?: Omit<
-    ExecuteVerificationContext,
-    'finalText' | 'workspaceDir' | 'events'
-  >;
 }
 
 export interface ExecuteAgentRunResult {
@@ -67,46 +46,10 @@ export interface ExecuteAgentRunResult {
   intent: AgentRunIntent;
   events: ReturnType<InMemoryEventStore['list']>;
   agentFinalText?: string;
-  effectiveVerification: VerificationPlan;
-}
-
-/** Feedback turn for the REPAIRING loop (limits.maxRepairs). */
-function buildRepairMessage(
-  objective: string,
-  previous: string | undefined,
-  verification: VerificationResult,
-): string {
-  const failed = verification.checks
-    .filter((check) => check.severity === 'required' && !check.passed)
-    .map(
-      (check) =>
-        `- ${check.id}${check.detail ? ` (${check.detail})` : ''}`,
-    )
-    .join('\n');
-  const parts = [
-    'Your previous answer failed independent verification. Produce a corrected final answer.',
-    '',
-    `Original objective: ${objective}`,
-    '',
-    'Failed required checks:',
-    failed || '- (none reported)',
-  ];
-  if (previous) {
-    parts.push('', 'Previous answer:', previous);
-  }
-  return parts.join('\n');
-}
-
-function terminalFromVerification(
-  verification: VerificationResult,
-): 'SUCCEEDED' | 'COMPLETED' | 'FAILED' {
-  if (verification.outcome === 'passed') return 'SUCCEEDED';
-  if (verification.outcome === 'not-gated') return 'COMPLETED';
-  return 'FAILED';
 }
 
 /**
- * Orchestrator entry: limits + verification plan → state machine → agent → verifier.
+ * Orchestrator entry: limits → state machine → agent.
  * Does not override the agent tree's models; tools go through the runtime gateway.
  */
 export async function executeAgentRun(
@@ -114,7 +57,6 @@ export async function executeAgentRun(
 ): Promise<ExecuteAgentRunResult> {
   const objective = options.objective;
   const limits = options.limits;
-  const verificationPlan = options.verification;
   const runWorkspaceDir =
     typeof options.stateDelta?.[RUN_WORKSPACE_STATE_KEY] === 'string'
       ? (options.stateDelta[RUN_WORKSPACE_STATE_KEY] as string)
@@ -134,12 +76,10 @@ export async function executeAgentRun(
     inputs: options.inputs ?? {},
     attachmentPaths: (options.attachments ?? []).map((a) => a.path),
     limits,
-    verificationPlanId: 'verification',
   });
 
   let finalText: string | undefined;
   let error: string | undefined;
-  let verification: VerificationResult | undefined;
   const modelsUsed = new Set<string>();
 
   const inputState = {
@@ -289,10 +229,6 @@ export async function executeAgentRun(
     changeState('RUNNING');
     emit('run.started', {});
 
-    const maxRepairs = limits.maxRepairs;
-    let repairs = 0;
-    let message = objective;
-
     const baseApproval: ToolApprovalPolicy = options.toolApproval ?? {
       mode: 'deny',
     };
@@ -318,121 +254,65 @@ export async function executeAgentRun(
     };
 
     await runWithToolApproval(approvalPolicy, async () => {
-      for (;;) {
-        emit('model.requested', {
-          ...(repairs > 0 ? { repairAttempt: repairs } : {}),
-        });
+      emit('model.requested', {});
 
-        const agentResult = await runAgent({
-          agent: options.agent,
-          message,
-          appName: `agent-${options.agentId}`,
-          runId,
-          stateDelta: inputState,
-          attachments: options.attachments,
-          cwd: options.cwd,
-          abortSignal: controller.signal,
-          onProgress: forwardAgentProgress,
-        });
+      const agentResult = await runAgent({
+        agent: options.agent,
+        message: objective,
+        appName: `agent-${options.agentId}`,
+        runId,
+        stateDelta: inputState,
+        attachments: options.attachments,
+        cwd: options.cwd,
+        abortSignal: controller.signal,
+        onProgress: forwardAgentProgress,
+      });
 
-        if (agentResult.status === 'error') {
-          if (stopReason?.kind === 'budget') {
-            error = stopReason.detail;
-            changeState('BUDGET_EXHAUSTED', error);
-          } else if (stopReason?.kind === 'maxSteps') {
-            error = stopReason.detail;
-            emit('model.failed', { error });
-            changeState('FAILED', error);
-          } else if (options.abortSignal?.aborted) {
-            error = agentResult.error ?? 'Run aborted';
-            changeState('CANCELLED', error);
-          } else {
-            error = agentResult.error ?? 'agent error';
-            emit('model.failed', { error });
-            changeState('FAILED', error);
-          }
-          break;
-        }
-
-        finalText = agentResult.finalText;
-        for (const model of agentResult.modelsUsed ?? []) {
-          modelsUsed.add(formatModelRef(model));
-        }
-        emit('model.completed', {
-          finalTextLength: finalText?.length ?? 0,
-          modelsUsed: [...modelsUsed],
-        });
-
-        if (stopReason) {
+      if (agentResult.status === 'error') {
+        if (stopReason?.kind === 'budget') {
           error = stopReason.detail;
-          if (stopReason.kind === 'budget') {
-            changeState('BUDGET_EXHAUSTED', error);
-          } else {
-            changeState('FAILED', error);
-          }
-          break;
-        }
-
-        if (budget.exhausted) {
-          error = `budget exhausted: ${budget.exhaustionReason()}`;
           changeState('BUDGET_EXHAUSTED', error);
-          break;
+        } else if (stopReason?.kind === 'maxSteps') {
+          error = stopReason.detail;
+          emit('model.failed', { error });
+          changeState('FAILED', error);
+        } else if (options.abortSignal?.aborted) {
+          error = agentResult.error ?? 'Run aborted';
+          changeState('CANCELLED', error);
+        } else {
+          error = agentResult.error ?? 'agent error';
+          emit('model.failed', { error });
+          changeState('FAILED', error);
         }
-
-        changeState('VERIFYING');
-        emit(
-          'verification.started',
-          { planId: 'verification', checkCount: verificationPlan.checks.length },
-          { type: 'verifier', id: 'independent' },
-        );
-
-        verification = await executeVerificationPlan(verificationPlan, {
-          cwd: options.cwd,
-          workspaceDir: runWorkspaceDir,
-          events: store.list(),
-          ...options.verifyContext,
-          finalText,
-        });
-        emit(
-          'verification.result',
-          { ...verification },
-          { type: 'verifier', id: 'independent' },
-        );
-        progress.emit('verification', {
-          message:
-            verification.outcome === 'passed'
-              ? 'Verification passed'
-              : verification.outcome === 'not-gated'
-                ? 'Verification not gated'
-                : 'Verification failed',
-          payload: { ...verification } as Record<string, unknown>,
-        });
-
-        if (verification.outcome === 'passed') {
-          changeState('SUCCEEDED');
-          break;
-        }
-        if (verification.outcome === 'not-gated') {
-          changeState('COMPLETED');
-          break;
-        }
-
-        // Required failures only: feed failed checks back for another attempt.
-        if (repairs < maxRepairs && !stopReason && !budget.exhausted) {
-          repairs += 1;
-          changeState(
-            'REPAIRING',
-            `verification failed — repair ${repairs}/${maxRepairs}`,
-          );
-          message = buildRepairMessage(objective, finalText, verification);
-          changeState('RUNNING', `repair attempt ${repairs}/${maxRepairs}`);
-          continue;
-        }
-
-        error = 'verification failed';
-        changeState('FAILED', error);
-        break;
+        return;
       }
+
+      finalText = agentResult.finalText;
+      for (const model of agentResult.modelsUsed ?? []) {
+        modelsUsed.add(formatModelRef(model));
+      }
+      emit('model.completed', {
+        finalTextLength: finalText?.length ?? 0,
+        modelsUsed: [...modelsUsed],
+      });
+
+      if (stopReason) {
+        error = stopReason.detail;
+        if (stopReason.kind === 'budget') {
+          changeState('BUDGET_EXHAUSTED', error);
+        } else {
+          changeState('FAILED', error);
+        }
+        return;
+      }
+
+      if (budget.exhausted) {
+        error = `budget exhausted: ${budget.exhaustionReason()}`;
+        changeState('BUDGET_EXHAUSTED', error);
+        return;
+      }
+
+      changeState('COMPLETED');
     });
   } catch (err) {
     error = err instanceof Error ? err.message : String(err);
@@ -470,8 +350,7 @@ export async function executeAgentRun(
     }
   }
 
-  const successful =
-    sm.state === 'SUCCEEDED' || sm.state === 'COMPLETED';
+  const successful = sm.state === 'COMPLETED';
   emit(successful ? 'run.completed' : 'run.failed', {
     state: sm.state,
     error,
@@ -485,7 +364,6 @@ export async function executeAgentRun(
       payload: {
         state: sm.state,
         ...(finalText ? { finalTextChars: finalText.length } : {}),
-        ...(verification ? { verificationOutcome: verification.outcome } : {}),
       },
     });
   } else {
@@ -508,7 +386,6 @@ export async function executeAgentRun(
     finalText,
     error,
     budgetConsumed: budget.snapshot,
-    verification,
     eventCount: store.list(runId).length,
     modelsUsed: [...modelsUsed],
   });
@@ -518,11 +395,7 @@ export async function executeAgentRun(
     intent,
     events: store.list(runId),
     agentFinalText: finalText,
-    effectiveVerification: verificationPlan,
   };
 }
 
 export type { AgentProgressEvent };
-
-/** Re-export for callers that branch on verification terminal mapping. */
-export { terminalFromVerification };

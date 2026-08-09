@@ -1,4 +1,4 @@
-import { Breadcrumb, Flex, Typography } from 'antd';
+import { Breadcrumb, BreadcrumbItem, Heading } from '@carbon/react';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
@@ -8,6 +8,9 @@ export interface PageShellProps {
   crumbs?: Array<{ title: ReactNode; path?: string }>;
   extra?: ReactNode;
   children: ReactNode;
+  /** Stretch to fill the content column (Chat workspace). */
+  fill?: boolean;
+  className?: string;
 }
 
 export function PageShell({
@@ -16,34 +19,35 @@ export function PageShell({
   crumbs,
   extra,
   children,
+  fill = false,
+  className,
 }: PageShellProps) {
+  const rootClass = ['ops-page', fill ? 'is-fill' : '', className ?? '']
+    .filter(Boolean)
+    .join(' ');
+
   return (
-    <div className="ops-page">
+    <div className={rootClass}>
       {crumbs && crumbs.length > 0 ? (
-        <Breadcrumb
-          className="ops-breadcrumb"
-          items={crumbs.map((c) => ({
-            title: c.path ? <Link to={c.path}>{c.title}</Link> : c.title,
-          }))}
-        />
+        <Breadcrumb noTrailingSlash className="ops-breadcrumb">
+          {crumbs.map((c, i) => (
+            <BreadcrumbItem key={i} isCurrentPage={!c.path}>
+              {c.path ? <Link to={c.path}>{c.title}</Link> : c.title}
+            </BreadcrumbItem>
+          ))}
+        </Breadcrumb>
       ) : null}
-      <Flex
-        align="flex-start"
-        justify="space-between"
-        gap={16}
-        wrap="wrap"
-        className="ops-page-head"
-      >
+      <div className="ops-page-head">
         <div>
-          <Typography.Title level={3} style={{ margin: 0 }}>
+          <Heading type="heading-03" className="ops-page-title">
             {title}
-          </Typography.Title>
+          </Heading>
           {subtitle ? (
-            <Typography.Text type="secondary">{subtitle}</Typography.Text>
+            <p className="ops-page-subtitle cds--body-compact-01">{subtitle}</p>
           ) : null}
         </div>
         {extra ? <div className="ops-page-extra">{extra}</div> : null}
-      </Flex>
+      </div>
       {children}
     </div>
   );

@@ -19,7 +19,7 @@ plugins/                 # ワークフロー定義パック（各直下が agen
 packages/
   shared/                # Zod（ModelRef / AgentExecutionLimits / VerificationPlan / Connector meta）
   llm/                   # provider ファクトリ・registry（env を読まない）
-  harness/               # defineAgent / executeAgentRun / verify.* / connectors（env を読まない）
+  harness/               # defineAgent / executeAgentRun / connectors（env を読まない）
 docs/                    # ARCHITECTURE + 研究レポート
 apps/admin/              # 管理 UI（実行環境の一部）
 scripts/                 # run / smoke
@@ -99,7 +99,7 @@ npm run smoke:runtime
 npm run run -- harness-demo "短いデモを実行して"
 ```
 
-実行は常に discovery 経由で `agents/<id>/agent.ts` の `agentDefinition` を読み、`runDiscoveredAgent` → `executeAgentRun` で走らせます。実行制限（`limits`: maxSteps / maxToolCalls / maxWallSeconds / maxRepairs / maxSubagentDepth）と成功判定（`verification`: `verify.*` check 配列）は `agentDefinition` 自身が持ち、host 側の既定ポリシー（`agents/dev-env/execution-policy.ts`）と自動的にマージされます（各フィールドは agent 値と host 値の小さい方 / 両方の verification checks を連結）。ランタイムはこれを唯一の真として実行し、run 単位のモデル上書きはありません。
+実行は常に discovery 経由で `agents/<id>/agent.ts` の `agentDefinition` を読み、`runDiscoveredAgent` → `executeAgentRun` で走らせます。実行制限（`limits`: maxSteps / maxToolCalls / maxWallSeconds / maxSubagentDepth）は `agentDefinition` 自身が持ち、host 側の既定ポリシー（`agents/dev-env/execution-policy.ts`）と自動的にマージされます（各フィールドは agent 値と host 値の小さい方）。ランタイムはこれを唯一の真として実行し、run 単位のモデル上書きはありません。
 
 ## TypeScript 実行（code-exec）
 
@@ -161,7 +161,7 @@ AI 生成 Pythonが必要な場合のみ `createPythonCodeRunnerTool`（T2）。
 
 ```bash
 npm run smoke:knowledge
-npm run run -- knowledge-assistant "検証（verification）の成功判定は何を見ますか？"
+npm run run -- knowledge-assistant "実行 limits はどこで定義しますか？"
 ```
 
 - Index: `.agent-env/knowledge/<collection>.sqlite`
@@ -185,6 +185,7 @@ npm run run:collector
 | `createHttpJsonConnector` | リクエスト / マッピング完全制御 |
 | `createGithubGhConnector` | `gh search` issues/PRs |
 | `createGithubTools` | GitHub 書き込み系（`createPr` 等） |
+| `createGitTools` | `git status` / `diff` / `add` / `commit` / `push`（approve 注入） |
 | `createWebSearchConnector` | 公開 Web（Tavily / Brave） |
 | `createTavilyExtractTool` | Tavily Extract（ページ本文） |
 | `createHttpDownloadTool` | URL をルート限定でバイナリ DL（画像など） |
@@ -230,7 +231,7 @@ registerConnector(
 | id | 内容 | 追加要件 |
 |----|------|----------|
 | `hello` | 最小の単一エージェント | — |
-| `harness-demo` | `limits` + guarded tools + 独立 verification（`verify.*`） | — |
+| `harness-demo` | `limits` + guarded tools + typed result handoff | — |
 | `code-exec` | FunctionTool + 任意の TS code runner | — |
 
 ### Showcase（`plugins/showcase/` — 薄いデモ）
@@ -264,7 +265,7 @@ npm install
 npm run run -- character-chat "今日のおすすめは？"
 npm run run -- web-qa "…"
 npm run run -- deep-research "…"   # personal pack が必要
-npm run run -- knowledge-assistant "検証（verification）の成功判定は何を見ますか？"
+npm run run -- knowledge-assistant "実行 limits はどこで定義しますか？"
 ```
 
 security-audit の書き込み系ツールは fail-closed の権限境界デモです:
@@ -325,7 +326,7 @@ model: resolveModel({ provider: 'lm-studio', model: 'local-model' })
 
 ## 新しいエージェント
 
-1. `agents/<id>/agent.ts`（`export const agentDefinition = defineAgent({ id, name, description, limits, verification, createAgent })`、必要なら connector 配線）
+1. `agents/<id>/agent.ts`（`export const agentDefinition = defineAgent({ id, name, description, limits, createAgent })`、必要なら connector 配線）
 2. 完了 — `packages/*`・ルート `package.json` は触らない（`scripts/` / admin が `agents/*/` を自動発見）
 
 任意:
@@ -333,7 +334,7 @@ model: resolveModel({ provider: 'lm-studio', model: 'local-model' })
 - `agents/<id>/params.yaml`（呼出し入力フォーム定義。無ければ既定の単一 `message` フィールド）
 - workspace 用に `agents/<id>/package.json` + root `tsconfig.json` references（型チェック用）
 
-詳細手順・CLI `--params`・`verify.*` の書き方は [docs/AGENT_PACKAGE.md](./docs/AGENT_PACKAGE.md)。
+詳細手順・CLI `--params` は [docs/AGENT_PACKAGE.md](./docs/AGENT_PACKAGE.md)。
 
 ## ドキュメント
 

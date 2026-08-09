@@ -31,23 +31,12 @@ export interface AdminRunResultSummary {
   startedAt: string;
   finishedAt: string;
   recordState?: string;
-  verificationPassed?: boolean;
   events?: AgentRunResult['events'];
   budgetConsumed?: {
     toolCalls: number;
     tokens: number;
     wallSeconds: number;
     costUsd: number;
-  };
-  verification?: {
-    passed: boolean;
-    graderVersion: string;
-    checks: Array<{
-      criterion: string;
-      passed: boolean;
-      detail?: string;
-    }>;
-    evidenceRefs?: string[];
   };
 }
 
@@ -342,9 +331,7 @@ export class AdminRunStore {
       error: run.error,
       stages,
       recordState: run.result?.recordState,
-      verificationPassed: run.result?.verificationPassed,
       budgetConsumed: run.result?.budgetConsumed,
-      verification: run.result?.verification,
       ...(run.historyDir ? { historyDir: run.historyDir } : {}),
       pendingApprovals: [...run.pendingApprovals.values()].map((p) => ({
         approvalId: p.request.approvalId,

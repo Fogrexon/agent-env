@@ -77,6 +77,33 @@ export interface AuditEntry {
   createdAt: string;
 }
 
+/** Lean turn stored in control DB for chat resume. */
+export interface ChatSessionTurn {
+  id: string;
+  role: 'user' | 'assistant';
+  text: string;
+  runId?: string;
+  error?: string;
+}
+
+export interface ChatSession {
+  id: string;
+  agentId: string;
+  title: string;
+  turns: ChatSessionTurn[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ChatSessionSummary {
+  id: string;
+  agentId: string;
+  title: string;
+  turnCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ControlStore {
   dbPath: string;
   enqueue(input: {
@@ -96,6 +123,7 @@ export interface ControlStore {
   getJobByRunId(runId: string): ControlJob | undefined;
   listJobs(opts?: {
     status?: JobStatus | JobStatus[];
+    agentId?: string;
     limit?: number;
   }): ControlJob[];
   claimNext(limit: number): ControlJob[];
@@ -153,6 +181,19 @@ export interface ControlStore {
   touchWebhook(id: string): void;
   setWebhookEnabled(id: string, enabled: boolean): boolean;
   deleteWebhookToken(id: string): boolean;
+
+  listChatSessions(opts: {
+    agentId: string;
+    limit?: number;
+  }): ChatSessionSummary[];
+  getChatSession(id: string): ChatSession | undefined;
+  upsertChatSession(input: {
+    id?: string;
+    agentId: string;
+    title: string;
+    turns: ChatSessionTurn[];
+  }): ChatSession;
+  deleteChatSession(id: string): boolean;
 
   audit(action: string, detail?: Record<string, unknown>): void;
   listAudit(limit?: number): AuditEntry[];
@@ -284,6 +325,17 @@ function migrate(db: DatabaseSync): void {
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_audit_created ON audit_log(created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS chat_sessions (
+      id TEXT PRIMARY KEY,
+      agent_id TEXT NOT NULL,
+      title TEXT NOT NULL,
+      turns_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_chat_sessions_agent
+      ON chat_sessions(agent_id, updated_at DESC);
   `);
 }
 
@@ -352,11 +404,23 @@ export function createControlStore(repoRoot: string): ControlStore {
 
     listJobs(opts) {
       const limit = opts?.limit ?? 200;
+      const agentId = opts?.agentId;
       const statuses = opts?.status
         ? Array.isArray(opts.status)
           ? opts.status
           : [opts.status]
         : undefined;
+      if (statuses?.length && agentId) {
+        const placeholders = statuses.map(() => '?').join(',');
+        const rows = db
+          .prepare(
+            `SELECT * FROM jobs
+             WHERE agent_id = ? AND status IN (${placeholders})
+             ORDER BY created_at DESC LIMIT ?`,
+          )
+          .all(agentId, ...statuses, limit) as Array<Record<string, unknown>>;
+        return rows.map(rowToJob);
+      }
       if (statuses?.length) {
         const placeholders = statuses.map(() => '?').join(',');
         const rows = db
@@ -367,10 +431,17 @@ export function createControlStore(repoRoot: string): ControlStore {
           .all(...statuses, limit) as Array<Record<string, unknown>>;
         return rows.map(rowToJob);
       }
+      if (agentId) {
+        const rows = db
+          .prepare(
+            `SELECT * FROM jobs WHERE agent_id = ?
+             ORDER BY created_at DESC LIMIT ?`,
+          )
+          .all(agentId, limit) as Array<Record<string, unknown>>;
+        return rows.map(rowToJob);
+      }
       const rows = db
-        .prepare(
-          `SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?`,
-        )
+        .prepare(`SELECT * FROM jobs ORDER BY created_at DESC LIMIT ?`)
         .all(limit) as Array<Record<string, unknown>>;
       return rows.map(rowToJob);
     },
@@ -667,6 +738,102 @@ export function createControlStore(repoRoot: string): ControlStore {
       return ok;
     },
 
+    listChatSessions(opts) {
+      const limit = opts.limit ?? 40;
+      const rows = db
+        .prepare(
+          `SELECT id, agent_id, title, turns_json, created_at, updated_at
+           FROM chat_sessions
+           WHERE agent_id = ?
+           ORDER BY updated_at DESC
+           LIMIT ?`,
+        )
+        .all(opts.agentId, limit) as Array<Record<string, unknown>>;
+      return rows.map((row) => {
+        let turnCount = 0;
+        try {
+          const turns = JSON.parse(String(row['turns_json'] ?? '[]')) as unknown;
+          turnCount = Array.isArray(turns) ? turns.length : 0;
+        } catch {
+          turnCount = 0;
+        }
+        return {
+          id: String(row['id']),
+          agentId: String(row['agent_id']),
+          title: String(row['title'] ?? 'Chat'),
+          turnCount,
+          createdAt: String(row['created_at']),
+          updatedAt: String(row['updated_at']),
+        };
+      });
+    },
+
+    getChatSession(id) {
+      const row = db
+        .prepare(`SELECT * FROM chat_sessions WHERE id = ?`)
+        .get(id) as Record<string, unknown> | undefined;
+      if (!row) return undefined;
+      let turns: ChatSessionTurn[] = [];
+      try {
+        const parsed = JSON.parse(String(row['turns_json'] ?? '[]')) as unknown;
+        if (Array.isArray(parsed)) {
+          turns = parsed.filter(
+            (t): t is ChatSessionTurn =>
+              Boolean(t) &&
+              typeof t === 'object' &&
+              typeof (t as ChatSessionTurn).id === 'string' &&
+              ((t as ChatSessionTurn).role === 'user' ||
+                (t as ChatSessionTurn).role === 'assistant') &&
+              typeof (t as ChatSessionTurn).text === 'string',
+          );
+        }
+      } catch {
+        turns = [];
+      }
+      return {
+        id: String(row['id']),
+        agentId: String(row['agent_id']),
+        title: String(row['title'] ?? 'Chat'),
+        turns,
+        createdAt: String(row['created_at']),
+        updatedAt: String(row['updated_at']),
+      };
+    },
+
+    upsertChatSession(input) {
+      const ts = nowIso();
+      const id = input.id?.trim() || randomUUID();
+      const existing = store.getChatSession(id);
+      const title = input.title.trim() || existing?.title || 'Chat';
+      const turnsJson = JSON.stringify(input.turns);
+      if (existing) {
+        db.prepare(
+          `UPDATE chat_sessions
+           SET title = ?, turns_json = ?, updated_at = ?
+           WHERE id = ?`,
+        ).run(title, turnsJson, ts, id);
+      } else {
+        db.prepare(
+          `INSERT INTO chat_sessions
+           (id, agent_id, title, turns_json, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?)`,
+        ).run(id, input.agentId, title, turnsJson, ts, ts);
+      }
+      store.audit('chat_session.upsert', {
+        id,
+        agentId: input.agentId,
+        turns: input.turns.length,
+      });
+      return store.getChatSession(id)!;
+    },
+
+    deleteChatSession(id) {
+      const result = db.prepare(`DELETE FROM chat_sessions WHERE id = ?`).run(id);
+      const ok = Number(result.changes) > 0;
+      if (ok) store.audit('chat_session.delete', { id });
+      return ok;
+    },
+
     audit(action, detail = {}) {
       db.prepare(
         `INSERT INTO audit_log (id, action, detail_json, created_at)
@@ -714,5 +881,24 @@ export function jobPublic(job: ControlJob) {
     startedAt: job.startedAt,
     finishedAt: job.finishedAt,
     autoApprove: job.autoApprove === 1,
+  };
+}
+
+export function parseJobValues(job: ControlJob): Record<string, unknown> {
+  try {
+    const parsed = JSON.parse(job.valuesJson) as unknown;
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      return parsed as Record<string, unknown>;
+    }
+  } catch {
+    /* ignore */
+  }
+  return {};
+}
+
+export function jobPublicWithValues(job: ControlJob) {
+  return {
+    ...jobPublic(job),
+    values: parseJobValues(job),
   };
 }

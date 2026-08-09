@@ -5,7 +5,6 @@ import {
   defineAgent,
   isProviderConfigured,
   shapeObservation,
-  verify,
 } from '@agent-env/harness';
 import { LlmAgent } from '@google/adk';
 
@@ -24,10 +23,6 @@ export const agentDefinition = defineAgent({
     maxSteps: 12,
     maxToolCalls: 12,
     maxWallSeconds: 180,
-    maxRepairs: 0,
-  },
-  verification: {
-    checks: [verify.nonEmpty({ severity: 'advisory' })],
   },
   createAgent() {
     const model = isProviderConfigured('cursor')

@@ -10,7 +10,7 @@ alwaysApply: false
 
 - エージェント一覧は `discoverAgents` / `getDiscoveredAgent` / `getResolvedAgentPackage`（`@agent-env/repo-env`）から取得
 - 実行対象の agent id は **argv 必須**
-- 実行は `runDiscoveredAgent`（内部で `executeAgentRun`）のみ。エージェントの `limits` / `verification` は `agent.ts` から読み込まれる
+- 実行は `runDiscoveredAgent`（内部で `executeAgentRun`）のみ。エージェントの `limits` は `agent.ts` から読み込まれる
 - **禁止:** デフォルト agent id のハードコード、エージェント別の if 分岐、params の複製、固有モデル名の埋め込み
 - コメントの使用例に id を書くのは可。実行時 fallback に特定 id を焼くのは不可
 - ルート `package.json` に per-agent script を追加しない（`run` / `admin` / `smoke:*` のみ）

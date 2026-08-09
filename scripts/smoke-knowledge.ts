@@ -1,8 +1,6 @@
 /**
  * Offline smoke for Knowledge / RAG plane.
  * Covers sync diffs, hybrid search, ACL, path jail, injection docs, metrics.
- * (Retrieval graders were removed from verification/execute.ts — metrics stay
- * in the knowledge evaluation helpers.)
  */
 import {
   existsSync,
@@ -50,15 +48,15 @@ const indexPath = join(root, 'index.sqlite');
 mkdirSync(corpus, { recursive: true });
 
 writeFileSync(
-  join(corpus, 'verification.md'),
-  `# Verification
+  join(corpus, 'run-limits.md'),
+  `# Run limits
 
-Success is decided by independent verification postconditions,
-not by the agent saying it finished.
+Agent runs enforce maxSteps, maxToolCalls, and maxWallSeconds
+from agentDefinition.limits merged with host policy.
 
 ## Details
 
-The verification plan is declared on the agent definition.
+Limits are merged with Math.min per field against the host ceiling.
 `,
   'utf8',
 );
@@ -100,11 +98,11 @@ assert(report2.totals.unchanged >= 3, 'second sync should skip unchanged');
 assert(report2.totals.added === 0, 'no re-add on unchanged');
 
 writeFileSync(
-  join(corpus, 'verification.md'),
-  `# Verification
+  join(corpus, 'run-limits.md'),
+  `# Run limits
 
-Success is decided by independent verification postconditions,
-not by the agent saying it finished.
+Agent runs enforce maxSteps, maxToolCalls, and maxWallSeconds
+from agentDefinition.limits merged with host policy.
 
 ## Updated
 
@@ -126,7 +124,7 @@ assert(
 );
 
 const semantic = await kb.search({
-  query: 'verification postconditions success',
+  query: 'maxSteps maxToolCalls limits',
   topK: 5,
   mode: 'hybrid',
   expandParent: true,
@@ -135,10 +133,10 @@ assert(semantic.hits.length > 0, 'semantic/hybrid hits');
 assert(
   semantic.hits.some(
     (h) =>
-      h.chunk.text.includes('verification') ||
-      h.citation.sourceUri.includes('verification'),
+      h.chunk.text.includes('maxSteps') ||
+      h.citation.sourceUri.includes('run-limits'),
   ),
-  'expected verification evidence',
+  'expected run limits evidence',
 );
 assert(
   semantic.hits.every((h) => h.citation.uri.startsWith('knowledge://')),
@@ -157,7 +155,7 @@ assert(
 );
 
 const aclMiss = await kb.search({
-  query: 'verification',
+  query: 'maxSteps',
   topK: 5,
   filter: { namespaces: ['secret'] },
 });
@@ -218,7 +216,7 @@ const agentic = createKnowledgeSearchAgentTool({
   maxIterations: 3,
 });
 const agenticResult = await callTool(agentic as BaseTool, {
-  query: 'What decides verification success? Also mention E-KNOW-404.',
+  query: 'What are run limits? Also mention E-KNOW-404.',
 });
 assert(
   (agenticResult as { status?: string; ledger?: { citations?: unknown[] } })
@@ -248,7 +246,7 @@ assert(
 
 const golden = knowledgeGoldenQuerySchema.parse({
   id: 'g1',
-  query: 'verification',
+  query: 'maxSteps',
   relevantDocumentIds: semantic.hits
     .map((h) => h.chunk.documentId)
     .slice(0, 1),

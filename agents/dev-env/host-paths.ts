@@ -6,7 +6,7 @@
  * - AGENT_ENV_PLUGIN_DIRS — extra plugin pack roots (path.delimiter-separated).
  */
 import { existsSync, readdirSync, statSync } from 'node:fs';
-import { delimiter, join, resolve } from 'node:path';
+import { basename, delimiter, join, resolve, sep } from 'node:path';
 import type { DiscoverAgentsOptions } from './catalog.js';
 
 export interface HostPaths {
@@ -95,9 +95,64 @@ export function discoveryFromHostPaths(
   };
 }
 
-/** Convenience: resolve host paths then discovery options. */
+/**
+ * Resolve host paths then discovery options.
+ * Long-lived processes (admin API) must call this per request — do not
+ * snapshot `agentsDirs` at boot or newly added plugin packs stay invisible.
+ */
 export function resolveDiscoveryOptions(
   options: ResolveHostPathsOptions = {},
 ): DiscoverAgentsOptions {
   return discoveryFromHostPaths(resolveHostPaths(options));
+}
+
+/** Pack id + display label derived from an agents root path. */
+export interface AgentPackInfo {
+  pack: string;
+  group: string;
+}
+
+const PACK_GROUP_LABELS = {
+  meta: 'Meta',
+  showcase: 'Showcase',
+  personal: 'Personal',
+  builtin: 'Builtin',
+} as const;
+
+/**
+ * Map a discovered agents root (`agents/` or `plugins/<pack>/`) to pack metadata.
+ * Extra roots from AGENT_ENV_PLUGIN_DIRS use their directory basename.
+ */
+export function deriveAgentPackInfo(
+  agentsRoot: string,
+  repoRoot: string,
+): AgentPackInfo {
+  const root = resolve(repoRoot);
+  const agentsDir = resolve(agentsRoot);
+  const builtinAgentsDir = join(root, 'agents');
+
+  if (agentsDir === builtinAgentsDir) {
+    return { pack: 'builtin', group: PACK_GROUP_LABELS.builtin };
+  }
+
+  const pluginsDir = join(root, 'plugins');
+  if (
+    agentsDir === pluginsDir ||
+    agentsDir.startsWith(pluginsDir + sep)
+  ) {
+    const pack =
+      agentsDir === pluginsDir
+        ? 'plugins'
+        : basename(agentsDir);
+    return {
+      pack,
+      group: PACK_GROUP_LABELS[pack as keyof typeof PACK_GROUP_LABELS] ?? pack,
+    };
+  }
+
+  const fallback = basename(agentsDir);
+  return {
+    pack: fallback,
+    group: PACK_GROUP_LABELS[fallback as keyof typeof PACK_GROUP_LABELS] ?? fallback,
+  };
 }

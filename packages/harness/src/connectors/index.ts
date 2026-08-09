@@ -89,6 +89,11 @@ export {
   type GithubTools,
 } from './github-tools.js';
 export {
+  createGitTools,
+  type CreateGitToolsOptions,
+  type GitTools,
+} from './git-tools.js';
+export {
   createGrokBuildXSearchConnector,
   extractGrokPlainText,
   isGrokBuildAvailable,

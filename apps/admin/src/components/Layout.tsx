@@ -1,39 +1,24 @@
 import {
-  AppstoreOutlined,
-  CalendarOutlined,
-  ControlOutlined,
-  DashboardOutlined,
-  DeploymentUnitOutlined,
-  MessageOutlined,
-  PlayCircleOutlined,
-  SettingOutlined,
-  UnorderedListOutlined,
-} from '@ant-design/icons';
-import { Flex, Layout, Menu, Typography, theme } from 'antd';
-import type { MenuProps } from 'antd';
-import { useMemo, useState } from 'react';
+  Application,
+  Calendar,
+  Chat,
+  Dashboard,
+  FlowData,
+  List,
+  Play,
+  Settings,
+} from '@carbon/icons-react';
+import {
+  Content,
+  SideNav,
+  SideNavItems,
+  SideNavLink,
+  SideNavMenu,
+  SideNavMenuItem,
+  Theme,
+} from '@carbon/react';
+import type { MouseEvent } from 'react';
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-
-const { Header, Sider, Content } = Layout;
-
-type MenuItem = Required<MenuProps>['items'][number];
-
-const NAV: MenuItem[] = [
-  { key: '/catalog', icon: <AppstoreOutlined />, label: 'Catalog' },
-  { key: '/chat', icon: <MessageOutlined />, label: 'Chat' },
-  {
-    key: 'jobs-group',
-    icon: <DeploymentUnitOutlined />,
-    label: 'Jobs',
-    children: [
-      { key: '/jobs', icon: <PlayCircleOutlined />, label: 'Run' },
-      { key: '/queue', icon: <UnorderedListOutlined />, label: 'Queue' },
-      { key: '/schedules', icon: <CalendarOutlined />, label: 'Schedules' },
-    ],
-  },
-  { key: '/dashboard', icon: <DashboardOutlined />, label: 'Dashboard' },
-  { key: '/settings', icon: <SettingOutlined />, label: 'Settings' },
-];
 
 function selectedKey(pathname: string): string {
   if (pathname.startsWith('/catalog') || pathname === '/') return '/catalog';
@@ -49,47 +34,125 @@ function selectedKey(pathname: string): string {
 export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { token } = theme.useToken();
-  const selected = useMemo(
-    () => [selectedKey(location.pathname)],
-    [location.pathname],
-  );
-  const [openKeys, setOpenKeys] = useState<string[]>(['jobs-group']);
+  const selected = selectedKey(location.pathname);
+  const jobsOpen =
+    selected === '/jobs' ||
+    selected === '/queue' ||
+    selected === '/schedules';
 
   return (
-    <Layout className="ops-shell">
-      <Sider width={220} breakpoint="lg" collapsedWidth={64} theme="dark">
-        <Flex vertical className="ops-brand" gap={2}>
-          <Typography.Text className="ops-brand-mark">
-            <ControlOutlined /> agent-env
-          </Typography.Text>
-          <Typography.Text className="ops-brand-sub">
-            control plane
-          </Typography.Text>
-        </Flex>
-        <Menu
-          theme="dark"
-          mode="inline"
-          selectedKeys={selected}
-          openKeys={openKeys}
-          onOpenChange={setOpenKeys}
-          items={NAV}
-          onClick={({ key }) => {
-            if (key === 'jobs-group') return;
-            navigate(key);
-          }}
-        />
-      </Sider>
-      <Layout>
-        <Header className="ops-header" style={{ borderBottomColor: token.colorBorder }}>
-          <Typography.Text type="secondary" className="ops-header-meta">
-            Catalog · Chat · Jobs
-          </Typography.Text>
-        </Header>
-        <Content className="ops-content">
+    <div className="ops-shell">
+      <Theme theme="g100">
+        <SideNav
+          aria-label="Side navigation"
+          isFixedNav
+          expanded
+          isChildOfHeader={false}
+          className="ops-sidenav"
+        >
+          <div className="ops-brand">
+            <div className="ops-brand-mark">
+              <FlowData size={16} /> agent-env
+            </div>
+            <div className="ops-brand-sub">control plane</div>
+          </div>
+          <SideNavItems>
+            <SideNavLink
+              renderIcon={Application}
+              isActive={selected === '/catalog'}
+              onClick={(e: MouseEvent) => {
+                e.preventDefault();
+                navigate('/catalog');
+              }}
+              href="/catalog"
+            >
+              Catalog
+            </SideNavLink>
+            <SideNavLink
+              renderIcon={Chat}
+              isActive={selected === '/chat'}
+              onClick={(e: MouseEvent) => {
+                e.preventDefault();
+                navigate('/chat');
+              }}
+              href="/chat"
+            >
+              Chat
+            </SideNavLink>
+            <SideNavMenu
+              renderIcon={FlowData}
+              title="Jobs"
+              defaultExpanded={jobsOpen}
+              isActive={jobsOpen}
+            >
+              <SideNavMenuItem
+                isActive={selected === '/jobs'}
+                onClick={(e: MouseEvent) => {
+                  e.preventDefault();
+                  navigate('/jobs');
+                }}
+                href="/jobs"
+              >
+                <Play size={16} style={{ marginInlineEnd: 8 }} />
+                Run
+              </SideNavMenuItem>
+              <SideNavMenuItem
+                isActive={selected === '/queue'}
+                onClick={(e: MouseEvent) => {
+                  e.preventDefault();
+                  navigate('/queue');
+                }}
+                href="/queue"
+              >
+                <List size={16} style={{ marginInlineEnd: 8 }} />
+                Queue
+              </SideNavMenuItem>
+              <SideNavMenuItem
+                isActive={selected === '/schedules'}
+                onClick={(e: MouseEvent) => {
+                  e.preventDefault();
+                  navigate('/schedules');
+                }}
+                href="/schedules"
+              >
+                <Calendar size={16} style={{ marginInlineEnd: 8 }} />
+                Schedules
+              </SideNavMenuItem>
+            </SideNavMenu>
+            <SideNavLink
+              renderIcon={Dashboard}
+              isActive={selected === '/dashboard'}
+              onClick={(e: MouseEvent) => {
+                e.preventDefault();
+                navigate('/dashboard');
+              }}
+              href="/dashboard"
+            >
+              Dashboard
+            </SideNavLink>
+            <SideNavLink
+              renderIcon={Settings}
+              isActive={selected === '/settings'}
+              onClick={(e: MouseEvent) => {
+                e.preventDefault();
+                navigate('/settings');
+              }}
+              href="/settings"
+            >
+              Settings
+            </SideNavLink>
+          </SideNavItems>
+        </SideNav>
+      </Theme>
+
+      <Content className="ops-content">
+        <header className="ops-header">
+          <span className="ops-header-meta">Catalog · Chat · Jobs</span>
+        </header>
+        <div className="ops-content-body">
           <Outlet />
-        </Content>
-      </Layout>
-    </Layout>
+        </div>
+      </Content>
+    </div>
   );
 }

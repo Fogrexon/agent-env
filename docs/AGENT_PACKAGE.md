@@ -8,7 +8,7 @@
 
 ```
 agents/<id>/
-  agent.ts           # export const agentDefinition（必須。limits / verification を内包）
+  agent.ts           # export const agentDefinition（必須。limits を内包）
   params.yaml         # 呼出し入力（フォーム / CLI values）。任意
 ```
 
@@ -21,21 +21,20 @@ flowchart LR
   CLI["npm run run / admin"] --> RDA["runDiscoveredAgent"]
   RDA --> Disc["discover agents/*/"]
   RDA --> Build["agentDefinition.createAgent"]
-  RDA --> Merge["limits + verification を host policy とマージ"]
+  RDA --> Merge["limits を host policy とマージ"]
   Merge --> Exec["executeAgentRun"]
   Exec --> Agent["ADK agent loop"]
-  Exec --> Ver["verify.* checks を実行"]
 ```
 
 単一エントリは [`agents/dev-env/run-discovered-agent.ts`](../agents/dev-env/run-discovered-agent.ts) の `runDiscoveredAgent`。CLI（[`scripts/run.ts`](../scripts/run.ts)）も admin もここ経由。内部で `@agent-env/harness` の `executeAgentRun` を呼ぶ。
 
-host 側の既定 execution policy は [`agents/dev-env/execution-policy.ts`](../agents/dev-env/execution-policy.ts) の `DEFAULT_HOST_EXECUTION_LIMITS`（`maxSteps` / `maxToolCalls` = 2000、`maxWallSeconds` = 7200、`maxRepairs` = 3、`maxSubagentDepth` = 3）。`mergeExecutionLimits` が agent の `limits` と host 既定をフィールドごとに **小さい方** へマージする（agent は緩めることができない）。
+host 側の既定 execution policy は [`agents/dev-env/execution-policy.ts`](../agents/dev-env/execution-policy.ts) の `DEFAULT_HOST_EXECUTION_LIMITS`（`maxSteps` / `maxToolCalls` = 2000、`maxWallSeconds` = 7200、`maxSubagentDepth` = 3）。`mergeExecutionLimits` が agent の `limits` と host 既定をフィールドごとに **小さい方** へマージする（agent は緩めることができない）。
 
 ## 責務の分離
 
 | ファイル | 持つもの | 持たないもの |
 |----------|----------|--------------|
-| `agent.ts` | ADK グラフ、`limits`、`verification`、ツール配線、`context.secret` / `context.config` / `context.inputs` | モジュール先頭の env bootstrap、固定のユーザー objective |
+| `agent.ts` | ADK グラフ、`limits`、ツール配線、`context.secret` / `context.config` / `context.inputs` | モジュール先頭の env bootstrap、固定のユーザー objective |
 | `params.yaml`（任意） | フォーム項目・default・`objectiveField` | 実行ポリシー・評価条件（それらは `agent.ts` 側） |
 
 **Build vs Run:** `createAgent(context)` はグラフ構築だけ。ユーザーのメッセージや構造化入力はランタイムが `AgentRunRequest` → ADK `stateDelta` に載せる。並行実行で状態を漏らさないため、可変のワークスペース roots 等は **`createAgent` 内のローカル変数**に閉じる（モジュールグローバル禁止）。
@@ -43,7 +42,7 @@ host 側の既定 execution policy は [`agents/dev-env/execution-policy.ts`](..
 ## 1. `agent.ts`
 
 ```typescript
-import { defineAgent, verify } from '@agent-env/harness';
+import { defineAgent } from '@agent-env/harness';
 import { LlmAgent } from '@google/adk';
 
 export const agentDefinition = defineAgent({
@@ -54,10 +53,6 @@ export const agentDefinition = defineAgent({
     maxSteps: 20,
     maxToolCalls: 20,
     maxWallSeconds: 300,
-    maxRepairs: 1,
-  },
-  verification: {
-    checks: [verify.nonEmpty()],
   },
   createAgent(context) {
     // 秘密・設定は host 注入（packages は process.env を読まない）
@@ -75,7 +70,6 @@ export const agentDefinition = defineAgent({
 
 - `model` は `provider:model` 文字列を `LlmAgent.model` に直接渡すのが標準（例 `cursor:auto` / `gemini:gemini-3.1-pro`）。明示的な `BaseLlm` が要るときだけ `resolveModel({ provider, model })` を使う（`@agent-env/llm`）。**run 単位のモデル上書きはない** — モデルは `agent.ts` が決める
 - `limits` は省略可（省略時は host 既定のみ）。指定した値は host 既定より緩めることはできない（`mergeExecutionLimits` が min を取る）
-- `verification` は静的な `{ checks: [...] }` でも、`(context) => {...}` 関数（async 可）でもよい。host 側の追加検証（あれば）は agent の checks の後ろに連結される
 - env bootstrap（`loadDotEnv` / `bootstrapProvidersFromEnv`）は **書かない**。ホスト（`runDiscoveredAgent` / admin）が行う
 - 外部データ源は harness の connector / tool factory を使う（`.cursor/rules/reuse-existing.mdc`）。エージェント内に vendor `fetch` を直書きしない
 - 最小例: [`agents/hello/agent.ts`](../agents/hello/agent.ts)
@@ -154,7 +148,6 @@ boolean は `true` / `false` / `1` / `0`。files はカンマ区切りパス可�
 | `maxSteps` | 非 partial エージェントイベントの上限。超過で `FAILED` | 2000 |
 | `maxToolCalls` | ツール呼び出し数の上限。超過は `BUDGET_EXHAUSTED` | 2000 |
 | `maxWallSeconds` | 実行時間の上限 | 7200 |
-| `maxRepairs` | required 検証失敗時に再試行できる回数（`REPAIRING` → 失敗チェックをフィードバック → 再実行） | 3 |
 | `maxSubagentDepth` | `context.buildSubagent` によるネスト深さの上限 | 3 |
 
 agent の `limits` は host 既定より **緩められない**（フィールドごとに `Math.min(host, agent)`）。
@@ -185,51 +178,19 @@ async createAgent(context) {
 
 深さは `limits.maxSubagentDepth`（host と min マージ）。循環依存は fail-closed。下位 API は `context.buildSubagent(id)` + `createTrackedAgentTool`。
 
-## 4. `verification`（成功判定）
-
-成功は agent の完了文ではなく postcondition。`agentDefinition.verification` は `VerificationCheck[]` を持つ `{ checks: [...] }`（`VerificationPlan`）。`@agent-env/harness` の `verify.*` ファクトリで組み立てる:
-
-```typescript
-import { verify } from '@agent-env/harness';
-
-verification: {
-  checks: [
-    verify.artifact({ artifactId: 'report', mediaTypes: ['text/markdown'], minBytes: 100 }),
-    verify.nonEmpty({ severity: 'advisory' }),
-  ],
-},
-```
-
-### `verify.*` ファクトリ
-
-| ファクトリ | 見るもの |
-|-----------|---------|
-| `verify.nonEmpty()` | finalText 非空 |
-| `verify.contains({ text })` | finalText の部分文字列 |
-| `verify.artifact({ artifactId, mediaTypes, minBytes })` | workspace 内の成果物の存在・サイズ・MIME |
-| `verify.document({ sections, artifactId? \| sourcePath? })` | MD/HTML の見出し契約 |
-| `verify.jsonSchema({ schemaRef, sourcePath? })` | JSON Schema（成果物 or finalText） |
-| `verify.command({ bin, args, expectExitCode? })` | 固定 argv の終了コード（+ 任意の出力部分一致） |
-| `verify.custom({ verifierId })` | 実行時に `ExecuteVerificationContext.custom[verifierId]` として注入された関数（SPI） |
-| `verify.agent({ graderId })` | 実行時に `ExecuteVerificationContext.agentGraders[graderId]` として注入された別モデル grader（SPI） |
-
-各 check は `severity: 'required' | 'advisory'`（既定 `required`）を持つ。同一 `artifactId` で mediaTypes だけ違う契約（例: `report.md` + `report.pdf`）を並べてよい。
-
-`verify.custom` / `verify.agent` は SPI（実行時にホストが `custom` / `agentGraders` を渡さなければ fail）。エージェント固有のネスト評価は、無理に verification に入れ子にせず `runAgent` + Zod 等で済ませてよい（security-audit 参照）。
-
-### 終了状態（`RunRecord.state`）
+## 4. 終了状態（`RunRecord.state`）
 
 | 状態 | 条件 |
 |------|------|
-| `SUCCEEDED` | required check が 1 つ以上あり、すべて合格 |
-| `COMPLETED` | required check が 0 件（advisory のみ、または checks が空）で正常終了。ゲートなしの成功扱い |
-| `FAILED` | required check が 1 つ以上失敗（`maxRepairs` 使い切り後）、または budget / maxSteps 超過など |
+| `COMPLETED` | エージェントが正常終了（budget / maxSteps / policy で落ちていない） |
+| `FAILED` | エージェントエラー、maxSteps 超過など |
+| `BUDGET_EXHAUSTED` | tool / wall budget 超過 |
 
-`SUCCEEDED` と `COMPLETED` はいずれも成功として扱う（`isSuccessfulRunState`、`@agent-env/shared`）。admin UI は `COMPLETED` = Unverified、`SUCCEEDED` = Verified と表示する。
+`COMPLETED` のみ `isSuccessfulRunState`（`@agent-env/shared`）。
 
 ## 作業環境ヘルパー（任意）
 
-実行ハーネス（limits / verification）の内側で使う、Loop / Connection / Data の薄い契約。
+実行ハーネス（limits）の内側で使う、Loop / Connection / Data の薄い契約。
 
 ```ts
 import {
@@ -310,7 +271,7 @@ const agentic = createKnowledgeSearchAgentTool({
 
 - Index: `.agent-env/knowledge/<collection>.sqlite`（gitignore 済み）
 - Tools: `knowledge_sync` (T1) / `knowledge_search|get|status` (T0) / live `glob_files|search_text|read_file_range`
-- 評価: `verify.custom` / `verify.agent`（retrieval metrics・citation 整合はエージェント固有の grader として登録）
+- 評価: retrieval metrics・citation 整合はエージェント固有の grader / `evaluateRetrievalRun` で行う
 - 確認: `npm run smoke:knowledge` / 例: `npm run run -- knowledge-assistant "..."`
 - 後続候補（測定後）: GraphRAG、HyDE、cross-encoder rerank、外部 Qdrant/pgvector（`KnowledgeStore` SPI）
 
@@ -354,7 +315,7 @@ const runDetect = createPythonScriptTool({
 - 実行ごとに `.runs/runs/<agentId>/<stamp>-<runId8>/` が作られる
 - `workspace/` の絶対パスは ADK state `runWorkspaceDir`（`RUN_WORKSPACE_STATE_KEY`）に入る
 - 成果物を書くツールは `createWorkspaceFsTools` 等の roots にこのパスを含める
-- 同ディレクトリに `run.json` / `result.json` / `final.md` / `progress.jsonl` / `verification-plan.json` / `effective-graph.json` / `observed-graph.json` / `intent.json` が残る
+- 同ディレクトリに `run.json` / `result.json` / `final.md` / `progress.jsonl` / `effective-graph.json` / `observed-graph.json` / `intent.json` が残る
 
 ## チェックリスト（新規エージェント）
 
@@ -362,7 +323,7 @@ const runDetect = createPythonScriptTool({
 2. [ ] `agentDefinition` を export（`rootAgent` ではない）
 3. [ ] id が一致（ディレクトリ / `params.yaml` の `agentId`（ある場合） / `definition.id`）
 4. [ ] `params.yaml` があるなら `objectiveField` 対象フィールドがある
-5. [ ] 実行ポリシーは `agentDefinition.limits`、成功条件は `agentDefinition.verification`（`verify.*`）のみに置いた
+5. [ ] 実行ポリシーは `agentDefinition.limits` のみに置いた
 6. [ ] モジュールグローバルな可変状態なし（run 単位は `createAgent` 内）
 7. [ ] connector 向きの能力をエージェント内に自前実装していない
 8. [ ] `packages/*` / `scripts/` / ルート scripts に固有 id を足していない
@@ -402,9 +363,8 @@ Builtin（`agents/`）と薄いデモ（`plugins/showcase/`）。個人自動化
 | `defineAgent` / `mergeExecutionLimits` | `packages/harness/src/agent-definition.ts` |
 | params 適用 | `packages/harness/src/params/apply-params.ts` |
 | 実行オーケストレーション | `packages/harness/src/runtime/run-execution.ts`（`executeAgentRun`） |
-| 検証 | `packages/harness/src/verification/{factories,execute}.ts`（`verify.*` / `executeVerificationPlan`） |
 | グラフ | `packages/harness/src/runtime/agent-graph.ts`（`describeAgentGraph` / `buildObservedGraph`） |
-| スキーマ | `packages/shared/src/{agent-params,agent-run,run-record,verification,working-context,handoff,agent-memory}.ts` |
+| スキーマ | `packages/shared/src/{agent-params,agent-run,run-record,working-context,handoff,agent-memory}.ts` |
 | Context / handoff / memory | `packages/harness/src/{context,handoff,memory}/` |
 | CLI | `scripts/run.ts` |
 | Admin | `apps/admin/` |

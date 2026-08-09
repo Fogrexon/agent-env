@@ -7,7 +7,6 @@ export const agentProgressKindSchema = z.enum([
   'run.started',
   'agent.event',
   'run.state',
-  'verification',
   'approval.requested',
   'approval.resolved',
   'run.completed',
@@ -35,7 +34,7 @@ export const agentProgressEventSchema = z.object({
   state: runStateSchema.optional(),
   /** Normalized ADK event summary when kind is agent.event. */
   agentEvent: agentEventSummarySchema.optional(),
-  /** Opaque extras (verification payload, state transition, …). */
+  /** Opaque extras (state transition, tool metadata, …). */
   payload: z.record(z.string(), z.unknown()).optional(),
 });
 export type AgentProgressEvent = z.infer<typeof agentProgressEventSchema>;

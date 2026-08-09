@@ -2,7 +2,6 @@ import {
   createWebSearchConnector,
   defineAgent,
   isProviderConfigured,
-  verify,
   type AgentBuildContext,
 } from '@agent-env/harness';
 import { LlmAgent, type BaseTool } from '@google/adk';
@@ -20,10 +19,6 @@ export const agentDefinition = defineAgent({
     maxSteps: 12,
     maxToolCalls: 8,
     maxWallSeconds: 240,
-    maxRepairs: 0,
-  },
-  verification: {
-    checks: [verify.nonEmpty({ severity: 'advisory' })],
   },
   createAgent(context: AgentBuildContext) {
     const hasTavily = Boolean(context.secret('TAVILY_API_KEY')?.trim());

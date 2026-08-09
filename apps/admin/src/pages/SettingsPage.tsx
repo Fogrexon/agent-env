@@ -1,17 +1,18 @@
 import {
-  Alert,
   Button,
   Checkbox,
-  Descriptions,
-  Form,
-  Input,
+  InlineNotification,
   Select,
-  Space,
-  Switch,
+  SelectItem,
   Table,
-  Typography,
-} from 'antd';
-import type { ColumnsType } from 'antd/es/table';
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+  TextInput,
+  Toggle,
+} from '@carbon/react';
 import { useEffect, useState } from 'react';
 import {
   getControlSettings,
@@ -21,6 +22,7 @@ import {
 } from '../api/client.js';
 import type { AgentListItem, WebhookTokenItem } from '../api/types.js';
 import { PageShell } from '../ui/PageShell.js';
+import { OpsPanel } from '../ui/OpsPanel.js';
 
 type AuditRow = {
   id: string;
@@ -48,6 +50,8 @@ export function SettingsPage() {
     message: '',
     autoApprove: true,
   });
+  const [auditPage, setAuditPage] = useState(1);
+  const auditPageSize = 20;
 
   const refresh = async () => {
     try {
@@ -124,75 +128,12 @@ export function SettingsPage() {
     void refresh();
   };
 
-  const tokenColumns: ColumnsType<WebhookTokenItem> = [
-    {
-      title: 'Name',
-      dataIndex: 'name',
-      render: (name: string, row) => (
-        <Space>
-          {name}
-          {!row.enabled ? (
-            <Typography.Text type="secondary">off</Typography.Text>
-          ) : null}
-        </Space>
-      ),
-    },
-    {
-      title: 'Agent',
-      dataIndex: 'agentId',
-      render: (id: string) => <Typography.Text code>{id}</Typography.Text>,
-    },
-    {
-      title: 'Prefix',
-      dataIndex: 'tokenPrefix',
-      render: (p: string) => <Typography.Text code>{p}…</Typography.Text>,
-    },
-    {
-      title: 'Last used',
-      dataIndex: 'lastUsedAt',
-      render: (t?: string) => (t ? new Date(t).toLocaleString() : '—'),
-    },
-    {
-      title: 'Enabled',
-      width: 90,
-      render: (_, row) => (
-        <Switch
-          size="small"
-          checked={row.enabled}
-          onChange={(v) => void toggleToken(row.id, v)}
-        />
-      ),
-    },
-    {
-      title: '',
-      width: 90,
-      render: (_, row) => (
-        <Button danger size="small" onClick={() => void deleteToken(row.id)}>
-          Delete
-        </Button>
-      ),
-    },
-  ];
-
-  const auditColumns: ColumnsType<AuditRow> = [
-    {
-      title: 'When',
-      dataIndex: 'createdAt',
-      width: 180,
-      render: (t: string) => new Date(t).toLocaleString(),
-    },
-    {
-      title: 'Action',
-      dataIndex: 'action',
-      width: 160,
-      render: (a: string) => <Typography.Text strong>{a}</Typography.Text>,
-    },
-    {
-      title: 'Detail',
-      dataIndex: 'detailJson',
-      ellipsis: true,
-    },
-  ];
+  const auditPages = Math.max(1, Math.ceil(audit.length / auditPageSize));
+  const safeAuditPage = Math.min(auditPage, auditPages);
+  const auditRows = audit.slice(
+    (safeAuditPage - 1) * auditPageSize,
+    safeAuditPage * auditPageSize,
+  );
 
   return (
     <PageShell
@@ -201,121 +142,223 @@ export function SettingsPage() {
       crumbs={[{ title: 'Settings' }]}
     >
       {error ? (
-        <Alert type="error" showIcon message={error} style={{ marginBottom: 16 }} />
+        <InlineNotification
+          kind="error"
+          lowContrast
+          hideCloseButton
+          title={error}
+          className="ops-inline-alert"
+        />
       ) : null}
 
-      <div className="ops-panel">
-        <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-          Control plane
-        </Typography.Text>
+      <OpsPanel title="Control plane">
         {settings ? (
-          <Descriptions size="small" bordered column={1}>
-            <Descriptions.Item label="maxSlots">
-              <Typography.Text strong>{settings.maxSlots}</Typography.Text>{' '}
-              <Typography.Text type="secondary">
-                (env ADMIN_MAX_SLOTS)
-              </Typography.Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="running / queue">
-              {settings.running} / {settings.queueDepth}
-            </Descriptions.Item>
-            <Descriptions.Item label="auth">
-              <Typography.Text strong>
-                {settings.authEnabled ? 'Basic enabled' : 'disabled'}
-              </Typography.Text>{' '}
-              <Typography.Text type="secondary">
-                (ADMIN_BASIC_USER / ADMIN_BASIC_PASSWORD)
-              </Typography.Text>
-            </Descriptions.Item>
-            <Descriptions.Item label="db">
-              <Typography.Text code>{settings.dbPath}</Typography.Text>
-            </Descriptions.Item>
-          </Descriptions>
+          <dl className="ops-desc">
+            <div>
+              <dt>maxSlots</dt>
+              <dd>
+                <strong>{settings.maxSlots}</strong>{' '}
+                <span className="muted">(env ADMIN_MAX_SLOTS)</span>
+              </dd>
+            </div>
+            <div>
+              <dt>running / queue</dt>
+              <dd>
+                {settings.running} / {settings.queueDepth}
+              </dd>
+            </div>
+            <div>
+              <dt>auth</dt>
+              <dd>
+                <strong>
+                  {settings.authEnabled ? 'Basic enabled' : 'disabled'}
+                </strong>{' '}
+                <span className="muted">
+                  (ADMIN_BASIC_USER / ADMIN_BASIC_PASSWORD)
+                </span>
+              </dd>
+            </div>
+            <div>
+              <dt>db</dt>
+              <dd>
+                <code>{settings.dbPath}</code>
+              </dd>
+            </div>
+          </dl>
         ) : (
-          <Typography.Text type="secondary">Loading…</Typography.Text>
+          <p className="muted">Loading…</p>
         )}
-      </div>
+      </OpsPanel>
 
-      <div className="ops-panel" style={{ marginTop: 16 }}>
-        <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-          Webhook tokens
-        </Typography.Text>
-        <Form layout="vertical" style={{ maxWidth: 720, marginBottom: 16 }}>
-          <Space wrap size="middle" align="start">
-            <Form.Item label="Name" style={{ marginBottom: 12 }}>
-              <Input
-                value={form.name}
-                onChange={(e) =>
-                  setForm((f) => ({ ...f, name: e.target.value }))
-                }
-                style={{ minWidth: 180 }}
-              />
-            </Form.Item>
-            <Form.Item label="Agent" style={{ marginBottom: 12 }}>
-              <Select
-                value={form.agentId || undefined}
-                onChange={(v) => setForm((f) => ({ ...f, agentId: v }))}
-                options={agents.map((a) => ({
-                  value: a.id,
-                  label: a.title ?? a.id,
-                }))}
-                style={{ minWidth: 200 }}
-              />
-            </Form.Item>
-          </Space>
-          <Form.Item label="Default message">
-            <Input
-              value={form.message}
+      <OpsPanel title="Webhook tokens" className="ops-stack-gap">
+        <div className="ops-form" style={{ maxWidth: 720, marginBottom: 16 }}>
+          <div className="ops-form-row">
+            <TextInput
+              id="hook-name"
+              labelText="Name"
+              size="sm"
+              value={form.name}
               onChange={(e) =>
-                setForm((f) => ({ ...f, message: e.target.value }))
+                setForm((f) => ({ ...f, name: e.target.value }))
               }
             />
-          </Form.Item>
-          <Checkbox
-            checked={form.autoApprove}
+            <Select
+              id="hook-agent"
+              labelText="Agent"
+              size="sm"
+              value={form.agentId}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, agentId: e.target.value }))
+              }
+            >
+              {agents.map((a) => (
+                <SelectItem
+                  key={a.id}
+                  value={a.id}
+                  text={a.title ?? a.id}
+                />
+              ))}
+            </Select>
+          </div>
+          <TextInput
+            id="hook-message"
+            labelText="Default message"
+            size="sm"
+            value={form.message}
             onChange={(e) =>
-              setForm((f) => ({ ...f, autoApprove: e.target.checked }))
+              setForm((f) => ({ ...f, message: e.target.value }))
             }
-            style={{ marginBottom: 12 }}
-          >
-            T2 auto-approve
-          </Checkbox>
+          />
+          <Checkbox
+            id="hook-auto-approve"
+            labelText="T2 auto-approve"
+            checked={form.autoApprove}
+            onChange={(_e, { checked }) =>
+              setForm((f) => ({ ...f, autoApprove: checked }))
+            }
+          />
           <div>
-            <Button type="primary" onClick={() => void onCreateToken()}>
+            <Button kind="primary" size="sm" onClick={() => void onCreateToken()}>
               Issue token
             </Button>
           </div>
-        </Form>
+        </div>
         {createdRaw ? (
-          <Alert
-            type="success"
-            showIcon
-            style={{ marginBottom: 12 }}
-            message="POST once (save now)"
-            description={<Typography.Text code>{createdRaw}</Typography.Text>}
+          <InlineNotification
+            kind="success"
+            lowContrast
+            hideCloseButton
+            title="POST once (save now)"
+            subtitle={createdRaw}
+            className="ops-inline-alert"
           />
         ) : null}
-        <Table
-          size="small"
-          rowKey="id"
-          pagination={false}
-          dataSource={tokens}
-          columns={tokenColumns}
-        />
-      </div>
+        <Table size="sm">
+          <TableHead>
+            <TableRow>
+              <TableHeader>Name</TableHeader>
+              <TableHeader>Agent</TableHeader>
+              <TableHeader>Prefix</TableHeader>
+              <TableHeader>Last used</TableHeader>
+              <TableHeader>Enabled</TableHeader>
+              <TableHeader />
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {tokens.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell>
+                  <span className="ops-inline-gap">
+                    {row.name}
+                    {!row.enabled ? <span className="muted">off</span> : null}
+                  </span>
+                </TableCell>
+                <TableCell>
+                  <code>{row.agentId}</code>
+                </TableCell>
+                <TableCell>
+                  <code>{row.tokenPrefix}…</code>
+                </TableCell>
+                <TableCell>
+                  {row.lastUsedAt
+                    ? new Date(row.lastUsedAt).toLocaleString()
+                    : '—'}
+                </TableCell>
+                <TableCell>
+                  <Toggle
+                    id={`hook-toggle-${row.id}`}
+                    size="sm"
+                    hideLabel
+                    labelA="Off"
+                    labelB="On"
+                    toggled={row.enabled}
+                    onToggle={(checked) => void toggleToken(row.id, checked)}
+                  />
+                </TableCell>
+                <TableCell>
+                  <Button
+                    kind="danger--tertiary"
+                    size="sm"
+                    onClick={() => void deleteToken(row.id)}
+                  >
+                    Delete
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </OpsPanel>
 
-      <div className="ops-panel" style={{ marginTop: 16 }}>
-        <Typography.Text strong style={{ display: 'block', marginBottom: 12 }}>
-          Audit log
-        </Typography.Text>
-        <Table
-          size="small"
-          rowKey="id"
-          pagination={{ pageSize: 20, size: 'small' }}
-          dataSource={audit}
-          columns={auditColumns}
-        />
-      </div>
+      <OpsPanel title="Audit log" className="ops-stack-gap">
+        <Table size="sm">
+          <TableHead>
+            <TableRow>
+              <TableHeader>When</TableHeader>
+              <TableHeader>Action</TableHeader>
+              <TableHeader>Detail</TableHeader>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {auditRows.map((row) => (
+              <TableRow key={row.id}>
+                <TableCell>
+                  {new Date(row.createdAt).toLocaleString()}
+                </TableCell>
+                <TableCell>
+                  <strong>{row.action}</strong>
+                </TableCell>
+                <TableCell className="ops-ellipsis">{row.detailJson}</TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+        {audit.length > auditPageSize ? (
+          <div className="ops-pager">
+            <Button
+              kind="ghost"
+              size="sm"
+              disabled={safeAuditPage <= 1}
+              onClick={() => setAuditPage((p) => Math.max(1, p - 1))}
+            >
+              Prev
+            </Button>
+            <span className="muted">
+              {safeAuditPage} / {auditPages}
+            </span>
+            <Button
+              kind="ghost"
+              size="sm"
+              disabled={safeAuditPage >= auditPages}
+              onClick={() =>
+                setAuditPage((p) => Math.min(auditPages, p + 1))
+              }
+            >
+              Next
+            </Button>
+          </div>
+        ) : null}
+      </OpsPanel>
     </PageShell>
   );
 }

@@ -18,6 +18,7 @@ import {
 import { listProviderMedia } from '@agent-env/llm';
 import {
   bootstrapProvidersFromEnv,
+  deriveAgentPackInfo,
   discoverAgents,
   getResolvedAgentPackage,
   loadAgentDefinition,
@@ -36,6 +37,7 @@ import {
   createWorkerPool,
   enqueueAgentJob,
   jobPublic,
+  parseJobValues,
   readBasicAuthConfig,
   readMaxSlots,
   startScheduler,
@@ -75,12 +77,30 @@ function historyExtras(dir: string | undefined): Record<string, unknown> {
   };
 }
 
+function valuesFromIntent(intent: unknown): Record<string, unknown> | undefined {
+  if (!intent || typeof intent !== 'object') return undefined;
+  const inputs = (intent as { inputs?: unknown }).inputs;
+  if (inputs && typeof inputs === 'object' && !Array.isArray(inputs)) {
+    return inputs as Record<string, unknown>;
+  }
+  return undefined;
+}
+
 const __dirname = fileURLToPath(new URL('.', import.meta.url));
 /** Platform repo root when AGENT_ENV_ROOT is unset (apps/admin/server → ../../..). */
 const platformRoot = resolve(__dirname, '../../..');
-const host = resolveHostPaths({ fallbackRoot: platformRoot });
+
+/** Fresh each call — plugin packs added after process start must appear. */
+function currentHost() {
+  return resolveHostPaths({ fallbackRoot: platformRoot });
+}
+
+function currentDiscovery() {
+  return resolveDiscoveryOptions({ fallbackRoot: platformRoot });
+}
+
+const host = currentHost();
 const repoRoot = host.root;
-const discovery = resolveDiscoveryOptions({ fallbackRoot: platformRoot });
 
 function mapHistoryStatus(
   status: RunHistoryStatus,
@@ -199,6 +219,7 @@ app.get('/api/providers', (_req, res) => {
 
 app.get('/api/agents', async (_req, res) => {
   try {
+    const discovery = currentDiscovery();
     const packages = resolveAgentPackages(discovery);
     const agents = await Promise.all(
       packages.map(async (pkg) => {
@@ -219,6 +240,7 @@ app.get('/api/agents', async (_req, res) => {
         } catch {
           // definition load failure → autonomous default
         }
+        const { pack, group } = deriveAgentPackInfo(pkg.agentsRoot, repoRoot);
         return {
           id: pkg.id,
           name: pkg.manifest.name,
@@ -229,6 +251,8 @@ app.get('/api/agents', async (_req, res) => {
           title,
           mode,
           fieldCount,
+          pack,
+          group,
         };
       }),
     );
@@ -242,7 +266,7 @@ app.get('/api/agents', async (_req, res) => {
 
 app.get('/api/agents/:id/params', (req, res) => {
   const id = req.params.id;
-  const pkg = getResolvedAgentPackage(discovery, id);
+  const pkg = getResolvedAgentPackage(currentDiscovery(), id);
   if (!pkg) {
     res.status(404).json({ error: `Unknown agent: ${id}` });
     return;
@@ -260,10 +284,171 @@ app.get('/api/agents/:id/params', (req, res) => {
   }
 });
 
+/** Recent form inputs for an agent (from control jobs.values_json). */
+app.get('/api/agents/:id/recent-inputs', (req, res) => {
+  const id = req.params.id;
+  const limitRaw = Number(req.query['limit'] ?? 20);
+  const limit =
+    Number.isFinite(limitRaw) && limitRaw > 0
+      ? Math.min(Math.floor(limitRaw), 50)
+      : 20;
+  try {
+    const inputs = controlStore
+      .listJobs({ agentId: id, limit })
+      .map((job) => ({
+        runId: job.runId,
+        jobId: job.jobId,
+        status: job.status,
+        trigger: job.trigger,
+        messagePreview: job.messagePreview,
+        autoApprove: job.autoApprove === 1,
+        createdAt: job.createdAt,
+        finishedAt: job.finishedAt,
+        values: parseJobValues(job),
+      }));
+    res.json({ inputs });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+/* ── Chat sessions (interactive resume) ─────────────────────── */
+
+app.get('/api/agents/:id/chat-sessions', (req, res) => {
+  const id = req.params.id;
+  try {
+    res.json({
+      sessions: controlStore.listChatSessions({ agentId: id, limit: 40 }),
+    });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+app.get('/api/chat-sessions/:sessionId', (req, res) => {
+  const session = controlStore.getChatSession(req.params.sessionId);
+  if (!session) {
+    res.status(404).json({ error: `Unknown chat session: ${req.params.sessionId}` });
+    return;
+  }
+  res.json({ session });
+});
+
+app.put('/api/chat-sessions/:sessionId', (req, res) => {
+  const body = req.body as {
+    agentId?: string;
+    title?: string;
+    turns?: unknown;
+  };
+  const agentId =
+    typeof body.agentId === 'string' ? body.agentId.trim() : '';
+  if (!agentId) {
+    res.status(400).json({ error: 'agentId is required' });
+    return;
+  }
+  if (!Array.isArray(body.turns)) {
+    res.status(400).json({ error: 'turns must be an array' });
+    return;
+  }
+  const turns = body.turns.filter(
+    (t): t is {
+      id: string;
+      role: 'user' | 'assistant';
+      text: string;
+      runId?: string;
+      error?: string;
+    } =>
+      Boolean(t) &&
+      typeof t === 'object' &&
+      typeof (t as { id?: unknown }).id === 'string' &&
+      ((t as { role?: unknown }).role === 'user' ||
+        (t as { role?: unknown }).role === 'assistant') &&
+      typeof (t as { text?: unknown }).text === 'string',
+  );
+  try {
+    const session = controlStore.upsertChatSession({
+      id: req.params.sessionId,
+      agentId,
+      title:
+        typeof body.title === 'string' && body.title.trim()
+          ? body.title.trim()
+          : turns.find((t) => t.role === 'user')?.text.slice(0, 80) || 'Chat',
+      turns: turns.map((t) => ({
+        id: t.id,
+        role: t.role,
+        text: t.text,
+        ...(typeof t.runId === 'string' ? { runId: t.runId } : {}),
+        ...(typeof t.error === 'string' ? { error: t.error } : {}),
+      })),
+    });
+    res.json({ session });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+app.post('/api/agents/:id/chat-sessions', (req, res) => {
+  const agentId = req.params.id;
+  const body = req.body as { title?: string; turns?: unknown };
+  const turns = Array.isArray(body.turns) ? body.turns : [];
+  const normalized = turns.filter(
+    (t): t is {
+      id: string;
+      role: 'user' | 'assistant';
+      text: string;
+      runId?: string;
+      error?: string;
+    } =>
+      Boolean(t) &&
+      typeof t === 'object' &&
+      typeof (t as { id?: unknown }).id === 'string' &&
+      ((t as { role?: unknown }).role === 'user' ||
+        (t as { role?: unknown }).role === 'assistant') &&
+      typeof (t as { text?: unknown }).text === 'string',
+  );
+  try {
+    const session = controlStore.upsertChatSession({
+      agentId,
+      title:
+        typeof body.title === 'string' && body.title.trim()
+          ? body.title.trim()
+          : normalized.find((t) => t.role === 'user')?.text.slice(0, 80) ||
+            'New chat',
+      turns: normalized.map((t) => ({
+        id: t.id,
+        role: t.role,
+        text: t.text,
+        ...(typeof t.runId === 'string' ? { runId: t.runId } : {}),
+        ...(typeof t.error === 'string' ? { error: t.error } : {}),
+      })),
+    });
+    res.status(201).json({ session });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
+app.delete('/api/chat-sessions/:sessionId', (req, res) => {
+  const ok = controlStore.deleteChatSession(req.params.sessionId);
+  if (!ok) {
+    res.status(404).json({ error: `Unknown chat session: ${req.params.sessionId}` });
+    return;
+  }
+  res.json({ ok: true });
+});
+
 /** Preview the ADK agent graph for current form values (no run). */
 app.post('/api/agents/:id/graph', async (req, res) => {
   const id = req.params.id;
-  const pkg = getResolvedAgentPackage(discovery, id);
+  const pkg = getResolvedAgentPackage(currentDiscovery(), id);
   if (!pkg) {
     res.status(404).json({ error: `Unknown agent: ${id}` });
     return;
@@ -279,7 +464,7 @@ app.post('/api/agents/:id/graph', async (req, res) => {
       secret: (name) => process.env[name]?.trim() || undefined,
       inputs: applied.inputs,
       async buildSubagent(subId, subOptions) {
-        const subPkg = getResolvedAgentPackage(discovery, subId);
+        const subPkg = getResolvedAgentPackage(currentDiscovery(), subId);
         if (!subPkg) throw new Error(`Unknown subagent: ${subId}`);
         const subDef = await loadAgentDefinition(subPkg.entry, repoRoot);
         return subDef.createAgent({
@@ -434,7 +619,7 @@ app.post('/api/schedules', (req, res) => {
     res.status(400).json({ error: 'agentId and cron are required' });
     return;
   }
-  if (!getResolvedAgentPackage(discovery, body.agentId)) {
+  if (!getResolvedAgentPackage(currentDiscovery(), body.agentId)) {
     res.status(404).json({ error: `Unknown agent: ${body.agentId}` });
     return;
   }
@@ -531,7 +716,7 @@ app.post('/api/hooks/tokens', (req, res) => {
     res.status(400).json({ error: 'name and agentId are required' });
     return;
   }
-  if (!getResolvedAgentPackage(discovery, body.agentId)) {
+  if (!getResolvedAgentPackage(currentDiscovery(), body.agentId)) {
     res.status(404).json({ error: `Unknown agent: ${body.agentId}` });
     return;
   }
@@ -650,12 +835,22 @@ app.get('/api/runs/:runId', (req, res) => {
   const run = adminRunStore.get(req.params.runId);
   const job = controlStore.getJobByRunId(req.params.runId);
   if (run) {
+    const extras = historyExtras(run.historyDir);
+    const intentValues = valuesFromIntent(extras['intent']);
     res.json({
       ...adminRunStore.toPublic(run),
-      ...historyExtras(run.historyDir),
+      ...extras,
       ...(job
-        ? { jobId: job.jobId, trigger: job.trigger, jobStatus: job.status }
-        : {}),
+        ? {
+            jobId: job.jobId,
+            trigger: job.trigger,
+            jobStatus: job.status,
+            values: parseJobValues(job),
+            autoApprove: job.autoApprove === 1,
+          }
+        : intentValues
+          ? { values: intentValues }
+          : {}),
     });
     return;
   }
@@ -674,6 +869,8 @@ app.get('/api/runs/:runId', (req, res) => {
       jobId: job.jobId,
       trigger: job.trigger,
       jobStatus: job.status,
+      values: parseJobValues(job),
+      autoApprove: job.autoApprove === 1,
       stages: [],
       pendingApprovals: [],
     });
@@ -690,6 +887,8 @@ app.get('/api/runs/:runId', (req, res) => {
       ? (disk.result as { state?: string; record?: { state?: string } }).state ??
         (disk.result as { record?: { state?: string } }).record?.state
       : undefined;
+  const extras = historyExtras(disk.meta.dir);
+  const intentValues = valuesFromIntent(extras['intent']);
   res.json({
     runId: disk.meta.runId,
     agentId: disk.meta.agentId,
@@ -713,10 +912,18 @@ app.get('/api/runs/:runId', (req, res) => {
     historyDir: disk.meta.dir,
     fromDisk: true,
     stages: deriveStages(disk.events, recordState),
-    ...historyExtras(disk.meta.dir),
+    ...extras,
     ...(job
-      ? { jobId: job.jobId, trigger: job.trigger, jobStatus: job.status }
-      : {}),
+      ? {
+          jobId: job.jobId,
+          trigger: job.trigger,
+          jobStatus: job.status,
+          values: parseJobValues(job),
+          autoApprove: job.autoApprove === 1,
+        }
+      : intentValues
+        ? { values: intentValues }
+        : {}),
   });
 });
 
@@ -988,12 +1195,13 @@ app.use('/api', (_req, res) => {
 });
 
 app.listen(port, () => {
-  const ids = discoverAgents(discovery).map((a) => a.id);
+  const bootHost = currentHost();
+  const ids = discoverAgents(currentDiscovery()).map((a) => a.id);
   console.log(`agent-env admin API on http://127.0.0.1:${port}`);
-  console.log(`  host root: ${repoRoot}`);
-  console.log(`  builtin agents: ${host.builtinAgentsDir}`);
+  console.log(`  host root: ${bootHost.root}`);
+  console.log(`  builtin agents: ${bootHost.builtinAgentsDir}`);
   console.log(
-    `  plugin packs: ${host.pluginPackDirs.length ? host.pluginPackDirs.join(', ') : '(none)'}`,
+    `  plugin packs: ${bootHost.pluginPackDirs.length ? bootHost.pluginPackDirs.join(', ') : '(none)'}`,
   );
   console.log(`  agents: ${ids.join(', ') || '(none)'}`);
   console.log(`  maxSlots: ${maxSlots}`);

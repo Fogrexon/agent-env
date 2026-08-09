@@ -11,13 +11,21 @@ coverage/
 .adk/
 .agent-env/
 .runs/
+apps/admin/test-results/
+apps/admin/playwright-report/
+apps/admin/blob-report/
+apps/admin/storybook-static/
 
-# Plugin packs: track only showcase agents. Everything else under plugins/ is local.
-plugins/**
+# Cloned packs stay local; in-tree showcase + meta are tracked
+plugins/*
 !plugins/README.md
 !plugins/showcase/
 !plugins/showcase/**
-# Build artifacts inside the tracked showcase pack
+!plugins/meta/
+!plugins/meta/**
 plugins/showcase/**/dist/
 plugins/showcase/**/node_modules/
 plugins/showcase/**/.venv/
+plugins/meta/**/dist/
+plugins/meta/**/node_modules/
+plugins/meta/**/.venv/

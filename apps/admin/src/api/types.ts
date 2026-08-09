@@ -21,6 +21,10 @@ export interface AgentListItem {
   title?: string;
   /** interactive = Chat; autonomous = Jobs / schedules. Default autonomous. */
   mode?: 'interactive' | 'autonomous';
+  /** Plugin pack id (builtin, meta, showcase, personal, …). */
+  pack?: string;
+  /** Display label for pack grouping in admin UI. */
+  group?: string;
   fieldCount?: number;
   paramsFile?: string;
   models?: AgentManifest['models'];
@@ -170,8 +174,6 @@ export interface RunSnapshot {
 
     recordState?: string;
 
-    verificationPassed?: boolean;
-
   };
 
   error?: string;
@@ -184,8 +186,6 @@ export interface RunSnapshot {
 
   recordState?: string;
 
-  verificationPassed?: boolean;
-
   budgetConsumed?: {
 
     toolCalls: number;
@@ -195,24 +195,6 @@ export interface RunSnapshot {
     wallSeconds: number;
 
     costUsd: number;
-
-  };
-
-  verification?: {
-
-    passed: boolean;
-
-    graderVersion: string;
-
-    checks: Array<{
-
-      criterion: string;
-
-      passed: boolean;
-
-      detail?: string;
-
-    }>;
 
   };
 
@@ -247,6 +229,87 @@ export interface RunSnapshot {
   observedGraph?: ObservedAgentGraph;
 
   intent?: unknown;
+
+  /** Form values used to enqueue this run (from job or intent.inputs). */
+  values?: Record<string, unknown>;
+
+  autoApprove?: boolean;
+
+}
+
+
+
+export interface RecentInputItem {
+
+  runId: string;
+
+  jobId: string;
+
+  status: string;
+
+  trigger: string;
+
+  messagePreview?: string | null;
+
+  autoApprove: boolean;
+
+  createdAt: string;
+
+  finishedAt?: string | null;
+
+  values: Record<string, unknown>;
+
+}
+
+
+
+export interface ChatSessionTurn {
+
+  id: string;
+
+  role: 'user' | 'assistant';
+
+  text: string;
+
+  runId?: string;
+
+  error?: string;
+
+}
+
+
+
+export interface ChatSessionSummary {
+
+  id: string;
+
+  agentId: string;
+
+  title: string;
+
+  turnCount: number;
+
+  createdAt: string;
+
+  updatedAt: string;
+
+}
+
+
+
+export interface ChatSession {
+
+  id: string;
+
+  agentId: string;
+
+  title: string;
+
+  turns: ChatSessionTurn[];
+
+  createdAt: string;
+
+  updatedAt: string;
 
 }
 
@@ -355,20 +418,6 @@ export function isTerminalRunStatus(status: string): boolean {
 export function statusBadgeClass(status: string): string {
 
   return `badge badge-${status}`;
-
-}
-
-
-
-/** Map run-record state to a short verification label. */
-
-export function verificationLabel(recordState: string | undefined): string | null {
-
-  if (recordState === 'SUCCEEDED') return 'Verified';
-
-  if (recordState === 'COMPLETED') return 'Unverified';
-
-  return null;
 
 }
 

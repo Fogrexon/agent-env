@@ -10,6 +10,7 @@ own the run loop.
 | pack | purpose |
 |------|---------|
 | [`showcase/`](./showcase/) | Thin public demos (character chat, web Q&A) |
+| [`meta/`](./meta/) | Meta tooling (agent authoring / scaffolding) |
 
 Builtin samples that stay under `agents/`: `hello`, `harness-demo`, `code-exec`.
 
@@ -34,3 +35,11 @@ npm install
 ```
 
 Or copy a pack tree into `plugins/<pack-name>/`.
+
+### Grouping
+
+- **Pack** = one subdirectory of `plugins/` (e.g. `showcase`, `meta`, `personal`).
+- **Agent** = `plugins/<pack>/<id>/agent.ts` (id equals directory name).
+- Discovery scans every pack automatically; no registry or root `package.json` script per agent.
+- Choose an existing pack when the theme fits; create `plugins/<new-pack>/` for a new boundary.
+- Builtin samples live under `agents/<id>/` only for thin host demos — prefer `plugins/` for new workflows.

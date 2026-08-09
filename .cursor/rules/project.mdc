@@ -26,7 +26,7 @@ alwaysApply: true
 - Gemini / Anthropic は API key または Vertex ADC（`vertex: { project, location|region }`）をファクトリに注入
 - モデルは `agentDefinition` 内で `provider:model` 文字列（例 `cursor:auto`）を ADK LLMRegistry に渡すだけでよい。明示的な `BaseLlm` が要るときだけ `resolveModel({ provider, model })`（登録済み provider id）。run 単位のモデル上書きはない
 - デモの既定は Cursor SDK。FunctionTools も Cursor で動く（`ProviderBackedLlm` が SDK customTools にブリッジ）。Gemini はフォールバック / ADK ネイティブ
-- 実行制限・成功判定は `agentDefinition.limits` / `.verification`（`verify.*` factories）に置く。計測可能な実行は `executeAgentRun` / `runDiscoveredAgent`（成功は独立検証、agent 自己申告ではない）
+- 実行制限は `agentDefinition.limits` に置く。計測可能な実行は `executeAgentRun` / `runDiscoveredAgent`
 - ツール引数は Zod。権限境界は `createGuardedTool`（T0–T3）
 - **既存コネクタを再実装しないだけでなく、コネクタ向きの能力をエージェント内の自前関数にしない**（`reuse-existing.mdc`）。例: 検索は `createWebSearchConnector`、抽出は `createTavilyExtractTool`
 - **管理画面・グラフ・複雑な UI は自前再発明よりライブラリ優先**（`prefer-libraries.mdc`）。例: エージェントグラフは `@xyflow/react` + dagre

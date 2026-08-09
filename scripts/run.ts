@@ -172,7 +172,6 @@ async function main(): Promise<void> {
         runId: result.record.runId,
         state: result.record.state,
         phase: result.record.phase,
-        verification: result.record.verification,
         budgetConsumed: result.record.budgetConsumed,
         error: result.record.error,
       },
