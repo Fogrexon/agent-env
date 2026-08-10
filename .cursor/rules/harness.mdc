@@ -11,6 +11,7 @@ alwaysApply: false
 - `@agent-env/harness`: `runAgent` / connectors / AgentParams loader（**process.env を読まない**、**agent registry を持たない**）
 - env / `.env` 配線とエージェント発見は利用アプリ側（このリポでは `agents/dev-env`）。`packages/*` に置かない
 - OpenAI 互換を足すときはグローバルな単一 Base URL ではなく、新しい `id` で `createOpenaiCompatibleProvider` する
+- OpenRouter は第一級 `createOpenRouterProvider`（内部は openai-compatible）
 - provider を足すときは `media`（`ProviderMediaSupport`）で対応 MIME を宣言し、`generate` の先頭で `assertMediaSupported` する。添付を黙って捨てない
 - `AgentRunResult` の形を壊す変更は shared と一緒に更新する
 

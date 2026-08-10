@@ -30,6 +30,7 @@ clearProviders();
 registerProviders({
   gemini: { apiKey: 'test-gemini' },
   openai: { apiKey: () => 'sk-test' },
+  openrouter: { apiKey: () => 'sk-or-test' },
   openaiCompatible: [
     {
       id: 'lm-studio',
@@ -45,6 +46,7 @@ registerProviders({
 
 assert(isProviderConfigured('gemini'), 'gemini configured');
 assert(isProviderConfigured('openai'), 'openai configured');
+assert(isProviderConfigured('openrouter'), 'openrouter configured');
 assert(isProviderConfigured('lm-studio'), 'lm-studio configured');
 assert(isProviderConfigured('ollama'), 'ollama configured');
 assert(!isProviderConfigured('cursor'), 'cursor absent');
@@ -65,6 +67,7 @@ clearProviders();
 registerProviders({
   gemini: { apiKey: 'test-gemini' },
   openai: { apiKey: () => 'sk-test' },
+  openrouter: { apiKey: () => 'sk-or-test' },
   openaiCompatible: [
     {
       id: 'lm-studio',
@@ -80,7 +83,8 @@ registerProviders({
 
 const ids = listProviderIds().slice().sort();
 assert(
-  ids.join(',') === ['gemini', 'lm-studio', 'ollama', 'openai'].sort().join(','),
+  ids.join(',') ===
+    ['gemini', 'lm-studio', 'ollama', 'openai', 'openrouter'].sort().join(','),
   `ids=${ids.join(',')}`,
 );
 

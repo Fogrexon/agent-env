@@ -19,6 +19,10 @@ import {
   createOpenaiProvider,
   type CreateOpenaiProviderOptions,
 } from './providers/openai.js';
+import {
+  createOpenRouterProvider,
+  type CreateOpenRouterProviderOptions,
+} from './providers/openrouter.js';
 import { registerProvider } from './registry.js';
 
 export interface RegisterProvidersConfig {
@@ -26,6 +30,7 @@ export interface RegisterProvidersConfig {
   cursor?: CreateCursorProviderOptions;
   openai?: CreateOpenaiProviderOptions;
   anthropic?: CreateAnthropicProviderOptions;
+  openrouter?: CreateOpenRouterProviderOptions;
   /**
    * Zero or more OpenAI-compatible backends (LM Studio, Ollama, vLLM, …).
    * Each entry becomes its own provider id.
@@ -60,6 +65,11 @@ export function registerProviders(config: RegisterProvidersConfig): LlmProvider[
   }
   if (config.anthropic) {
     const provider = createAnthropicProvider(config.anthropic);
+    registerProvider(provider, { replace });
+    created.push(provider);
+  }
+  if (config.openrouter) {
+    const provider = createOpenRouterProvider(config.openrouter);
     registerProvider(provider, { replace });
     created.push(provider);
   }

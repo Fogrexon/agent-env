@@ -14,6 +14,7 @@ export const WELL_KNOWN_PROVIDER_IDS = [
   'cursor',
   'openai',
   'anthropic',
+  'openrouter',
 ] as const;
 
 /**
@@ -84,6 +85,8 @@ export const DEFAULT_MODEL_REF: ModelRef = {
 export const DEFAULT_CURSOR_MODEL = 'auto' as const;
 export const DEFAULT_OPENAI_MODEL = 'gpt-5-mini' as const;
 export const DEFAULT_ANTHROPIC_MODEL = 'claude-sonnet-4-6' as const;
+/** OpenRouter model id (provider/model path on openrouter.ai). */
+export const DEFAULT_OPENROUTER_MODEL = 'openai/gpt-4o-mini' as const;
 export const DEFAULT_OPENAI_COMPATIBLE_MODEL = 'local-model' as const;
 
 export const agentRunStatusSchema = z.enum(['finished', 'error']);

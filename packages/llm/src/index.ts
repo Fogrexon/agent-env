@@ -84,6 +84,12 @@ export {
   type CreateOpenaiProviderOptions,
 } from './providers/openai.js';
 export {
+  createOpenRouterProvider,
+  OPENROUTER_DEFAULT_BASE_URL,
+  OPENROUTER_MEDIA_SUPPORT,
+  type CreateOpenRouterProviderOptions,
+} from './providers/openrouter.js';
+export {
   clearProviders,
   getProvider,
   hasProvider,
@@ -129,6 +135,7 @@ export {
   defaultGeminiModelRef,
   defaultOpenaiCompatibleModelRef,
   defaultOpenaiModelRef,
+  defaultOpenRouterModelRef,
   materializeAgentModel,
   resolveDefaultModel,
   resolveModel,

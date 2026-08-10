@@ -246,6 +246,7 @@ const result = await executeAgentRun({
 |---|---|---|---|---|---|
 | gemini | png/jpeg/webp/gif/heic/heif | wav/mp3/aiff/aac/ogg/flac | mp4/mpeg/mov/avi/flv/webm/wmv/3gpp | ○ | ○ |
 | openai | png/jpeg/webp/gif | wav/mp3（audio 対応モデルのみ） | — | ○ | — |
+| openrouter | 既定は画像のみ（`media` で上書き可。背後モデル依存） | — | — | — | — |
 | anthropic | jpeg/png/gif/webp | — | — | ○ | — |
 | cursor | png/jpeg/webp/gif | — | — | — | — |
 | openai-compatible | 既定は画像のみ（`media` オプションで上書き / `false` で無効） | — | — | — | — |

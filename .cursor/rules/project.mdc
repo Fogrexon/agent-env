@@ -22,6 +22,7 @@ alwaysApply: true
 - **エージェント固有の設定・一覧・default id は定義側（`agents/<pack>/<id>/`）に閉じる。`packages/*` にも `scripts/` にも入れない**（`layer-boundaries.mdc`）
 - 定義追加は pack を `agents/<pack>/` に置く。ルート `package.json` に per-agent script を増やさない
 - OpenAI 互換は `createOpenaiCompatibleProvider({ id, baseUrl, apiKey? })` を **id ごとに複数**登録してよい
+- OpenRouter は `createOpenRouterProvider({ apiKey })`（または host の `OPENROUTER_API_KEY`）
 - Gemini / Anthropic は API key または Vertex ADC（`vertex: { project, location|region }`）をファクトリに注入
 - モデルは `agentDefinition` 内で `provider:model` 文字列（例 `cursor:auto`）を ADK LLMRegistry に渡すだけでよい。明示的な `BaseLlm` が要るときだけ `resolveModel({ provider, model })`（登録済み provider id）。run 単位のモデル上書きはない
 - デモの既定は Cursor SDK。FunctionTools も Cursor で動く（`ProviderBackedLlm` が SDK customTools にブリッジ）。Gemini はフォールバック / ADK ネイティブ

@@ -5,6 +5,7 @@ import {
   DEFAULT_MODEL_REF,
   DEFAULT_OPENAI_COMPATIBLE_MODEL,
   DEFAULT_OPENAI_MODEL,
+  DEFAULT_OPENROUTER_MODEL,
   parseProviderModelId,
   type ModelRef,
 } from '@agent-env/shared';
@@ -82,6 +83,12 @@ export function defaultAnthropicModelRef(
   model: string = DEFAULT_ANTHROPIC_MODEL,
 ): ModelRef {
   return { provider: 'anthropic', model };
+}
+
+export function defaultOpenRouterModelRef(
+  model: string = DEFAULT_OPENROUTER_MODEL,
+): ModelRef {
+  return { provider: 'openrouter', model };
 }
 
 /** Helper for a named openai-compatible backend id (default model only). */

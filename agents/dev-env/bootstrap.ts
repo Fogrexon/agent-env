@@ -129,6 +129,14 @@ export function bootstrapProvidersFromEnv(): void {
     };
   }
 
+  if (process.env['OPENROUTER_API_KEY']?.trim() && !hasProvider('openrouter')) {
+    const openrouterBase = process.env['OPENROUTER_BASE_URL']?.trim();
+    config.openrouter = {
+      apiKey: () => process.env['OPENROUTER_API_KEY'],
+      ...(openrouterBase ? { baseUrl: () => process.env['OPENROUTER_BASE_URL'] } : {}),
+    };
+  }
+
   const anthropicKey = process.env['ANTHROPIC_API_KEY']?.trim();
   if (anthropicKey && !hasProvider('anthropic')) {
     config.anthropic = { apiKey: () => process.env['ANTHROPIC_API_KEY'] };

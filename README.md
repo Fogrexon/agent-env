@@ -64,6 +64,7 @@ registerProviders({
   gemini: { apiKey: () => mySecrets.gemini },
   // gemini: { vertex: { project: 'my-gcp', location: 'us-central1' } },
   openai: { apiKey: mySecrets.openai },
+  openrouter: { apiKey: () => mySecrets.openrouter },
   anthropic: { apiKey: () => mySecrets.anthropic },
   // anthropic: { vertex: { projectId: 'my-gcp', region: 'us-east5' } },
   cursor: { apiKey: () => mySecrets.cursor },
@@ -306,6 +307,7 @@ model: resolveModel({ provider: 'lm-studio', model: 'local-model' })
 | `cursor` | Cursor SDK（デモの既定。FunctionTools は SDK customTools 経由でブリッジ） |
 | `gemini` | Google Gemini（ADK ネイティブ FunctionTools。API key または Vertex ADC。フォールバック） |
 | `openai` | OpenAI 公式 |
+| `openrouter` | OpenRouter（OpenAI 互換。モデル id は `openai/gpt-4o-mini` 等） |
 | `anthropic` | Anthropic（API key または Vertex ADC） |
 | 任意 id (`lm-studio` 等) | OpenAI 互換（`kind: "openai-compatible"`） |
 
