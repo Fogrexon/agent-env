@@ -7,7 +7,11 @@ import type {
   ParamDelivery,
   ParamField,
 } from '@agent-env/shared';
-import { isFileLikeParamType, isMultiFileParamType } from '@agent-env/shared';
+import {
+  isFileLikeParamType,
+  isMultiFileParamType,
+  providerModelIdSchema,
+} from '@agent-env/shared';
 
 export class AgentParamsValidationError extends Error {
   readonly issues: string[];
@@ -128,7 +132,8 @@ function coerceFieldValue(
     case 'text':
     case 'file':
     case 'image':
-    case 'enum': {
+    case 'enum':
+    case 'model': {
       if (typeof raw !== 'string') {
         issues.push(`field "${field.id}" must be a string`);
         return undefined;
@@ -143,6 +148,16 @@ function coerceFieldValue(
           );
           return undefined;
         }
+      }
+      if (field.type === 'model') {
+        const parsed = providerModelIdSchema.safeParse(raw.trim());
+        if (!parsed.success) {
+          issues.push(
+            `field "${field.id}" must be a provider:model id (e.g. cursor:auto)`,
+          );
+          return undefined;
+        }
+        return parsed.data;
       }
       return raw;
     }

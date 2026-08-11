@@ -68,7 +68,7 @@ export const agentDefinition = defineAgent({
 });
 ```
 
-- `model` は `provider:model` 文字列を `LlmAgent.model` に直接渡すのが標準（例 `cursor:auto` / `gemini:gemini-3.1-pro`）。明示的な `BaseLlm` が要るときだけ `resolveModel({ provider, model })` を使う（`@agent-env/llm`）。**run 単位のモデル上書きはない** — モデルは `agent.ts` が決める
+- `model` は `provider:model` 文字列を `LlmAgent.model` に直接渡すのが標準（例 `cursor:auto` / `gemini:gemini-3.1-pro`）。明示的な `BaseLlm` が要るときだけ `resolveModel({ provider, model })` を使う（`@agent-env/llm`）。**run 単位のホスト上書きはない** — モデルは `agent.ts` が決める（`params` の `type: model` を `context.inputs` から読むのは build 時選択であり、ホストの強制上書きではない）
 - `limits` は省略可（省略時は host 既定のみ）。指定した値は host 既定より緩めることはできない（`mergeExecutionLimits` が min を取る）
 - env bootstrap（`loadDotEnv` / `bootstrapProvidersFromEnv`）は **書かない**。ホスト（`runDiscoveredAgent` / admin）が行う
 - 外部データ源は harness の connector / tool factory を使う（`.cursor/rules/reuse-existing.mdc`）。エージェント内に vendor `fetch` を直書きしない
@@ -98,11 +98,27 @@ fields:
   - id: allowWrite
     type: boolean
     default: false
+  - id: model
+    type: model
+    label: Model
+    required: false
+    default: cursor:auto
+    # providers: [cursor, gemini]  # 任意。省略時は configured な全 provider
   - id: docs
     type: files
     delivery: content   # path | content（file 既定 path / image 既定 content）
     accept: [.pdf, .md]
 ```
+
+フィールド型:
+
+| type | 値 | admin UI |
+|------|-----|----------|
+| `string` / `text` / `number` / `boolean` / `enum` | 各型どおり | テキスト / Markdown / number / checkbox / 静的 select |
+| `model` | `provider:model` | configured provider のモデル一覧（`GET /api/providers/models`）から選択。任意で `providers` フィルタ |
+| `file` / `files` / `image` / `images` | パス（単/複） | アップロード + path。`delivery: path \| content` |
+
+`type: model` を使うときは `createAgent` で `readStringInput(context.inputs, 'model', …)` して `LlmAgent.model` に渡す（例: [`character-chat`](../agents/showcase/character-chat/)）。
 
 ### values の形
 
@@ -120,6 +136,7 @@ admin `POST { values }` と CLI `--params` は同じフラットオブジェク�
 
 - `objective` … `objectiveField` の値
 - `inputs` … その他フィールド（ADK session state / `AgentBuildContext.inputs`）
+- グラフ形状を params で変えるときは `readBoolInput` / `readNumberInput` / `readStringInput`（`@agent-env/harness`）を使う（自前パースを増やさない）
 - `attachments` … `delivery: content` のファイル
 
 ### CLI

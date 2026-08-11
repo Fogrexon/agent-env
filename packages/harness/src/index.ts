@@ -31,6 +31,9 @@ export {
   loadAgentParamsFile,
   loadAgentParamsForManifest,
   mimeTypeFromPath,
+  readBoolInput,
+  readNumberInput,
+  readStringInput,
   type ApplyAgentParamsOptions,
 } from './params/index.js';
 export {

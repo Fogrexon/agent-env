@@ -9,6 +9,7 @@ import type {
   ControlStats,
   ParamsResponse,
   ProviderMediaInfo,
+  ProviderModelOption,
   QueueJob,
   RunSnapshot,
   RunSummary,
@@ -67,6 +68,19 @@ export async function listProviders(): Promise<ProviderMediaInfo[]> {
     '/api/providers',
   );
   return data.providers ?? [];
+}
+
+export async function listProviderModels(
+  providers?: readonly string[],
+): Promise<ProviderModelOption[]> {
+  const qs =
+    providers?.length && providers.some(Boolean)
+      ? `?providers=${encodeURIComponent(providers.filter(Boolean).join(','))}`
+      : '';
+  const data = await fetchJson<{ models?: ProviderModelOption[] }>(
+    `/api/providers/models${qs}`,
+  );
+  return data.models ?? [];
 }
 
 export async function getAgentParams(id: string): Promise<ParamsResponse> {

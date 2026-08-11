@@ -36,6 +36,13 @@ export {
 } from './media-catalog.js';
 export type { ProviderMediaInfo } from './media-catalog.js';
 export {
+  listAvailableModels,
+  STATIC_MODELS_BY_PROVIDER,
+  type AvailableModel,
+  type ListAvailableModelsOptions,
+} from './model-catalog.js';
+export { listOpenAiCompatibleModels } from './openai-models-list.js';
+export {
   adkToolToProviderTool,
   createProviderBridgeToolContext,
   genaiSchemaToJsonSchema,

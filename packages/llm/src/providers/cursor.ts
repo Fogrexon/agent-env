@@ -1,4 +1,4 @@
-import { Agent } from '@cursor/sdk';
+import { Agent, Cursor } from '@cursor/sdk';
 import type {
   ModelParameterValue,
   Run,
@@ -142,6 +142,22 @@ export function createCursorProvider(
           `Cursor provider "${id}" has no API key. Pass apiKey when calling createCursorProvider().`,
         );
       }
+    },
+
+    async listModels(): Promise<readonly string[]> {
+      this.assertConfigured();
+      const items = await Cursor.models.list({
+        apiKey: resolveSecret(options.apiKey)!,
+      });
+      const ids: string[] = [];
+      for (const item of items) {
+        const preferred =
+          item.aliases?.find((alias) => alias === 'auto') ??
+          item.aliases?.[0] ??
+          item.id;
+        if (preferred?.trim()) ids.push(preferred.trim());
+      }
+      return [...new Set(ids)];
     },
 
     async generate(

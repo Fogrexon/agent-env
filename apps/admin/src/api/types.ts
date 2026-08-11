@@ -32,6 +32,14 @@ export interface ProviderMediaInfo {
   notes?: string;
 }
 
+export interface ProviderModelOption {
+  id: string;
+  provider: string;
+  model: string;
+  label: string;
+}
+
+
 export interface ParamsResponse {
   manifest: AgentManifest;
   spec: AgentParamsSpec;

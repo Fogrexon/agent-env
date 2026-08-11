@@ -11,3 +11,9 @@ fields:
     required: true
     placeholder: カフェのバリスタに話しかける
     default: "今日のおすすめは？"
+  - id: model
+    type: model
+    label: Model
+    required: false
+    description: 利用可能な provider のモデルから選択（provider:model）
+    default: cursor:auto

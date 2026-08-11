@@ -7,6 +7,8 @@ export const paramFieldTypeSchema = z.enum([
   'number',
   'boolean',
   'enum',
+  /** LLM model picker — value is `provider:model` (see providerModelIdSchema). */
+  'model',
   'file',
   'files',
   'image',
@@ -66,6 +68,16 @@ export const paramFieldSchema = z.discriminatedUnion('type', [
   paramFieldBaseSchema.extend({
     type: z.literal('enum'),
     options: z.array(paramEnumOptionSchema).min(1),
+    default: z.string().optional(),
+  }),
+  paramFieldBaseSchema.extend({
+    type: z.literal('model'),
+    /**
+     * Restrict the admin picker to these registry provider ids.
+     * Omitted = every configured provider.
+     */
+    providers: z.array(z.string().min(1)).optional(),
+    /** Default `provider:model` wire id. */
     default: z.string().optional(),
   }),
   paramFieldBaseSchema.extend({

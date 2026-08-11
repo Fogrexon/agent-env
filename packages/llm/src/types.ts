@@ -96,6 +96,11 @@ export interface LlmProvider {
    * When present, resolveModel prefers this over ProviderBackedLlm.
    */
   createAdkLlm?(model: string): BaseLlm;
+  /**
+   * Optional live model inventory (bare model ids, not `provider:model`).
+   * Callers fall back to a static catalog when this is missing or throws.
+   */
+  listModels?(): Promise<readonly string[]>;
 }
 
 /** string | lazy getter — how you load the secret is your concern. */

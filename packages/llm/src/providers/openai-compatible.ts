@@ -9,6 +9,7 @@ import {
   readNumberParam,
   readStringParam,
 } from '../openai-chat.js';
+import { listOpenAiCompatibleModels } from '../openai-models-list.js';
 import {
   openAiChatWithTools,
   type ContextOverflowStrategy,
@@ -202,6 +203,14 @@ export function createOpenaiCompatibleProvider(
             `Pass baseUrl when calling createOpenaiCompatibleProvider().`,
         );
       }
+    },
+
+    async listModels(): Promise<readonly string[]> {
+      this.assertConfigured();
+      const baseURL = resolveBaseUrl(options.baseUrl)!;
+      const apiKey =
+        resolveSecret(options.apiKey) ?? options.defaultApiKey ?? 'local';
+      return listOpenAiCompatibleModels({ apiKey, baseURL });
     },
 
     async generate(

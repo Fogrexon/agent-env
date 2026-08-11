@@ -1,8 +1,14 @@
-import { defineAgent, isProviderConfigured } from '@agent-env/harness';
+import {
+  defineAgent,
+  isProviderConfigured,
+  readStringInput,
+  type AgentBuildContext,
+} from '@agent-env/harness';
 import { LlmAgent } from '@google/adk';
 
 /**
  * Thin showcase: stay in character and chat. No tools.
+ * Model selected via params (`type: model`).
  */
 export const agentDefinition = defineAgent({
   id: 'character-chat',
@@ -15,10 +21,12 @@ export const agentDefinition = defineAgent({
     maxToolCalls: 0,
     maxWallSeconds: 180,
   },
-  createAgent() {
-    const model = isProviderConfigured('cursor')
-      ? 'cursor:auto'
-      : 'gemini:gemini-3.6-flash';
+  createAgent(context: AgentBuildContext) {
+    const model =
+      readStringInput(context.inputs, 'model', '').trim() ||
+      (isProviderConfigured('cursor')
+        ? 'cursor:auto'
+        : 'gemini:gemini-3.6-flash');
 
     return new LlmAgent({
       name: 'character_chat',

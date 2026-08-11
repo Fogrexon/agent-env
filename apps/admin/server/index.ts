@@ -15,7 +15,7 @@ import {
   type RunHistoryListItem,
   type RunHistoryStatus,
 } from '@agent-env/harness';
-import { listProviderMedia } from '@agent-env/llm';
+import { listAvailableModels, listProviderMedia } from '@agent-env/llm';
 import {
   bootstrapProvidersFromEnv,
   deriveAgentPackInfo,
@@ -210,6 +210,34 @@ app.get('/api/control/audit', (req, res) => {
 app.get('/api/providers', (_req, res) => {
   try {
     res.json({ providers: listProviderMedia() });
+
+/** Selectable `provider:model` ids for admin `type: model` params. */
+app.get('/api/providers/models', async (req, res) => {
+  try {
+    const raw = req.query.providers;
+    const providers =
+      typeof raw === 'string'
+        ? raw
+            .split(',')
+            .map((s) => s.trim())
+            .filter(Boolean)
+        : Array.isArray(raw)
+          ? raw
+              .flatMap((v) => String(v).split(','))
+              .map((s) => s.trim())
+              .filter(Boolean)
+          : undefined;
+    const models = await listAvailableModels(
+      providers?.length ? { providers } : {},
+    );
+    res.json({ models });
+  } catch (err) {
+    res.status(500).json({
+      error: err instanceof Error ? err.message : String(err),
+    });
+  }
+});
+
   } catch (err) {
     res.status(500).json({
       error: err instanceof Error ? err.message : String(err),

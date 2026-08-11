@@ -130,6 +130,30 @@ export function createGeminiProvider(
       }
     },
 
+    async listModels(): Promise<readonly string[]> {
+      this.assertConfigured();
+      const client = createGeminiClient(options);
+      const pager = await client.models.list({
+        config: { queryBase: true },
+      });
+      const ids: string[] = [];
+      for await (const model of pager) {
+        const actions = model.supportedActions;
+        if (
+          actions?.length &&
+          !actions.includes('generateContent') &&
+          !actions.includes('generateContentStream')
+        ) {
+          continue;
+        }
+        const raw = model.name?.trim();
+        if (!raw) continue;
+        const bare = raw.replace(/^models\//, '');
+        if (bare) ids.push(bare);
+      }
+      return [...new Set(ids)].sort((a, b) => a.localeCompare(b));
+    },
+
     createAdkLlm(model: string): BaseLlm {
       this.assertConfigured();
       const vertex = resolveVertex(options.vertex);

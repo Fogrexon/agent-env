@@ -1,6 +1,8 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ParamField } from '@agent-env/shared';
 import { isFileLikeParamType, isMultiFileParamType } from '@agent-env/shared';
+import { listProviderModels } from '../api/client.js';
+import type { ProviderModelOption } from '../api/types.js';
 import { MarkdownEditor } from './MarkdownEditor';
 
 export interface ParamFormProps {
@@ -200,6 +202,83 @@ function FileFieldInput({
   );
 }
 
+function ModelFieldInput({
+  field,
+  value,
+  disabled,
+  onChange,
+}: {
+  field: Extract<ParamField, { type: 'model' }>;
+  value: unknown;
+  disabled?: boolean;
+  onChange: (id: string, value: unknown) => void;
+}) {
+  const [options, setOptions] = useState<ProviderModelOption[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const providersKey = (field.providers ?? []).join(',');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    void listProviderModels(field.providers)
+      .then((models) => {
+        if (cancelled) return;
+        setOptions(models);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setOptions([]);
+        setError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // providersKey captures field.providers contents for stable reloads
+  }, [providersKey]);
+
+  const current = String(value ?? '');
+  const hasCurrent =
+    !current || options.some((opt) => opt.id === current);
+
+  const hint = [field.description, loading ? 'モデル一覧を取得中…' : null, error]
+    .filter(Boolean)
+    .join(' · ');
+
+  return (
+    <div className="field">
+      <label htmlFor={field.id}>
+        {field.label}
+        {field.required ? ' *' : ''}
+      </label>
+      {hint ? <div className="hint">{hint}</div> : null}
+      <select
+        id={field.id}
+        disabled={disabled || loading}
+        value={current}
+        onChange={(e) => onChange(field.id, e.target.value)}
+      >
+        <option value="">—</option>
+        {!hasCurrent && current ? (
+          <option value={current}>{current} (current)</option>
+        ) : null}
+        {options.map((opt) => (
+          <option key={opt.id} value={opt.id}>
+            {opt.label}
+          </option>
+        ))}
+      </select>
+      {!loading && !error && options.length === 0 ? (
+        <div className="hint">configured な provider のモデルがありません</div>
+      ) : null}
+    </div>
+  );
+}
+
 export function ParamForm({
   fields,
   values,
@@ -212,6 +291,18 @@ export function ParamForm({
         if (isFileLikeParamType(field.type)) {
           return (
             <FileFieldInput
+              key={field.id}
+              field={field}
+              value={values[field.id]}
+              disabled={disabled}
+              onChange={onChange}
+            />
+          );
+        }
+
+        if (field.type === 'model') {
+          return (
+            <ModelFieldInput
               key={field.id}
               field={field}
               value={values[field.id]}

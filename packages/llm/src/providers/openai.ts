@@ -10,6 +10,7 @@ import {
   readNumberParam,
   readStringParam,
 } from '../openai-chat.js';
+import { listOpenAiCompatibleModels } from '../openai-models-list.js';
 import type {
   LlmProvider,
   ProviderGenerateRequest,
@@ -91,6 +92,18 @@ export function createOpenaiProvider(
           `OpenAI provider "${id}" has no API key. Pass apiKey when calling createOpenaiProvider().`,
         );
       }
+    },
+
+    async listModels(): Promise<readonly string[]> {
+      this.assertConfigured();
+      const baseURL =
+        typeof options.baseUrl === 'function'
+          ? options.baseUrl()?.trim()
+          : options.baseUrl?.trim();
+      return listOpenAiCompatibleModels({
+        apiKey: resolveSecret(options.apiKey)!,
+        baseURL: baseURL || 'https://api.openai.com/v1',
+      });
     },
 
     async generate(
